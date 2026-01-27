@@ -640,7 +640,131 @@ The RMSSD pipeline further rejects implausible RR-diff bursts.
 
 ---
 
-## 11) Reproducibility checklist
+## 11) Configuration snapshot (concise, reproducibility-ready)
+
+This section is a **compressed snapshot of the effective configuration** used in the current run. It is intended for papers / supplements where space matters.
+
+---
+
+### 11.1 Data & run context
+
+* **EDF input**: `/Users/jindrich/Projects/mayo_sleep_pat/SmallDataset21Oct25/Data/Dataset_21Oct25/Data_Only`
+* **Output root**: `/Users/jindrich/Projects/mayo_sleep_pat/PAT_outputs012026`
+* **RUN_TAG**: `desat_2min_FD_fixed`
+* **RUN_ID**: time-based (`YYYYMMDD_HHMMSS`, changes every run)
+
+---
+
+### 11.2 Sleep-stage masking
+
+* **Enabled**: `True`
+* **Policy**: `rem_only`
+* **Included stages**: `{REM (3)}`
+
+---
+
+### 11.3 PAT preprocessing
+
+* **Band-pass filter**: 0.5–8.0 Hz, 4th order
+
+---
+
+### 11.4 HR estimation (PAT-derived)
+
+* **Output grid**: 1 Hz
+* **RR limits**: 0.30–2.50 s
+* **Peak prominence**: 0.30 × SD(filtered PAT)
+* **Gap not bridged if**: RR gap > 2.5 s
+
+Post-processing:
+
+* **Smoothing**: 4 s moving average
+* **Hampel filter**: 8 s window, 2σ
+* **Slope limit**: 10 bpm/s
+* **HR clamp**: 30–220 bpm
+
+---
+
+### 11.5 RR cleaning (HR + HRV)
+
+* **Median filter**: 5 beats
+* **Relative outlier threshold**: 25%
+* **Long-RR rejection**: RR > 2.2 × local median
+* **Abrupt jump rejection**: relative jump > 0.5
+* **Alternans rejection**: short < 0.75×, long > 1.35× median
+* **Min contiguous run**: 3 RR intervals
+
+---
+
+### 11.6 HRV (time-domain)
+
+* **RMSSD grid**: 1 Hz
+* **Window length**: 300 s
+* **Min RR / window**: 10
+* **Reject window if RR gap >**: 3 s
+* **Min RR span / window**: 10 s
+
+RMSSD robustness:
+
+* **ΔRR hard cap**: 250 ms
+* **MAD rejection**: 3σ
+* **RMSSD floor**: 2 ms
+* **Min window coverage**: 60%
+
+---
+
+### 11.7 HRV (frequency-domain)
+
+* **Tachogram resample**: 4 Hz
+* **Min contiguous span**: 120 s
+* **Bands**:
+
+  * LF: 0.04–0.15 Hz
+  * HF: 0.15–0.40 Hz
+
+Fixed-window LF/HF (publication-style):
+
+* **Window / hop**: 120 s / 120 s
+
+---
+
+### 11.8 Event-based exclusion (aux CSV)
+
+* **Events excluded**: central / obstructive / unclassified A/H (3%)
+* **Fixed padding**: −15 s / +30 s
+* **Desaturation-based windows**: enabled
+
+  * Start pad: −15 s
+  * End pad: +30 s
+  * Min desat length: 5 s
+
+---
+
+### 11.9 Auxiliary CSV mapping
+
+* **Sleep stage column**: `WP Stages`
+* **Desaturation flag**: `Desaturation`
+* **Exclude PAT flag**: `Exclude PAT`
+
+---
+
+### 11.10 PSD / spectral features
+
+* **Max freq**: 5 Hz
+* **Welch nperseg**: 4096
+* **Mayer band**: 0.04–0.15 Hz
+* **Resp band**: 0.15–0.23 Hz
+
+---
+
+### 11.11 Notes
+
+* `RUN_ID` is time-derived → record it alongside outputs for exact reproducibility.
+* Absolute paths are machine-specific; relative paths recommended for sharing.
+
+---
+
+## 12) Reproducibility checklist
 
 For a fully reproducible run, record:
 
@@ -652,7 +776,7 @@ For a fully reproducible run, record:
 
 ---
 
-## 12) Citation-ready method summary (copy/paste)
+## 12) Citation-ready method summary
 
 **PAT-derived HR** was estimated by band-pass filtering the PAT waveform (0.5–8 Hz, 4th order) and detecting pulse peaks via prominence-constrained peak finding with physiologically constrained minimum inter-peak distance. RR intervals were computed from successive peaks, time-tagged by RR mid-times, and cleaned using a multi-stage procedure including physiologic bounds, local-median outlier rejection, gap and jump rejection, alternans-pair rejection, and a minimum contiguous run requirement. Instantaneous HR (60/RR) was interpolated onto a 1 Hz grid without bridging large RR gaps, then optionally smoothed and despiked.
 
