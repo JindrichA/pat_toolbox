@@ -110,8 +110,17 @@ def _compute_hr_from_pat(ctx: RecordingContext) -> None:
     assert ctx.view_pat is not None and ctx.sfreq is not None
     try:
         ctx.t_hr_calc, ctx.hr_calc = hr_metrics.compute_hr_from_pat_signal(ctx.view_pat, fs=ctx.sfreq)
-        m = sleep_mask.build_sleep_include_mask(ctx.t_hr_calc, ctx.aux_df)
-        sleep_mask.apply_sleep_mask_inplace(ctx.hr_calc, m)
+
+        # sleep include (keep=True)
+        m_sleep = sleep_mask.build_sleep_include_mask(ctx.t_hr_calc, ctx.aux_df)
+        if m_sleep is not None:
+            sleep_mask.apply_sleep_mask_inplace(ctx.hr_calc, m_sleep)
+
+        # event include (keep=True)  <-- ADD THIS
+        m_evt = io_aux_csv.build_time_exclusion_mask(ctx.t_hr_calc, ctx.aux_df)
+        if m_evt is not None:
+            sleep_mask.apply_sleep_mask_inplace(ctx.hr_calc, m_evt)
+
     except Exception as e:
         print(f"  WARNING: could not compute HR from PAT: {e}")
         ctx.t_hr_calc, ctx.hr_calc = None, None
@@ -127,13 +136,23 @@ def _load_hr_from_edf(ctx: RecordingContext) -> None:
         if n > 0:
             ctx.t_hr_edf = np.arange(n) / hr_fs
             ctx.hr_edf = hr_signal.astype(float) * config.HR_EDF_SCALE_FACTOR
-            m = sleep_mask.build_sleep_include_mask(ctx.t_hr_edf, ctx.aux_df)
-            sleep_mask.apply_sleep_mask_inplace(ctx.hr_edf, m)
+
+            # sleep include (keep=True)
+            m_sleep = sleep_mask.build_sleep_include_mask(ctx.t_hr_edf, ctx.aux_df)
+            if m_sleep is not None:
+                sleep_mask.apply_sleep_mask_inplace(ctx.hr_edf, m_sleep)
+
+            # event include (keep=True)  <-- ADD THIS
+            m_evt = io_aux_csv.build_time_exclusion_mask(ctx.t_hr_edf, ctx.aux_df)
+            if m_evt is not None:
+                sleep_mask.apply_sleep_mask_inplace(ctx.hr_edf, m_evt)
+
         else:
             print("  WARNING: HR channel exists but is empty.")
     except Exception as e:
         print(f"  WARNING: could not read HR channel '{config.HR_CHANNEL_NAME}': {e}")
         ctx.t_hr_edf, ctx.hr_edf = None, None
+
 
 
 def _compute_hr_correlation(ctx: RecordingContext) -> None:

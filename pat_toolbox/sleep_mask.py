@@ -222,6 +222,48 @@ def apply_sleep_mask_inplace(
     return y
 
 
+def build_global_include_mask_for_times(
+    t_sec: np.ndarray,
+    aux_df: Optional["pd.DataFrame"],
+    *,
+    apply_sleep: bool = True,
+    apply_events: bool = True,
+) -> Optional[np.ndarray]:
+    """
+    Returns boolean include mask (True = keep) that combines:
+      - sleep-stage include mask
+      - event exclusion include mask
+    """
+    if t_sec is None or np.size(t_sec) == 0:
+        return None
+
+    keep = np.ones_like(np.asarray(t_sec, dtype=float), dtype=bool)
+
+    if aux_df is None:
+        return keep
+
+    # sleep
+    if apply_sleep and bool(getattr(config, "ENABLE_SLEEP_STAGE_MASKING", False)):
+        m_sleep = build_sleep_include_mask_for_times(t_sec, aux_df)
+        if m_sleep is None:
+            return None
+        keep &= m_sleep
+
+    # events
+    if apply_events:
+        try:
+            from . import io_aux_csv
+            m_evt = io_aux_csv.build_time_exclusion_mask(t_sec, aux_df)
+        except Exception:
+            m_evt = None
+        if m_evt is None:
+            return None
+        keep &= np.asarray(m_evt, dtype=bool)
+
+    return keep
+
+
+
 # -----------------------------------------------------------------------------
 # public API
 # -----------------------------------------------------------------------------

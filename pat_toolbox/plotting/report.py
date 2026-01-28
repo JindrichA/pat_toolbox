@@ -104,7 +104,10 @@ def plot_pat_and_hr_segments_to_pdf(
         hrv_clean=hrv_rmssd,
         hrv_raw=hrv_rmssd_raw,
         hrv_tv=hrv_tv,
-        psd_features=psd_features  # <--- Passing the new dictionary
+        psd_features=psd_features,
+        exclusion_zones=exclusion_zones,  # <--- ADD
+        delta_hr_calc=delta_hr_calc,  # <--- ADD
+        delta_hr_edf=delta_hr_edf,  # <--- ADD
     )
 
     fig_stage = _build_sleep_stagegram_figure(

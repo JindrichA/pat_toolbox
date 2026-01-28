@@ -252,6 +252,12 @@ def desat_windows_from_aux(aux_df: pd.DataFrame) -> List[Tuple[float, float]]:
     if aux_df is None or len(aux_df) == 0:
         return []
 
+    # --- cache to avoid recompute + log spam ---
+    if hasattr(aux_df, "attrs"):
+        cached = aux_df.attrs.get("_desat_windows_cache", None)
+        if cached is not None:
+            return cached
+
     time_col = getattr(config, "AUX_CSV_TIME_SEC_COLUMN", "time_sec")
     key = getattr(config, "HRV_EXCLUSION_DESAT_COLUMN_KEY", "desat_flag")
 
@@ -274,17 +280,31 @@ def desat_windows_from_aux(aux_df: pd.DataFrame) -> List[Tuple[float, float]]:
         end_pad_sec=end_pad,
     )
 
-    if windows:
-        lens = np.array([b - a for a, b in windows])
-        print(
-            f"  DESAT WINDOWS: n={len(windows)}, "
-            f"median={np.median(lens):.1f}s, "
-            f"p90={np.percentile(lens, 90):.1f}s"
-        )
-    else:
-        print("  DESAT WINDOWS: n=0")
+    # store cache
+    if hasattr(aux_df, "attrs"):
+        aux_df.attrs["_desat_windows_cache"] = windows
+
+    # --- print only once per aux_df ---
+    do_print = True
+    if hasattr(aux_df, "attrs"):
+        if aux_df.attrs.get("_desat_windows_logged", False):
+            do_print = False
+        else:
+            aux_df.attrs["_desat_windows_logged"] = True
+
+    if do_print:
+        if windows:
+            lens = np.array([b - a for a, b in windows])
+            print(
+                f"  DESAT WINDOWS: n={len(windows)}, "
+                f"median={np.median(lens):.1f}s, "
+                f"p90={np.percentile(lens, 90):.1f}s"
+            )
+        else:
+            print("  DESAT WINDOWS: n=0")
 
     return windows
+
 
 
 # =============================================================================
@@ -398,7 +418,8 @@ def build_time_exclusion_mask(
       True  = KEEP
       False = EXCLUDE (inside event or desat windows)
 
-    Use this ONLY for plotting / forcing NaNs on the plotted series.
+    IMPORTANT: This MUST match get_rr_exclusion_mask() logic,
+    including EVENT-gated desat windows.
     """
     if aux_df is None or len(aux_df) == 0 or t_grid_sec is None or np.size(t_grid_sec) == 0:
         return None
@@ -406,20 +427,90 @@ def build_time_exclusion_mask(
     t = np.asarray(t_grid_sec, dtype=float)
     keep = np.ones_like(t, dtype=bool)
 
-    # 1) event-based windows (pre/post)
+    time_col = getattr(config, "AUX_CSV_TIME_SEC_COLUMN", "time_sec")
+
+    # ----------------------------
+    # 1) Event-based exclusion (always applies)
+    # ----------------------------
+    event_cols = getattr(config, "HRV_EXCLUSION_EVENT_COLUMNS", []) or []
     pre = float(getattr(config, "HRV_EXCLUSION_PRE_SEC", 0.0))
     post = float(getattr(config, "HRV_EXCLUSION_POST_SEC", 0.0))
-    for col in getattr(config, "HRV_EXCLUSION_EVENT_COLUMNS", []):
+
+    event_times_list = []
+    for col in event_cols:
+        if col in aux_df.columns:
+            te = get_event_times(aux_df, col, time_col=time_col)
+            if te.size > 0:
+                event_times_list.append(te)
+
+    event_times = np.unique(np.concatenate(event_times_list)) if event_times_list else np.array([], dtype=float)
+
+    # Apply event exclusion windows
+    for te in event_times:
+        keep[(t >= te - pre) & (t <= te + post)] = False
+
+    # ----------------------------
+    # 2) Desat windows (ONLY if gated by events)
+    # ----------------------------
+    if bool(getattr(config, "HRV_EXCLUSION_USE_DESAT_WINDOWS", False)):
+        windows = desat_windows_from_aux(aux_df)
+
+        # If there are NO events, desats are ignored (same as get_rr_exclusion_mask)
+        if windows and event_times.size > 0:
+            lookback = float(getattr(config, "HRV_EXCLUSION_DESAT_LOOKBACK_SEC", 120.0))
+            lookahead = float(getattr(config, "HRV_EXCLUSION_DESAT_LOOKAHEAD_SEC", 120.0))
+
+            event_times_sorted = np.sort(event_times)
+            gated: List[Tuple[float, float]] = []
+
+            for a, b in windows:
+                a = float(a); b = float(b)
+                if not (np.isfinite(a) and np.isfinite(b) and b > a):
+                    continue
+
+                A = a - lookback
+                B = b + lookahead
+
+                i0 = np.searchsorted(event_times_sorted, A, side="left")
+                i1 = np.searchsorted(event_times_sorted, B, side="right")
+                if i1 > i0:
+                    gated.append((a, b))
+
+            # Apply ONLY gated desat windows
+            for a, b in gated:
+                keep[(t >= float(a)) & (t < float(b))] = False
+
+    return keep
+
+
+def build_event_exclusion_mask(
+    t_grid_sec: np.ndarray,
+    aux_df: pd.DataFrame,
+) -> Optional[np.ndarray]:
+    """
+    Mask on a regular time grid:
+      True  = KEEP
+      False = EXCLUDE (inside EVENT windows only, using HRV_EXCLUSION_EVENT_COLUMNS + PRE/POST)
+
+    This is used for plotting (RED shading).
+    """
+    if aux_df is None or len(aux_df) == 0 or t_grid_sec is None or np.size(t_grid_sec) == 0:
+        return None
+
+    t = np.asarray(t_grid_sec, dtype=float)
+    keep = np.ones_like(t, dtype=bool)
+
+    time_col = getattr(config, "AUX_CSV_TIME_SEC_COLUMN", "time_sec")
+    pre = float(getattr(config, "HRV_EXCLUSION_PRE_SEC", 0.0))
+    post = float(getattr(config, "HRV_EXCLUSION_POST_SEC", 0.0))
+
+    event_cols = getattr(config, "HRV_EXCLUSION_EVENT_COLUMNS", []) or []
+    for col in event_cols:
         if col not in aux_df.columns:
             continue
-        times = get_event_times(aux_df, col)
+        times = get_event_times(aux_df, col, time_col=time_col)
         for te in times:
             keep[(t >= te - pre) & (t <= te + post)] = False
 
-    # 2) desat-run windows
-    if bool(getattr(config, "HRV_EXCLUSION_USE_DESAT_WINDOWS", False)):
-        windows = desat_windows_from_aux(aux_df)
-        for a, b in windows:
-            keep[(t >= float(a)) & (t < float(b))] = False
-
     return keep
+

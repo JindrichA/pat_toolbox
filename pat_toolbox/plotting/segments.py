@@ -5,10 +5,12 @@ from typing import Optional, Tuple, TYPE_CHECKING, List
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
-
+from .. import sleep_mask
 from .. import config
 from .specs import EventSpec, DEFAULT_EVENT_PLOT_SPEC
 from .utils import _add_exclusion_spans, _shade_masked_regions, _maybe_add_legend, _h_to_hhmm
+from .. import io_aux_csv
+from matplotlib.patches import Patch
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -23,6 +25,52 @@ def _plot_segment_pat(ax: plt.Axes, t_h: np.ndarray, seg_raw: np.ndarray, seg_fi
     _maybe_add_legend(ax, loc="upper right")
 
 
+def _apply_global_mask_to_series(
+    t_sec: np.ndarray,
+    y: np.ndarray,
+    aux_df: Optional["pd.DataFrame"],
+) -> np.ndarray:
+    """
+    Returns a copy of y where excluded samples (sleep + events, per global mask)
+    are set to NaN. If mask can't be built, returns y unchanged.
+    """
+    y2 = y.astype(float, copy=True)
+
+    if aux_df is None or t_sec is None or t_sec.size == 0:
+        return y2
+
+    m_keep = sleep_mask.build_global_include_mask_for_times(
+        t_sec, aux_df, apply_sleep=True, apply_events=True
+    )
+    if m_keep is None:
+        return y2
+
+    y2[~m_keep] = np.nan
+    return y2
+
+def _plot_raw_dashed(
+    ax: plt.Axes,
+    t_sec: np.ndarray,
+    y: np.ndarray,
+    *,
+    label: str,
+    color: str,
+    zorder: int = 0,
+):
+    ok = np.isfinite(y)
+    if np.any(ok):
+        ax.plot(
+            t_sec[ok] / 3600.0,
+            y[ok],
+            linestyle="--",
+            linewidth=1.0,
+            color=color,
+            alpha=0.6,
+            label=label,
+            zorder=zorder,
+        )
+
+
 def _plot_segment_hr(
     ax: plt.Axes,
     t_hr_edf: Optional[np.ndarray],
@@ -34,43 +82,161 @@ def _plot_segment_hr(
     exclusion_zones: List[Tuple[float, float, str]],
     t_seg_h_start: float,
     t_seg_h_end: float,
+    aux_df: Optional["pd.DataFrame"],
+    t_seg_sec: np.ndarray,
 ) -> tuple[Optional[float], Optional[float]]:
     _add_exclusion_spans(ax, exclusion_zones, t_seg_h_start, t_seg_h_end, label_once=True)
 
-    seg_hr_min = None
-    seg_hr_max = None
 
+
+
+    # -------------------------------------------------
+    # Sleep-stage masking (gray shading, HRV-style)
+    # -------------------------------------------------
+    # -------------------------------------------------
+    # Sleep-stage masking (gray shading, HRV-style)
+    # Use continuous segment timebase so shading covers
+    # the full segment (not only where HR samples exist).
+    # -------------------------------------------------
+    # -------------------------------------------------
+    # Mask shading (HRV-style): sleep + events combined
+    # -------------------------------------------------
+    if aux_df is not None and t_seg_sec.size > 0:
+        m_keep = sleep_mask.build_global_include_mask_for_times(t_seg_sec, aux_df, apply_sleep=True, apply_events=True)
+        if m_keep is not None:
+            _shade_masked_regions(
+                ax,
+                t_sec=t_seg_sec,  # seconds
+                masked=~m_keep,  # shade excluded
+                color="0.6",
+                alpha=0.22,
+            )
+
+    seg_hr_min: Optional[float] = None
+    seg_hr_max: Optional[float] = None
+    summary_lines: List[str] = []
+
+    def _stats_line(name: str, y_seg: np.ndarray) -> None:
+        ok = np.isfinite(y_seg)
+        n_total = int(y_seg.size)
+        n_used = int(np.count_nonzero(ok))
+
+        if n_used == 0:
+            summary_lines.append(f"{name}: no finite samples after masking (used 0/{n_total})")
+            return
+
+        yy = y_seg[ok]
+        summary_lines.append(
+            f"{name}: n={n_used}/{n_total} | "
+            f"min={np.min(yy):.2f}, max={np.max(yy):.2f}, "
+            f"mean={np.mean(yy):.2f}, median={np.median(yy):.2f}, std={np.std(yy):.2f}"
+        )
+
+        # Update ylim stats (based on NON-excluded samples only)
+        nonlocal seg_hr_min, seg_hr_max
+        y0 = float(np.min(yy))
+        y1 = float(np.max(yy))
+        seg_hr_min = y0 if seg_hr_min is None else min(seg_hr_min, y0)
+        seg_hr_max = y1 if seg_hr_max is None else max(seg_hr_max, y1)
+
+    # -------------------------
+    # EDF HR
+    # -------------------------
     if t_hr_edf is not None and hr_edf is not None:
         mask_edf = (t_hr_edf >= seg_start_sec) & (t_hr_edf <= seg_end_sec)
         if np.any(mask_edf):
-            t_edf = t_hr_edf[mask_edf] / 3600.0
-            y = hr_edf[mask_edf]
-            ok = np.isfinite(y)
-            if np.any(ok):
-                ax.plot(t_edf[ok], y[ok], label="original HR from the EDF", linewidth=1.0, alpha=0.7, zorder=1)
-                seg_hr_min = float(np.min(y[ok])) if seg_hr_min is None else min(seg_hr_min, float(np.min(y[ok])))
-                seg_hr_max = float(np.max(y[ok])) if seg_hr_max is None else max(seg_hr_max, float(np.max(y[ok])))
+            t_sec_seg = t_hr_edf[mask_edf]
+            t_h = t_sec_seg / 3600.0
+            y_raw = hr_edf[mask_edf].astype(float)
 
+            # 1) RAW (dashed, everywhere)
+            _plot_raw_dashed(
+                ax,
+                t_sec_seg,
+                y_raw,
+                label="EDF HR (raw)",
+                color="0.5",
+                zorder=0,
+            )
+
+            # 2) CLEAN (solid, masked)
+            y_seg = _apply_global_mask_to_series(t_sec_seg, y_raw, aux_df)
+
+            ok_plot = np.isfinite(y_seg)
+            if np.any(ok_plot):
+                ax.plot(
+                    t_h[ok_plot],
+                    y_seg[ok_plot],
+                    label="original HR from the EDF",
+                    linewidth=1.0,
+                    alpha=0.7,
+                    zorder=1,
+                )
+
+            # Summary + ylim from NON-excluded only
+            _stats_line("EDF", y_seg)
+
+    # -------------------------
+    # PAT HR
+    # -------------------------
     if t_hr_calc is not None and hr_calc is not None:
         mask_calc = (t_hr_calc >= seg_start_sec) & (t_hr_calc <= seg_end_sec)
         if np.any(mask_calc):
-            t_calc = t_hr_calc[mask_calc] / 3600.0
-            y = hr_calc[mask_calc]
-            ok = np.isfinite(y)
-            if np.any(ok):
-                ax.plot(t_calc[ok], y[ok], label="Jindrich HR from RAW PAT", linewidth=1.0, zorder=3)
-                seg_hr_min = float(np.min(y[ok])) if seg_hr_min is None else min(seg_hr_min, float(np.min(y[ok])))
-                seg_hr_max = float(np.max(y[ok])) if seg_hr_max is None else max(seg_hr_max, float(np.max(y[ok])))
+            t_sec_seg = t_hr_calc[mask_calc]
+            t_h = t_sec_seg / 3600.0
+            y_raw = hr_calc[mask_calc].astype(float)
+
+            # 1) RAW (dashed, everywhere)
+            _plot_raw_dashed(
+                ax,
+                t_sec_seg,
+                y_raw,
+                label="PAT HR (raw)",
+                color="tab:blue",
+                zorder=0,
+            )
+
+            # 2) CLEAN (solid, masked)
+            y_seg = _apply_global_mask_to_series(t_sec_seg, y_raw, aux_df)
+
+            ok_plot = np.isfinite(y_seg)
+            if np.any(ok_plot):
+                ax.plot(
+                    t_h[ok_plot],
+                    y_seg[ok_plot],
+                    label="Jindrich HR from RAW PAT",
+                    linewidth=1.0,
+                    zorder=3,
+                )
+
+            _stats_line("PAT", y_seg)
 
     ax.set_ylabel("HR [bpm]")
     ax.grid(True)
     _maybe_add_legend(ax, loc="upper right")
 
+    # Show summary like your ΔHR plot (top-left text)
+    if summary_lines:
+        ax.text(
+            0.01,
+            0.92,
+            "\n".join(summary_lines),
+            transform=ax.transAxes,
+            fontsize=9,
+            va="top",
+        )
+
+    # Use NON-excluded min/max for ylim
     if seg_hr_min is not None and seg_hr_max is not None:
         margin = 0.1 * (seg_hr_max - seg_hr_min + 1e-6)
         ax.set_ylim(seg_hr_min - margin, seg_hr_max + margin)
 
     return seg_hr_min, seg_hr_max
+
+
+
+
+
 
 
 def _plot_segment_hrv(
@@ -83,6 +249,7 @@ def _plot_segment_hrv(
     exclusion_zones: List[Tuple[float, float, str]],
     t_seg_h_start: float,
     t_seg_h_end: float,
+    aux_df: Optional["pd.DataFrame"],
 ) -> tuple[Optional[float], Optional[float]]:
     _add_exclusion_spans(ax, exclusion_zones, t_seg_h_start, t_seg_h_end, label_once=True)
 
@@ -93,17 +260,77 @@ def _plot_segment_hrv(
     if np.any(mask):
         th = t_hrv[mask] / 3600.0
 
-        masked = ~np.isfinite(hrv_clean[mask])
-        _shade_masked_regions(
-            ax,
-            t_sec=t_hrv[mask],
-            masked=masked,
-            color="0.6",
-            alpha=0.22,
-        )
+        t_sec_seg = t_hrv[mask].astype(float)
 
-        yr = None
-        okr = None
+        legend_patches: List[Patch] = []
+
+        # -------------------------------------------------
+        # GRAY = sleep-stage masking (policy)
+        # -------------------------------------------------
+        if aux_df is not None and bool(getattr(config, "ENABLE_SLEEP_STAGE_MASKING", False)):
+            m_sleep_keep = sleep_mask.build_sleep_include_mask_for_times(t_sec_seg, aux_df)
+            if m_sleep_keep is not None:
+                _shade_masked_regions(
+                    ax,
+                    t_sec=t_sec_seg,
+                    masked=~m_sleep_keep,
+                    color="0.7",
+                    alpha=0.18,
+                )
+                legend_patches.append(Patch(facecolor="0.7", alpha=0.18, label="Sleep masked"))
+
+        # -------------------------------------------------
+        # RED = event windows (HRV exclusion logic - events only, gated consistent)
+        # IMPORTANT: this MUST match your RR exclusion event windows (pre/post)
+        # -------------------------------------------------
+        if aux_df is not None:
+            m_evt_keep = io_aux_csv.build_time_exclusion_mask(t_sec_seg, aux_df)
+
+            if m_evt_keep is not None:
+                _shade_masked_regions(
+                    ax,
+                    t_sec=t_sec_seg,
+                    masked=~m_evt_keep,
+                    color="tab:red",
+                    alpha=0.12,
+                )
+                legend_patches.append(Patch(facecolor="tab:red", alpha=0.12, label="Events excluded"))
+
+        # -------------------------------------------------
+        # BLUE = RR-only exclusions (raw finite, clean NaN)
+        # -------------------------------------------------
+        if use_raw:
+            yc_seg = hrv_clean[mask]
+            yr_seg = hrv_raw[mask]
+            rr_only_excluded = np.isfinite(yr_seg) & ~np.isfinite(yc_seg)
+
+            if np.any(rr_only_excluded):
+                _shade_masked_regions(
+                    ax,
+                    t_sec=t_sec_seg,
+                    masked=rr_only_excluded,
+                    color="tab:blue",
+                    alpha=0.22,
+                )
+                legend_patches.append(Patch(facecolor="tab:blue", alpha=0.22, label="RR rejected"))
+
+        # 4) Raw HRV missing (no RMSSD computed at all) -> very light gray
+        if use_raw:
+            yc_seg = hrv_clean[mask]
+            yr_seg = hrv_raw[mask]
+
+            raw_missing = ~np.isfinite(yr_seg)
+            if np.any(raw_missing):
+                _shade_masked_regions(
+                    ax,
+                    t_sec=t_sec_seg,
+                    masked=raw_missing,
+                    color="gold",  # or "#FFD700"
+                    alpha=0.45,  # more visible
+                )
+                legend_patches.append(
+                    Patch(facecolor="gold", alpha=0.45, label="Raw HRV missing")
+                )
 
         if use_raw:
             yr = hrv_raw[mask]
@@ -149,7 +376,41 @@ def _plot_segment_hrv(
     ax.grid(True)
     _maybe_add_legend(ax, loc="upper right")
 
+    # Ensure shading appears in legend
+    if "legend_patches" in locals() and legend_patches:
+        handles, labels = ax.get_legend_handles_labels()
+        existing = set(labels)
+        for p in legend_patches:
+            if p.get_label() not in existing:
+                handles.append(p)
+                labels.append(p.get_label())
+        ax.legend(handles, labels, loc="upper right")
+
     return hrv_ymin, hrv_ymax
+
+def _mask_keep_nonexcluded(
+    t_sec: np.ndarray,
+    exclusion_zones: List[Tuple[float, float, str]],
+) -> np.ndarray:
+    """
+    Returns a boolean mask (same length as t_sec) that is True for samples that are NOT inside exclusion_zones.
+
+    Assumes exclusion_zones times are in HOURS-from-start (same convention used by _add_exclusion_spans),
+    while t_sec is in SECONDS-from-start.
+    """
+    keep = np.ones_like(t_sec, dtype=bool)
+    if not exclusion_zones:
+        return keep
+
+    for z0_h, z1_h, _label in exclusion_zones:
+        z0 = float(z0_h) * 3600.0
+        z1 = float(z1_h) * 3600.0
+        if z1 < z0:
+            z0, z1 = z1, z0
+        keep &= ~((t_sec >= z0) & (t_sec <= z1))
+
+    return keep
+
 
 
 def _plot_segment_delta_hr(
@@ -163,42 +424,93 @@ def _plot_segment_delta_hr(
     exclusion_zones: List[Tuple[float, float, str]],
     t_seg_h_start: float,
     t_seg_h_end: float,
+    aux_df: Optional["pd.DataFrame"],
 ) -> tuple[Optional[float], Optional[float]]:
     _add_exclusion_spans(ax, exclusion_zones, t_seg_h_start, t_seg_h_end, label_once=True)
 
     y_min = y_max = None
+    summary_lines: List[str] = []
 
+    def _stats_line(name: str, y_seg: np.ndarray) -> None:
+        ok = np.isfinite(y_seg)
+        n_total = int(y_seg.size)
+        n_used = int(np.count_nonzero(ok))
+
+        if n_used == 0:
+            summary_lines.append(f"{name}: no finite samples after masking (used 0/{n_total})")
+            return
+
+        yy = y_seg[ok]
+        summary_lines.append(
+            f"{name}: n={n_used}/{n_total} | "
+            f"min={np.min(yy):.1f}, max={np.max(yy):.1f}, "
+            f"mean={np.mean(yy):.1f}, median={np.median(yy):.1f}, std={np.std(yy):.1f}"
+        )
+
+
+    # ---- EDF ΔHR ----
     if t_hr_edf is not None and delta_hr_edf is not None:
-        mask = (t_hr_edf >= seg_start_sec) & (t_hr_edf <= seg_end_sec)
-        if np.any(mask):
-            th = t_hr_edf[mask] / 3600.0
-            y = delta_hr_edf[mask].astype(float)
-            ok = np.isfinite(y)
-            if np.any(ok):
-                ax.plot(th[ok], y[ok], label="ΔHR EDF", linewidth=1.0, alpha=0.7, zorder=1)
-                y_min = float(np.nanmin(y[ok])) if y_min is None else min(y_min, float(np.nanmin(y[ok])))
-                y_max = float(np.nanmax(y[ok])) if y_max is None else max(y_max, float(np.nanmax(y[ok])))
+        mask_seg = (t_hr_edf >= seg_start_sec) & (t_hr_edf <= seg_end_sec)
+        if np.any(mask_seg):
+            t_sec_seg = t_hr_edf[mask_seg]
+            th = t_sec_seg / 3600.0
 
+            y_seg = delta_hr_edf[mask_seg].astype(float)
+            ok_plot = np.isfinite(y_seg)
+            if np.any(ok_plot):
+                ax.plot(th[ok_plot], y_seg[ok_plot], label="ΔHR EDF", linewidth=1.0, alpha=0.7, zorder=1)
+                y_min = float(np.nanmin(y_seg[ok_plot])) if y_min is None else min(y_min, float(np.nanmin(y_seg[ok_plot])))
+                y_max = float(np.nanmax(y_seg[ok_plot])) if y_max is None else max(y_max, float(np.nanmax(y_seg[ok_plot])))
+
+            # Summary stats computed ONLY on non-excluded samples
+            _stats_line("EDF", y_seg)
+    # ---- PAT ΔHR ----
     if t_hr_calc is not None and delta_hr_calc is not None:
-        mask = (t_hr_calc >= seg_start_sec) & (t_hr_calc <= seg_end_sec)
-        if np.any(mask):
-            th = t_hr_calc[mask] / 3600.0
-            y = delta_hr_calc[mask].astype(float)
-            ok = np.isfinite(y)
-            if np.any(ok):
-                ax.plot(th[ok], y[ok], label="ΔHR PAT", linewidth=1.0, zorder=3)
-                y_min = float(np.nanmin(y[ok])) if y_min is None else min(y_min, float(np.nanmin(y[ok])))
-                y_max = float(np.nanmax(y[ok])) if y_max is None else max(y_max, float(np.nanmax(y[ok])))
+        mask_seg = (t_hr_calc >= seg_start_sec) & (t_hr_calc <= seg_end_sec)
+        if np.any(mask_seg):
+            t_sec_seg = t_hr_calc[mask_seg]
+            th = t_sec_seg / 3600.0
+
+            y_seg = delta_hr_calc[mask_seg].astype(float)
+            ok_plot = np.isfinite(y_seg)
+            if np.any(ok_plot):
+                ax.plot(th[ok_plot], y_seg[ok_plot], label="ΔHR PAT", linewidth=1.0, zorder=3)
+                y_min = float(np.nanmin(y_seg[ok_plot])) if y_min is None else min(y_min, float(np.nanmin(y_seg[ok_plot])))
+                y_max = float(np.nanmax(y_seg[ok_plot])) if y_max is None else max(y_max, float(np.nanmax(y_seg[ok_plot])))
+
+            # Summary stats computed ONLY on non-excluded samples
+            _stats_line("PAT", y_seg)
 
     ax.set_ylabel("ΔHR [bpm]")
     ax.grid(True)
     _maybe_add_legend(ax, loc="upper right")
+
+    # Zero line (put it here so it’s always visible)
     ax.axhline(0.0, linewidth=0.8, alpha=0.5, zorder=0)
+
+    if not summary_lines:
+        ax.text(
+            0.01, 0.92,
+            "ΔHR: no data in this segment",
+            transform=ax.transAxes,
+            fontsize=9,
+            va="top",
+        )
+    else:
+        ax.text(
+            0.01, 0.92,
+            "\n".join(summary_lines),
+            transform=ax.transAxes,
+            fontsize=9,
+            va="top",
+        )
+
     if y_min is not None and y_max is not None:
         margin = 0.15 * (y_max - y_min + 1e-6)
         ax.set_ylim(y_min - margin, y_max + margin)
 
     return y_min, y_max
+
 
 
 
@@ -488,6 +800,8 @@ def _add_segment_pages_to_pdf(
             seg_start_sec, seg_end_sec,
             exclusion_zones,
             t_h_start, t_h_end,
+            aux_df=aux_df,
+            t_seg_sec=t_seg_sec,  # <-- ADD
         )
         hr_ylim = ax_hr.get_ylim()
 
@@ -499,6 +813,7 @@ def _add_segment_pages_to_pdf(
                 seg_start_sec, seg_end_sec,
                 exclusion_zones,
                 t_h_start, t_h_end,
+                aux_df=aux_df,  # <-- ADD
             )
             hrv_ylim = ax_hrv.get_ylim()
 
@@ -526,6 +841,7 @@ def _add_segment_pages_to_pdf(
                 exclusion_zones=exclusion_zones,
                 t_seg_h_start=t_h_start,
                 t_seg_h_end=t_h_end,
+                aux_df=aux_df,
             )
             delta_ylim = ax_delta.get_ylim()
 
