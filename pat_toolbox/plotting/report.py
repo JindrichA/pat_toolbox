@@ -43,7 +43,9 @@ def plot_pat_and_hr_segments_to_pdf(
         aux_df: "Optional[pd.DataFrame]" = None,
         t_pat_amp: Optional[np.ndarray] = None,
         pat_amp: Optional[np.ndarray] = None,
-) -> Dict[str, float]:  # <--- CHANGED: Returns dictionary now
+        delta_hr_calc: Optional[np.ndarray] = None,  # <--- ADD
+        delta_hr_edf: Optional[np.ndarray] = None,
+) -> Dict[str, float]:
 
     if segment_minutes is None:
         segment_minutes = config.SEGMENT_MINUTES
@@ -179,6 +181,8 @@ def plot_pat_and_hr_segments_to_pdf(
             exclusion_zones=exclusion_zones,
             t_pat_amp=t_pat_amp,
             pat_amp=pat_amp,
+            delta_hr_calc=delta_hr_calc,
+            delta_hr_edf=delta_hr_edf,
         )
 
     return psd_features  # Return dictionary to workflow

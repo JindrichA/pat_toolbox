@@ -1043,6 +1043,64 @@ def _robust_ylim(
     return (lo2, hi2)
 
 
+def compute_delta_hr(
+    t_hr: np.ndarray,
+    hr_bpm: np.ndarray,
+    *,
+    lag_sec: float,
+    pre_smooth_sec: float = 0.0,
+    fs: float = 1.0,
+    use_abs: bool = False,
+) -> np.ndarray:
+    """
+    ΔHR(t) = HR(t) - HR(t - lag_sec) on the same grid.
+    NaN-safe: if either sample is NaN -> NaN.
+    """
+    if t_hr is None or hr_bpm is None:
+        return np.array([], dtype=float)
+
+    hr = np.asarray(hr_bpm, dtype=float)
+    if hr.size == 0:
+        return hr.copy()
+
+    # Optional pre-smoothing (NaN-aware moving average)
+    if pre_smooth_sec and pre_smooth_sec > 0:
+        win = int(round(float(pre_smooth_sec) * float(fs)))
+        if win > 1:
+            kernel = np.ones(win, dtype=float)
+            valid = np.isfinite(hr).astype(float)
+            hr0 = np.where(np.isfinite(hr), hr, 0.0)
+            num = np.convolve(hr0, kernel, mode="same")
+            den = np.convolve(valid, kernel, mode="same")
+            with np.errstate(divide="ignore", invalid="ignore"):
+                hr_use = num / den
+            hr_use[den <= 0] = np.nan
+        else:
+            hr_use = hr
+    else:
+        hr_use = hr
+
+    lag_samples = int(round(float(lag_sec) * float(fs)))
+    if lag_samples < 1:
+        lag_samples = 1
+
+    d = np.full_like(hr_use, np.nan, dtype=float)
+    a = hr_use[lag_samples:]
+    b = hr_use[:-lag_samples]
+
+    ok = np.isfinite(a) & np.isfinite(b)
+    dd = np.full_like(a, np.nan, dtype=float)
+    dd[ok] = a[ok] - b[ok]
+
+    if use_abs:
+        dd = np.abs(dd)
+
+    d[lag_samples:] = dd
+    return d
+
+
+
+
 def compute_hr_correlation(
     t_hr_edf: np.ndarray,
     hr_edf: np.ndarray,

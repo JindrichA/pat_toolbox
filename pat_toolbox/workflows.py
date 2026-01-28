@@ -23,6 +23,42 @@ if TYPE_CHECKING:
     import pandas as pd
 
 
+
+
+def _compute_delta_hr(ctx: RecordingContext) -> None:
+    if not bool(getattr(config, "ENABLE_DELTA_HR", True)):
+        ctx.delta_hr_calc = None
+        ctx.delta_hr_edf = None
+        return
+
+    lag = float(getattr(config, "DELTA_HR_LAG_SEC", 30.0))
+    pre = float(getattr(config, "DELTA_HR_PRE_SMOOTH_SEC", 0.0))
+    use_abs = bool(getattr(config, "DELTA_HR_ABS", False))
+
+    # PAT HR (assumed HR_TARGET_FS_HZ grid)
+    if ctx.t_hr_calc is not None and ctx.hr_calc is not None and ctx.hr_calc.size > 0:
+        fs_pat = float(getattr(config, "HR_TARGET_FS_HZ", 1.0))
+        ctx.delta_hr_calc = hr_metrics.compute_delta_hr(
+            ctx.t_hr_calc, ctx.hr_calc,
+            lag_sec=lag, pre_smooth_sec=pre, fs=fs_pat, use_abs=use_abs
+        )
+    else:
+        ctx.delta_hr_calc = None
+
+    # EDF HR (estimate fs from time vector)
+    if ctx.t_hr_edf is not None and ctx.hr_edf is not None and ctx.hr_edf.size > 0:
+        dt = np.diff(ctx.t_hr_edf)
+        dt = dt[np.isfinite(dt) & (dt > 0)]
+        fs_edf = 1.0 / float(np.median(dt)) if dt.size else 1.0
+        ctx.delta_hr_edf = hr_metrics.compute_delta_hr(
+            ctx.t_hr_edf, ctx.hr_edf,
+            lag_sec=lag, pre_smooth_sec=pre, fs=fs_edf, use_abs=use_abs
+        )
+    else:
+        ctx.delta_hr_edf = None
+
+
+
 # ----------------------------
 # Small helper steps (readable)
 # ----------------------------
@@ -220,6 +256,8 @@ def _build_pdf(ctx: RecordingContext) -> None:
         aux_df=ctx.aux_df,
         t_pat_amp=ctx.t_pat_amp,
         pat_amp=ctx.pat_amp,
+        delta_hr_calc=getattr(ctx, "delta_hr_calc", None),
+        delta_hr_edf=getattr(ctx, "delta_hr_edf", None),
     )
 
     # Store the dictionary in context for the summary CSV step
@@ -281,6 +319,7 @@ def process_view_pat_overlay_for_file(edf_path: Path) -> Path | None:
         _load_aux_csv(ctx)
         _compute_hr_from_pat(ctx)
         _load_hr_from_edf(ctx)
+        _compute_delta_hr(ctx)
         _compute_hr_correlation(ctx)
         _compute_hrv(ctx)
         _build_pdf(ctx)

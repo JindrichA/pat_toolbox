@@ -55,7 +55,7 @@ ENABLE_SLEEP_STAGE_MASKING = True
 
 
 # Legacy: "n2n3_only" treated as "deep_only"
-SLEEP_STAGE_POLICY = "rem_only"
+SLEEP_STAGE_POLICY = "nrem_only"
 
 
 # Used only when SLEEP_STAGE_POLICY == "custom"
@@ -304,6 +304,31 @@ SLEEP_MAPPING = {
     "D. Sleep": 2,    # NREM deep
     "REM": 3,         # REM
 }
+
+
+
+# =============================================================================
+# Delta HR (ΔHR) feature
+# =============================================================================
+
+ENABLE_DELTA_HR = True
+
+# ΔHR(t) = HR(t) - HR(t - lag)
+DELTA_HR_LAG_SEC = 30.0
+
+# Optional pre-smoothing on HR before delta (seconds; 0 disables)
+DELTA_HR_PRE_SMOOTH_SEC = 0.0
+
+# Use absolute delta (|ΔHR|) instead of signed
+DELTA_HR_ABS = False
+
+# Plot mode for segment pages:
+#   "subplot" -> extra row showing ΔHR
+#   "twinx"   -> overlay ΔHR on HR axis using a 2nd y-axis
+DELTA_HR_PLOT_MODE = "subplot"
+
+
+
 
 
 
