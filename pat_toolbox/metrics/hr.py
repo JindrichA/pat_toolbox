@@ -1,25 +1,86 @@
 # pat_toolbox/metrics/hr.py
 
+from __future__ import annotations
+
+import csv
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Tuple, Optional, Dict
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
 from scipy.signal import find_peaks
 
-from .. import config, filters, io_edf, paths, plotting
+from .. import config, filters, io_edf, io_aux_csv, paths, plotting
 
 
-# ---------------------------------------------------------------------
-# Summary CSV
-# ---------------------------------------------------------------------
 
-import csv
-from pathlib import Path
-from typing import Optional, Dict, Any
+@dataclass
+class DeltaHrSegmentStats:
+    seg_start_sec: float
+    seg_end_sec: float
+    seg_dur_sec: float
+    source: str              # "pat" or "edf"
+    mode: str                # "raw" or "desat_only"
+    n_total: int
+    n_used: int
+    min_val: Optional[float]
+    max_val: Optional[float]
+    mean_val: Optional[float]
 
-import numpy as np
 
-from .. import config, paths
+def save_delta_hr_segment_stats_csv(
+        *,
+        edf_path: Path,
+        stats: Iterable,  # list[DeltaHrSegmentStats] or anything with same attrs
+        suffix: str,  # "pat" or "edf"
+) -> Optional[Path]:
+    """
+    Saves per-segment deltaHR stats to CSV in the standard output folder.
+
+    Expected each element in stats has:
+      .source, .mode, .seg_start_sec, .seg_end_sec, .seg_dur_sec,
+      .n_total, .n_used, .min_val, .max_val, .mean_val
+    """
+    stats = list(stats)
+    if len(stats) == 0:
+        return None
+
+    out_folder = paths.get_output_folder()
+    out_folder.mkdir(parents=True, exist_ok=True)
+
+    out_path = out_folder / f"{edf_path.stem}__delta_hr_event_segments__{suffix}.csv"
+
+    with open(out_path, "w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow([
+            "source",
+            "mode",
+            "seg_start_sec",
+            "seg_end_sec",
+            "seg_dur_sec",
+            "n_total",
+            "n_used",
+            "min_delta_hr",
+            "max_delta_hr",
+            "mean_delta_hr",
+        ])
+
+        for s in stats:
+            w.writerow([
+                getattr(s, "source", ""),
+                getattr(s, "mode", ""),
+                getattr(s, "seg_start_sec", ""),
+                getattr(s, "seg_end_sec", ""),
+                getattr(s, "seg_dur_sec", ""),
+                getattr(s, "n_total", ""),
+                getattr(s, "n_used", ""),
+                getattr(s, "min_val", ""),
+                getattr(s, "max_val", ""),
+                getattr(s, "mean_val", ""),
+            ])
+
+    return out_path
+
 
 
 def append_hr_correlation_to_summary(
@@ -39,6 +100,7 @@ def append_hr_correlation_to_summary(
         hrv_tv: Optional[Dict[str, np.ndarray]] = None,  # time-varying HRV dict
         aux_df: Optional[Any] = None,  # pandas df (kept Any to avoid hard dependency)
         psd_features: Optional[Dict[str, float]] = None,  # <--- NEW ARGUMENT ADDED HERE
+        event_hr_features: Optional[Dict[str, float]] = None,
 ) -> Path:
     """
     Append one row with HR correlation + HRV summary + spectral peaks + extra "summary page" features.
@@ -264,6 +326,30 @@ def append_hr_correlation_to_summary(
             "psd_norm_resp": psd_features.get("norm_resp"),
             "psd_valid_windows": psd_features.get("n_windows"),
         })
+
+
+    # --- NEW: Event-centered HR features ---
+    if event_hr_features:
+        row.update({
+            "evt_hr_n": event_hr_features.get("evt_hr_n"),
+            "evt_hr_delta_mean": event_hr_features.get("evt_hr_delta_mean"),
+            "evt_hr_delta_median": event_hr_features.get("evt_hr_delta_median"),
+            "evt_hr_delta_p90": event_hr_features.get("evt_hr_delta_p90"),
+            "evt_hr_delta_max": event_hr_features.get("evt_hr_delta_max"),
+            "evt_hr_min_mean": event_hr_features.get("evt_hr_min_mean"),
+            "evt_hr_max_mean": event_hr_features.get("evt_hr_max_mean"),
+            "evt_hr_window_pre_sec": event_hr_features.get("evt_hr_window_pre_sec"),
+            "evt_hr_window_post_sec": event_hr_features.get("evt_hr_window_post_sec"),
+
+            "evt_hr_desat_n": event_hr_features.get("evt_hr_desat_n"),
+            "evt_hr_desat_delta_mean": event_hr_features.get("evt_hr_desat_delta_mean"),
+            "evt_hr_desat_delta_median": event_hr_features.get("evt_hr_desat_delta_median"),
+            "evt_hr_desat_delta_p90": event_hr_features.get("evt_hr_desat_delta_p90"),
+            "evt_hr_desat_delta_max": event_hr_features.get("evt_hr_desat_delta_max"),
+            "evt_hr_desat_min_mean": event_hr_features.get("evt_hr_desat_min_mean"),
+            "evt_hr_desat_max_mean": event_hr_features.get("evt_hr_desat_max_mean"),
+        })
+
 
     # ----------------------------
     # "Page 1" additions: NaN% quality
@@ -1148,3 +1234,262 @@ def compute_hr_correlation(
     rmse = np.sqrt(np.mean((x - y) ** 2))
 
     return float(pearson_r), float(spear_rho), float(rmse)
+
+
+
+
+
+
+def _mask_to_segments(t_sec: np.ndarray, m: np.ndarray, *, min_dur_sec: float = 0.0):
+    """
+    Returns list of (start_sec, end_sec, idx0, idx1) contiguous True blocks.
+    idx1 is inclusive.
+    """
+    if t_sec.size == 0 or m is None or m.size != t_sec.size:
+        return []
+
+    m = np.asarray(m, dtype=bool)
+    # transitions
+    dm = np.diff(m.astype(int))
+    starts = np.where(dm == 1)[0] + 1
+    ends   = np.where(dm == -1)[0]
+
+    if m[0]:
+        starts = np.r_[0, starts]
+    if m[-1]:
+        ends = np.r_[ends, m.size - 1]
+
+    segs = []
+    for i0, i1 in zip(starts, ends):
+        t0 = float(t_sec[i0])
+        t1 = float(t_sec[i1])
+        if (t1 - t0) >= min_dur_sec:
+            segs.append((t0, t1, int(i0), int(i1)))
+    return segs
+
+
+
+
+def compute_delta_hr_segment_stats(
+    *,
+    t_sec: np.ndarray,
+    delta_raw: Optional[np.ndarray],
+    delta_desat: Optional[np.ndarray],
+    aux_df: Any,
+    desat_keep_mask_is_nondesat: bool = True,
+    min_seg_dur_sec: float = 3.0,
+) -> Dict[str, Any]:
+
+    if aux_df is None or t_sec is None or t_sec.size == 0:
+        return {"segments": [], "stats": [], "agg": {}}
+
+    # event windows: build_time_exclusion_mask is KEEP mask
+    m_evt_keep = io_aux_csv.build_time_exclusion_mask(t_sec, aux_df)
+    if m_evt_keep is None or m_evt_keep.size != t_sec.size:
+        return {"segments": [], "stats": [], "agg": {}}
+    m_evt_in = ~m_evt_keep
+
+    # desat windows: normalize to "inside desat window"
+    m_desat_keep = io_aux_csv.build_desat_window_keep_mask(t_sec, aux_df)
+    if m_desat_keep is None or m_desat_keep.size != t_sec.size:
+        return {"segments": [], "stats": [], "agg": {}}
+
+    m_desat_in = (~m_desat_keep) if desat_keep_mask_is_nondesat else m_desat_keep
+
+    # your requested segments: EVENT + DESAT overlap
+    m_evt_desat = m_evt_in & m_desat_in
+    segments = _mask_to_segments(t_sec, m_evt_desat, min_dur_sec=min_seg_dur_sec)
+
+    out_stats: List[DeltaHrSegmentStats] = []
+
+    def _one(mode: str, y: Optional[np.ndarray]) -> None:
+        if y is None:
+            return
+        y = np.asarray(y, dtype=float)
+
+        for (t0, t1, i0, i1) in segments:
+            ys = y[i0:i1 + 1]
+            ok = np.isfinite(ys)
+            n_total = int(ys.size)
+            n_used = int(np.count_nonzero(ok))
+
+            if n_used == 0:
+                out_stats.append(
+                    DeltaHrSegmentStats(t0, t1, t1 - t0, "", mode, n_total, 0, None, None, None)
+                )
+                continue
+
+            vv = ys[ok]
+            out_stats.append(
+                DeltaHrSegmentStats(
+                    t0, t1, t1 - t0, "", mode,
+                    n_total=n_total,
+                    n_used=n_used,
+                    min_val=float(np.min(vv)),
+                    max_val=float(np.max(vv)),
+                    mean_val=float(np.mean(vv)),
+                )
+            )
+
+    _one("raw", delta_raw)
+    _one("desat_only", delta_desat)
+
+    def _agg(mode: str) -> Optional[Dict[str, float]]:
+        rows = [s for s in out_stats if s.mode == mode and s.min_val is not None]
+        if not rows:
+            return None
+        mins = np.array([s.min_val for s in rows], float)
+        maxs = np.array([s.max_val for s in rows], float)
+        means = np.array([s.mean_val for s in rows], float)
+        return {
+            "n_segments": float(len(rows)),
+            "avg_min": float(np.mean(mins)),
+            "avg_max": float(np.mean(maxs)),
+            "avg_mean": float(np.mean(means)),
+            "global_min": float(np.min(mins)),
+            "global_max": float(np.max(maxs)),
+        }
+
+    agg = {"raw": _agg("raw"), "desat_only": _agg("desat_only")}
+
+    return {
+        "segments": [(t0, t1) for (t0, t1, _, _) in segments],
+        "stats": out_stats,
+        "agg": agg,
+    }
+
+
+
+
+
+def compute_event_hr_summary_features(
+    *,
+    t_hr: np.ndarray,
+    hr_bpm: np.ndarray,
+    aux_df: Any,
+) -> Optional[Dict[str, float]]:
+    """
+    File-level aggregates of event-centered HR min/max/delta features.
+
+    Returns dict with keys safe to merge into the summary CSV row.
+    """
+    if aux_df is None or t_hr is None or hr_bpm is None:
+        return None
+    if np.size(t_hr) == 0 or np.size(hr_bpm) == 0:
+        return None
+
+    time_col = getattr(config, "AUX_CSV_TIME_SEC_COLUMN", "time_sec")
+    if not hasattr(aux_df, "columns") or time_col not in aux_df.columns:
+        return None
+
+    event_cols: List[str] = list(getattr(config, "EVENT_HR_USE_EVENT_COLUMNS", []))
+    if not event_cols:
+        return None
+
+    pre = float(getattr(config, "EVENT_HR_PRE_SEC", 20.0))
+    post = float(getattr(config, "EVENT_HR_POST_SEC", 40.0))
+
+    # Optional: "events with desat overlap"
+    want_desat = bool(getattr(config, "EVENT_HR_COMPUTE_DESAT_SUBSET", True))
+    desat_key = getattr(config, "HRV_EXCLUSION_DESAT_COLUMN_KEY", "desat_flag")
+    desat_col = config.COL_NAMES.get(desat_key, desat_key)
+    has_desat = hasattr(aux_df, "columns") and desat_col in aux_df.columns
+
+    t = np.asarray(t_hr, float)
+    hr = np.asarray(hr_bpm, float)
+
+    deltas = []
+    mins = []
+    maxs = []
+
+    deltas_d = []
+    mins_d = []
+    maxs_d = []
+
+    for col in event_cols:
+        if col not in aux_df.columns:
+            continue
+        evt_mask = aux_df[col].fillna(0).astype(int).to_numpy() == 1
+        if not np.any(evt_mask):
+            continue
+
+        t_events = aux_df.loc[evt_mask, time_col].to_numpy(float)
+
+        for t0 in t_events:
+            w0 = float(t0 - pre)
+            w1 = float(t0 + post)
+
+            m = (t >= w0) & (t <= w1) & np.isfinite(hr)
+            if not np.any(m):
+                continue
+
+            hh = hr[m]
+            hmin = float(np.min(hh))
+            hmax = float(np.max(hh))
+            d = float(hmax - hmin)
+
+            mins.append(hmin); maxs.append(hmax); deltas.append(d)
+
+            if want_desat and has_desat:
+                mdes = (aux_df[time_col] >= w0) & (aux_df[time_col] <= w1) & (aux_df[desat_col].fillna(0).astype(int) == 1)
+                if bool(np.any(mdes)):
+                    mins_d.append(hmin); maxs_d.append(hmax); deltas_d.append(d)
+
+    # If nothing
+    if len(deltas) == 0:
+        return {
+            "evt_hr_n": 0.0,
+            "evt_hr_delta_mean": np.nan,
+            "evt_hr_delta_median": np.nan,
+            "evt_hr_delta_p90": np.nan,
+            "evt_hr_delta_max": np.nan,
+            "evt_hr_min_mean": np.nan,
+            "evt_hr_max_mean": np.nan,
+            "evt_hr_window_pre_sec": float(pre),
+            "evt_hr_window_post_sec": float(post),
+            "evt_hr_desat_n": 0.0,
+            "evt_hr_desat_delta_mean": np.nan,
+            "evt_hr_desat_delta_median": np.nan,
+            "evt_hr_desat_delta_p90": np.nan,
+            "evt_hr_desat_delta_max": np.nan,
+            "evt_hr_desat_min_mean": np.nan,
+            "evt_hr_desat_max_mean": np.nan,
+        }
+
+    arr = np.asarray(deltas, float)
+    out: Dict[str, float] = {
+        "evt_hr_n": float(len(arr)),
+        "evt_hr_delta_mean": float(np.nanmean(arr)),
+        "evt_hr_delta_median": float(np.nanmedian(arr)),
+        "evt_hr_delta_p90": float(np.nanpercentile(arr, 90)),
+        "evt_hr_delta_max": float(np.nanmax(arr)),
+        "evt_hr_min_mean": float(np.nanmean(np.asarray(mins, float))),
+        "evt_hr_max_mean": float(np.nanmean(np.asarray(maxs, float))),
+        "evt_hr_window_pre_sec": float(pre),
+        "evt_hr_window_post_sec": float(post),
+    }
+
+    # Desat subset (optional but very useful)
+    if want_desat and has_desat and len(deltas_d) > 0:
+        ad = np.asarray(deltas_d, float)
+        out.update({
+            "evt_hr_desat_n": float(len(ad)),
+            "evt_hr_desat_delta_mean": float(np.nanmean(ad)),
+            "evt_hr_desat_delta_median": float(np.nanmedian(ad)),
+            "evt_hr_desat_delta_p90": float(np.nanpercentile(ad, 90)),
+            "evt_hr_desat_delta_max": float(np.nanmax(ad)),
+            "evt_hr_desat_min_mean": float(np.nanmean(np.asarray(mins_d, float))),
+            "evt_hr_desat_max_mean": float(np.nanmean(np.asarray(maxs_d, float))),
+        })
+    else:
+        out.update({
+            "evt_hr_desat_n": 0.0,
+            "evt_hr_desat_delta_mean": np.nan,
+            "evt_hr_desat_delta_median": np.nan,
+            "evt_hr_desat_delta_p90": np.nan,
+            "evt_hr_desat_delta_max": np.nan,
+            "evt_hr_desat_min_mean": np.nan,
+            "evt_hr_desat_max_mean": np.nan,
+        })
+
+    return out

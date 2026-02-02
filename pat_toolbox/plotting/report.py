@@ -1,4 +1,3 @@
-# pat_toolbox/plotting/report.py
 from __future__ import annotations
 
 from pathlib import Path
@@ -12,9 +11,11 @@ from .. import config
 from ..metrics.psd import compute_psd_figures_and_peaks
 
 from .utils import _infer_edf_base, _compute_exclusion_zones
-from .figures_summary import _build_summary_figure, _build_sleep_stagegram_figure
+from .figures_summary import _build_summary_figures, _build_sleep_stagegram_figure
 from .figures_hrv import _build_hrv_overview_figure, _build_hrv_tv_metrics_figure
 from .segments import _add_segment_pages_to_pdf
+from ..metrics import hr as hr_metrics
+
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -43,8 +44,10 @@ def plot_pat_and_hr_segments_to_pdf(
         aux_df: "Optional[pd.DataFrame]" = None,
         t_pat_amp: Optional[np.ndarray] = None,
         pat_amp: Optional[np.ndarray] = None,
-        delta_hr_calc: Optional[np.ndarray] = None,  # <--- ADD
-        delta_hr_edf: Optional[np.ndarray] = None,
+        delta_hr_calc_raw: Optional[np.ndarray] = None,
+        delta_hr_edf_raw: Optional[np.ndarray] = None,
+        delta_hr_calc_desat: Optional[np.ndarray] = None,
+        delta_hr_edf_desat: Optional[np.ndarray] = None,
 ) -> Dict[str, float]:
 
     if segment_minutes is None:
@@ -68,7 +71,7 @@ def plot_pat_and_hr_segments_to_pdf(
 
     # --- UPDATED PSD CALL ---
     (
-        psd_features,  # <--- Now receiving the feature dictionary
+        psd_features,  # <--- feature dictionary
         fig_psd_zoom,
         fig_psd_full,
         _psd_png_zoom,
@@ -77,17 +80,50 @@ def plot_pat_and_hr_segments_to_pdf(
         signal_raw,
         sfreq,
         edf_base=edf_base,
-        aux_df=aux_df,  # <--- Passing aux_df for masking
+        aux_df=aux_df,  # <--- masking support
     )
 
-    # Extract peaks for legacy support if needed, but we pass the whole dict below
     mayer_peak_freq = psd_features.get("mayer_peak_hz")
     resp_peak_freq = psd_features.get("resp_peak_hz")
 
     duration_sec = n_samples / sfreq
 
-    # --- UPDATED SUMMARY FIGURE CALL ---
-    fig_summary = _build_summary_figure(
+    # ---------------------------------------------------------
+    # ΔHR event+desat overlap segment stats (file-level)
+    # ---------------------------------------------------------
+    delta_evt_pat = None
+    delta_evt_edf = None
+
+    if aux_df is not None:
+        desat_keep_mask_is_nondesat = bool(getattr(config, "DESAT_KEEP_MASK_IS_NONDESAT", True))
+        min_seg_dur_sec = float(getattr(config, "DELTA_HR_MIN_EVT_SEG_DUR_SEC", 3.0))
+
+        if t_hr_calc is not None:
+            delta_evt_pat = hr_metrics.compute_delta_hr_segment_stats(
+                t_sec=t_hr_calc,
+                delta_raw=delta_hr_calc_raw,
+                delta_desat=delta_hr_calc_desat,
+                aux_df=aux_df,
+                desat_keep_mask_is_nondesat=desat_keep_mask_is_nondesat,
+                min_seg_dur_sec=min_seg_dur_sec,
+            )
+            for s in delta_evt_pat.get("stats", []):
+                s.source = "pat"
+
+        if t_hr_edf is not None:
+            delta_evt_edf = hr_metrics.compute_delta_hr_segment_stats(
+                t_sec=t_hr_edf,
+                delta_raw=delta_hr_edf_raw,
+                delta_desat=delta_hr_edf_desat,
+                aux_df=aux_df,
+                desat_keep_mask_is_nondesat=desat_keep_mask_is_nondesat,
+                min_seg_dur_sec=min_seg_dur_sec,
+            )
+            for s in delta_evt_edf.get("stats", []):
+                s.source = "edf"
+
+    # --- UPDATED SUMMARY FIGURE CALL (multi-page) ---
+    fig_summaries = _build_summary_figures(
         edf_base=edf_base,
         pearson_r=pearson_r,
         spear_rho=spear_rho,
@@ -105,9 +141,15 @@ def plot_pat_and_hr_segments_to_pdf(
         hrv_raw=hrv_rmssd_raw,
         hrv_tv=hrv_tv,
         psd_features=psd_features,
-        exclusion_zones=exclusion_zones,  # <--- ADD
-        delta_hr_calc=delta_hr_calc,  # <--- ADD
-        delta_hr_edf=delta_hr_edf,  # <--- ADD
+        exclusion_zones=exclusion_zones,
+        delta_hr_calc=delta_hr_calc_desat,
+        delta_hr_edf=delta_hr_edf_desat,
+        delta_hr_calc_raw=delta_hr_calc_raw,
+        delta_hr_edf_raw=delta_hr_edf_raw,
+        delta_hr_calc_desat=delta_hr_calc_desat,
+        delta_hr_edf_desat=delta_hr_edf_desat,
+        delta_evt_pat=delta_evt_pat,
+        delta_evt_edf=delta_evt_edf,
     )
 
     fig_stage = _build_sleep_stagegram_figure(
@@ -144,8 +186,10 @@ def plot_pat_and_hr_segments_to_pdf(
         )
 
     with PdfPages(str(pdf_path)) as pdf:
-        pdf.savefig(fig_summary)
-        plt.close(fig_summary)
+        # Save multi-page summaries
+        for fig in fig_summaries:
+            pdf.savefig(fig)
+            plt.close(fig)
 
         if fig_stage is not None:
             pdf.savefig(fig_stage)
@@ -184,8 +228,10 @@ def plot_pat_and_hr_segments_to_pdf(
             exclusion_zones=exclusion_zones,
             t_pat_amp=t_pat_amp,
             pat_amp=pat_amp,
-            delta_hr_calc=delta_hr_calc,
-            delta_hr_edf=delta_hr_edf,
+            delta_hr_calc_raw=delta_hr_calc_raw,
+            delta_hr_edf_raw=delta_hr_edf_raw,
+            delta_hr_calc_desat=delta_hr_calc_desat,
+            delta_hr_edf_desat=delta_hr_edf_desat,
         )
 
     return psd_features  # Return dictionary to workflow

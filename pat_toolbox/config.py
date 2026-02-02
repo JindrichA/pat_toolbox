@@ -27,7 +27,7 @@ RUN_ID = datetime.now().strftime("%Y%m%d_%H%M%S")
 
 # Optional short message/tag to make folders self-describing (edit this, not dates)
 # Examples: "desat", "debug", "paper_figs", "subject_12"
-RUN_TAG = "desat_2min_FD_fixed"
+RUN_TAG = "deltHR_the_same_rules"
 
 def _slug(s: str) -> str:
     s = (s or "").strip()
@@ -328,6 +328,12 @@ DELTA_HR_ABS = False
 DELTA_HR_PLOT_MODE = "subplot"
 
 
+# Tady bacha ta desaturace by tam asi neměla bejt, jen pokus
+ENABLE_EVENT_HR_FEATURES = True
+EVENT_HR_USE_EVENT_COLUMNS = ["Desaturation","evt_central_3","evt_obstructive_3","evt_unclassified_3"]
+EVENT_HR_PRE_SEC = 15.0
+EVENT_HR_POST_SEC = 30.0
+EVENT_HR_COMPUTE_DESAT_SUBSET = True
 
 
 
@@ -360,4 +366,7 @@ def sleep_include_numeric() -> set[int]:
         return {x for x in inc if x != 0}
 
     return {1, 2, 3}
+
+
+
 

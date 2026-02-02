@@ -16,14 +16,16 @@ if TYPE_CHECKING:
 # Small formatting / stats helpers (kept local to this module)
 # ============================================================================
 
-def _nan_pct(x: Optional[np.ndarray]) -> Optional[float]:
-    """Percent of non-finite values in x."""
-    if x is None:
-        return None
-    x = np.asarray(x)
-    if x.size == 0:
-        return None
-    return float(100.0 * np.mean(~np.isfinite(x)))
+def _fmt_num(x: Optional[float], nd: int = 2) -> str:
+    if x is None or (isinstance(x, float) and np.isnan(x)):
+        return "NA"
+    return f"{x:.{nd}f}"
+
+
+def _fmt_int(x: Optional[float]) -> str:
+    if x is None or (isinstance(x, float) and np.isnan(x)):
+        return "NA"
+    return f"{int(x)}"
 
 
 def _fmt_pct(x: Optional[float], ndigits: int = 1) -> str:
@@ -38,16 +40,46 @@ def _fmt_sci(x: Optional[float]) -> str:
     return f"{x:.2e}"
 
 
-def _fmt_num(x: Optional[float], nd: int = 2) -> str:
-    if x is None or (isinstance(x, float) and np.isnan(x)):
-        return "NA"
-    return f"{x:.{nd}f}"
+def _nan_pct(x: Optional[np.ndarray]) -> Optional[float]:
+    """Percent of non-finite values in x."""
+    if x is None:
+        return None
+    x = np.asarray(x)
+    if x.size == 0:
+        return None
+    return float(100.0 * np.mean(~np.isfinite(x)))
 
 
-def _fmt_int(x: Optional[float]) -> str:
-    if x is None or (isinstance(x, float) and np.isnan(x)):
-        return "NA"
-    return f"{int(x)}"
+def _fmt_agg_block(prefix: str, d: Optional[Dict[str, Any]]) -> list[list[str]]:
+    # d is what compute_delta_hr_segment_stats returns: {"agg": {"raw":..., "desat_only":...}, ...}
+    if not d or "agg" not in d:
+        return [
+            [f"  {prefix} n segments", "NA"],
+            [f"  {prefix} avg(min/max/mean) [bpm]", "NA"],
+            [f"  {prefix} global(min/max) [bpm]", "NA"],
+        ]
+
+    def one(mode: str) -> list[list[str]]:
+        a = (d.get("agg", {}) or {}).get(mode)
+        if not a:
+            return [
+                [f"  {prefix} {mode} n segments", "NA"],
+                [f"  {prefix} {mode} avg(min/max/mean) [bpm]", "NA"],
+                [f"  {prefix} {mode} global(min/max) [bpm]", "NA"],
+            ]
+        return [
+            [f"  {prefix} {mode} n segments", _fmt_int(a.get("n_segments"))],
+            [
+                f"  {prefix} {mode} avg(min/max/mean) [bpm]",
+                f"{_fmt_num(a.get('avg_min'), 2)} / {_fmt_num(a.get('avg_max'), 2)} / {_fmt_num(a.get('avg_mean'), 2)}",
+            ],
+            [
+                f"  {prefix} {mode} global(min/max) [bpm]",
+                f"{_fmt_num(a.get('global_min'), 2)} / {_fmt_num(a.get('global_max'), 2)}",
+            ],
+        ]
+
+    return one("raw") + one("desat_only")
 
 
 def _mask_keep_nonexcluded(
@@ -198,10 +230,83 @@ def _sleep_stage_stats(aux_df: Optional["pd.DataFrame"]) -> Optional[list[list[s
 
 
 # ============================================================================
-# Summary page figure
+# Multi-page summary table rendering helpers
 # ============================================================================
 
-def _build_summary_figure(
+def _render_summary_table_page(
+    edf_base: str,
+    cell_text: list[list[str]],
+    page_idx: int,
+    n_pages: int,
+) -> plt.Figure:
+    """
+    Render one page of the summary table.
+    """
+    fig, ax = plt.subplots(figsize=(11.69, 8.27))
+    ax.axis("off")
+
+    n_rows = len(cell_text)
+
+    # Page-level sizing (do NOT shrink to unreadable)
+    if n_rows > 58:
+        font_size = 8
+        scale_y = 0.95
+    elif n_rows > 48:
+        font_size = 9
+        scale_y = 1.05
+    else:
+        font_size = 10
+        scale_y = 1.15
+
+    table = ax.table(
+        cellText=cell_text,
+        colLabels=["Metric", "Value"],
+        loc="center",
+        cellLoc="left",
+    )
+    table.auto_set_font_size(False)
+    table.set_fontsize(font_size)
+    table.scale(1.2, scale_y)
+
+    ax.set_title(f"{edf_base} - Summary ({page_idx}/{n_pages})", fontsize=14, pad=20)
+    fig.tight_layout()
+    return fig
+
+
+def _split_rows_smart(rows: list[list[str]], rows_per_page: int) -> list[list[list[str]]]:
+    """
+    Split rows into pages, preferring to break on blank separators ["", ""] near the boundary.
+    """
+    pages: list[list[list[str]]] = []
+    i = 0
+    n = len(rows)
+
+    while i < n:
+        j = min(i + rows_per_page, n)
+        if j < n:
+            # Search for a blank row near the cut to avoid splitting sections
+            search_lo = max(i + 10, j - 18)
+            search_hi = min(n, j + 8)
+            blank_candidates = [k for k in range(search_lo, search_hi) if rows[k] == ["", ""]]
+            if blank_candidates:
+                j = blank_candidates[0]  # cut at the blank row
+
+        chunk = rows[i:j]
+        pages.append(chunk)
+        i = j
+
+        # Skip leading blanks at start of next page
+        while i < n and rows[i] == ["", ""]:
+            i += 1
+
+    return pages
+
+
+# ============================================================================
+# Summary page figure(s)
+# ============================================================================
+
+def _build_summary_figures(
     edf_base: str,
     pearson_r: Optional[float],
     spear_rho: Optional[float],
@@ -224,10 +329,13 @@ def _build_summary_figure(
     exclusion_zones: Optional[List[Tuple[float, float, str]]] = None,
     delta_hr_calc: Optional[np.ndarray] = None,
     delta_hr_edf: Optional[np.ndarray] = None,
-) -> plt.Figure:
-    fig, ax = plt.subplots(figsize=(11.69, 8.27))
-    ax.axis("off")
-
+    delta_evt_pat: Optional[Dict[str, Any]] = None,
+    delta_evt_edf: Optional[Dict[str, Any]] = None,
+    delta_hr_calc_raw: Optional[np.ndarray] = None,
+    delta_hr_edf_raw: Optional[np.ndarray] = None,
+    delta_hr_calc_desat: Optional[np.ndarray] = None,
+    delta_hr_edf_desat: Optional[np.ndarray] = None,
+) -> list[plt.Figure]:
     # HRV summary values (if present)
     rmssd_mean = hrv_summary.get("rmssd_mean") if hrv_summary else None
     rmssd_median = hrv_summary.get("rmssd_median") if hrv_summary else None
@@ -307,6 +415,10 @@ def _build_summary_figure(
     cell_text.append(["  ΔHR PAT mean / median [bpm]", f"{_fmt_num(d_pat['mean'], 2)} / {_fmt_num(d_pat['median'], 2)}"])
     cell_text.append(["  ΔHR PAT std [bpm]", _fmt_num(d_pat["std"], 2)])
     cell_text.append(["  ΔHR PAT NaN % (post-excl)", _fmt_pct(d_pat["nan_pct_used"], 1)])
+    cell_text.append(["", ""])
+    cell_text.append(["ΔHR Event+Desat Segment Summary", ""])
+    cell_text.extend(_fmt_agg_block("PAT", delta_evt_pat))
+    cell_text.extend(_fmt_agg_block("EDF", delta_evt_edf))
 
     # Optional: add TV metrics NaN %
     if isinstance(hrv_tv, dict) and t_hrv is not None and np.size(t_hrv) > 0:
@@ -361,33 +473,17 @@ def _build_summary_figure(
         cell_text.extend(sleep_rows)
 
     # ------------------------------------------------------------------
-    # Table rendering (auto-scale for long tables)
+    # Split across pages instead of shrinking fonts
     # ------------------------------------------------------------------
-    n_rows = len(cell_text)
-    # Heuristic: shrink font/scale when we have lots of lines
-    if n_rows > 55:
-        font_size = 7
-        scale_y = 0.85
-    elif n_rows > 45:
-        font_size = 8
-        scale_y = 0.95
-    else:
-        font_size = 9
-        scale_y = 1.2
+    ROWS_PER_PAGE = int(getattr(config, "SUMMARY_ROWS_PER_PAGE", 52))
+    pages = _split_rows_smart(cell_text, ROWS_PER_PAGE)
 
-    table = ax.table(
-        cellText=cell_text,
-        colLabels=["Metric", "Value"],
-        loc="center",
-        cellLoc="left",
-    )
-    table.auto_set_font_size(False)
-    table.set_fontsize(font_size)
-    table.scale(1.2, scale_y)
+    figs: list[plt.Figure] = []
+    n_pages = max(1, len(pages))
+    for i, chunk in enumerate(pages, start=1):
+        figs.append(_render_summary_table_page(edf_base, chunk, i, n_pages))
 
-    ax.set_title(f"{edf_base} - Summary", fontsize=14, pad=20)
-    fig.tight_layout()
-    return fig
+    return figs
 
 
 # ============================================================================

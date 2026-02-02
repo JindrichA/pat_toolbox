@@ -15,6 +15,76 @@ from . import config
 # File discovery / reading
 # =============================================================================
 
+
+
+from . import config
+
+def build_desat_window_keep_mask(
+    t_sec: np.ndarray,
+    aux_df,
+) -> Optional[np.ndarray]:
+    """
+    Returns keep-mask (True = keep) for desaturation windows expanded by config pads.
+    This is TIME-based (works on any regular grid: HR, ΔHR, etc).
+    """
+    if aux_df is None or t_sec is None or t_sec.size == 0:
+        return None
+
+    time_col = getattr(config, "AUX_CSV_TIME_SEC_COLUMN", "time_sec")
+    if time_col not in aux_df.columns:
+        return None
+
+    # Which column indicates desat in aux?
+    # default uses config.COl_NAMES mapping key HRV_EXCLUSION_DESAT_COLUMN_KEY -> actual column name
+    key = getattr(config, "HRV_EXCLUSION_DESAT_COLUMN_KEY", "desat_flag")
+
+    # Prefer canonical internal column name after normalization
+    if key in aux_df.columns:
+        desat_col = key
+    else:
+        # fallback: raw CSV name (only if df wasn't normalized)
+        desat_col = config.COL_NAMES.get(key, key)
+
+    if desat_col not in aux_df.columns:
+        return None
+
+    # pads + min run
+    pad_pre = float(getattr(config, "HRV_EXCLUSION_DESAT_START_PAD_SEC", 15.0))
+    pad_post = float(getattr(config, "HRV_EXCLUSION_DESAT_END_PAD_SEC", 30.0))
+    min_run = float(getattr(config, "HRV_EXCLUSION_DESAT_MIN_RUN_SEC", 0.0))
+
+    aux_t = aux_df[time_col].to_numpy(dtype=float)
+    des = aux_df[desat_col].fillna(0).to_numpy(dtype=int) == 1
+
+    if aux_t.size == 0 or not np.any(des):
+        return np.ones_like(t_sec, dtype=bool)
+
+    # Find contiguous runs of desat==1 in AUX timebase
+    idx = np.flatnonzero(des)
+    splits = np.where(np.diff(idx) > 1)[0] + 1
+    runs = np.split(idx, splits)
+
+    excluded = np.zeros_like(t_sec, dtype=bool)
+
+    for r in runs:
+        if r.size == 0:
+            continue
+        t0 = float(aux_t[r[0]])
+        t1 = float(aux_t[r[-1]])
+
+        # Enforce min run length if requested
+        if min_run > 0 and (t1 - t0) < min_run:
+            continue
+
+        w0 = t0 - pad_pre
+        w1 = t1 + pad_post
+        excluded |= (t_sec >= w0) & (t_sec <= w1)
+
+    return ~excluded
+
+
+
+
 def find_aux_csv_for_edf(edf_path: Path) -> Optional[Path]:
     """
     Given an EDF path, find the corresponding auxiliary CSV.

@@ -27,35 +27,88 @@ if TYPE_CHECKING:
 
 def _compute_delta_hr(ctx: RecordingContext) -> None:
     if not bool(getattr(config, "ENABLE_DELTA_HR", True)):
-        ctx.delta_hr_calc = None
-        ctx.delta_hr_edf = None
+        ctx.delta_hr_calc_raw = None
+        ctx.delta_hr_edf_raw = None
+        ctx.delta_hr_calc_desat = None
+        ctx.delta_hr_edf_desat = None
         return
 
     lag = float(getattr(config, "DELTA_HR_LAG_SEC", 30.0))
     pre = float(getattr(config, "DELTA_HR_PRE_SMOOTH_SEC", 0.0))
     use_abs = bool(getattr(config, "DELTA_HR_ABS", False))
 
-    # PAT HR (assumed HR_TARGET_FS_HZ grid)
-    if ctx.t_hr_calc is not None and ctx.hr_calc is not None and ctx.hr_calc.size > 0:
-        fs_pat = float(getattr(config, "HR_TARGET_FS_HZ", 1.0))
-        ctx.delta_hr_calc = hr_metrics.compute_delta_hr(
-            ctx.t_hr_calc, ctx.hr_calc,
-            lag_sec=lag, pre_smooth_sec=pre, fs=fs_pat, use_abs=use_abs
-        )
-    else:
-        ctx.delta_hr_calc = None
+    # -------------------------
+    # 1) RAW ΔHR (no event/desat masking)
+    # -------------------------
+    ctx.delta_hr_calc_raw = None
+    ctx.delta_hr_edf_raw = None
 
-    # EDF HR (estimate fs from time vector)
-    if ctx.t_hr_edf is not None and ctx.hr_edf is not None and ctx.hr_edf.size > 0:
+    # PAT RAW HR -> RAW ΔHR
+    if ctx.t_hr_calc is not None and getattr(ctx, "hr_calc_raw", None) is not None and ctx.hr_calc_raw.size > 0:
+        fs_pat = float(getattr(config, "HR_TARGET_FS_HZ", 1.0))
+        ctx.delta_hr_calc_raw = hr_metrics.compute_delta_hr(
+            ctx.t_hr_calc,
+            ctx.hr_calc_raw,
+            lag_sec=lag,
+            pre_smooth_sec=pre,
+            fs=fs_pat,
+            use_abs=use_abs,
+        )
+
+    # EDF RAW HR -> RAW ΔHR
+    if ctx.t_hr_edf is not None and getattr(ctx, "hr_edf_raw", None) is not None and ctx.hr_edf_raw.size > 0:
         dt = np.diff(ctx.t_hr_edf)
         dt = dt[np.isfinite(dt) & (dt > 0)]
         fs_edf = 1.0 / float(np.median(dt)) if dt.size else 1.0
-        ctx.delta_hr_edf = hr_metrics.compute_delta_hr(
-            ctx.t_hr_edf, ctx.hr_edf,
-            lag_sec=lag, pre_smooth_sec=pre, fs=fs_edf, use_abs=use_abs
+        ctx.delta_hr_edf_raw = hr_metrics.compute_delta_hr(
+            ctx.t_hr_edf,
+            ctx.hr_edf_raw,
+            lag_sec=lag,
+            pre_smooth_sec=pre,
+            fs=fs_edf,
+            use_abs=use_abs,
         )
-    else:
-        ctx.delta_hr_edf = None
+
+    # -------------------------
+    # 2) DESAT-only ΔHR (NaN outside desat windows)
+    #    This is what you will use for "calculation only in events region"
+    # -------------------------
+    ctx.delta_hr_calc_desat = None
+    ctx.delta_hr_edf_desat = None
+
+    if ctx.aux_df is None:
+        return
+
+    def _desat_only(t_sec: np.ndarray, y_raw: np.ndarray) -> np.ndarray | None:
+        if t_sec is None or y_raw is None or y_raw.size == 0:
+            return None
+
+        # This function name is ambiguous; most likely it "keeps NON-desat".
+        m = io_aux_csv.build_desat_window_keep_mask(t_sec, ctx.aux_df)
+        if m is None or m.size != y_raw.size:
+            return None
+
+        # IMPORTANT: flip it if build_desat_window_keep_mask() means "keep non-desat"
+        invert = bool(getattr(config, "DESAT_KEEP_MASK_IS_NONDESAT", True))
+        m_keep = (~m) if invert else m
+
+        y = y_raw.astype(float, copy=True)
+        y[~m_keep] = np.nan
+
+        # OPTIONAL: also respect sleep masking if you want
+        if bool(getattr(config, "ENABLE_SLEEP_STAGE_MASKING", False)):
+            m_sleep = sleep_mask.build_sleep_include_mask_for_times(t_sec, ctx.aux_df)
+            if m_sleep is not None and m_sleep.size == y.size:
+                y[~m_sleep] = np.nan
+
+        return y
+
+    if ctx.t_hr_calc is not None and ctx.delta_hr_calc_raw is not None:
+        ctx.delta_hr_calc_desat = _desat_only(ctx.t_hr_calc, ctx.delta_hr_calc_raw)
+
+    if ctx.t_hr_edf is not None and ctx.delta_hr_edf_raw is not None:
+        ctx.delta_hr_edf_desat = _desat_only(ctx.t_hr_edf, ctx.delta_hr_edf_raw)
+
 
 
 
@@ -110,13 +163,22 @@ def _compute_hr_from_pat(ctx: RecordingContext) -> None:
     assert ctx.view_pat is not None and ctx.sfreq is not None
     try:
         ctx.t_hr_calc, ctx.hr_calc = hr_metrics.compute_hr_from_pat_signal(ctx.view_pat, fs=ctx.sfreq)
-
+        ctx.hr_calc_raw = ctx.hr_calc.copy()  # <-- add this
         # sleep include (keep=True)
         m_sleep = sleep_mask.build_sleep_include_mask(ctx.t_hr_calc, ctx.aux_df)
         if m_sleep is not None:
             sleep_mask.apply_sleep_mask_inplace(ctx.hr_calc, m_sleep)
 
         # event include (keep=True)  <-- ADD THIS
+        m_evt = io_aux_csv.build_time_exclusion_mask(ctx.t_hr_calc, ctx.aux_df)
+        m_des = io_aux_csv.build_desat_window_keep_mask(ctx.t_hr_calc, ctx.aux_df)
+
+        print("evt keep true%:", 100 * np.mean(np.asarray(m_evt, bool)) if m_evt is not None else None)
+        print("des keep true%:", 100 * np.mean(np.asarray(m_des, bool)) if m_des is not None else None)
+
+        if m_evt is not None:
+            print("evt_in true%:", 100 * np.mean(~np.asarray(m_evt, bool)))
+
         m_evt = io_aux_csv.build_time_exclusion_mask(ctx.t_hr_calc, ctx.aux_df)
         if m_evt is not None:
             sleep_mask.apply_sleep_mask_inplace(ctx.hr_calc, m_evt)
@@ -136,6 +198,9 @@ def _load_hr_from_edf(ctx: RecordingContext) -> None:
         if n > 0:
             ctx.t_hr_edf = np.arange(n) / hr_fs
             ctx.hr_edf = hr_signal.astype(float) * config.HR_EDF_SCALE_FACTOR
+
+            # NEW: keep unmasked copy
+            ctx.hr_edf_raw = ctx.hr_edf.copy()
 
             # sleep include (keep=True)
             m_sleep = sleep_mask.build_sleep_include_mask(ctx.t_hr_edf, ctx.aux_df)
@@ -198,24 +263,26 @@ def _compute_hrv(ctx: RecordingContext) -> None:
             tv_window_sec=getattr(config, "HRV_TV_WINDOW_SEC"),
         )
 
+        ctx.hrv_rmssd_raw_unmasked = ctx.hrv_rmssd_raw.copy()
+
         m_hrv = sleep_mask.build_sleep_include_mask(ctx.t_hrv, ctx.aux_df)
         m_excl = io_aux_csv.build_time_exclusion_mask(ctx.t_hrv, ctx.aux_df)
         if m_excl is not None:
-            sleep_mask.apply_sleep_mask_inplace(ctx.hrv_rmssd_raw, m_excl)
             sleep_mask.apply_sleep_mask_inplace(ctx.hrv_rmssd_clean, m_excl)
             if isinstance(ctx.hrv_tv, dict):
                 for k, v in list(ctx.hrv_tv.items()):
-                    if v is None: continue
+                    if v is None:
+                        continue
                     vv = np.asarray(v)
                     if vv.size == m_excl.size:
                         ctx.hrv_tv[k] = sleep_mask.apply_sleep_mask_inplace(vv, m_excl)
 
         if m_hrv is not None:
-            sleep_mask.apply_sleep_mask_inplace(ctx.hrv_rmssd_raw, m_hrv)
             sleep_mask.apply_sleep_mask_inplace(ctx.hrv_rmssd_clean, m_hrv)
             if isinstance(ctx.hrv_tv, dict):
                 for k, v in list(ctx.hrv_tv.items()):
-                    if v is None: continue
+                    if v is None:
+                        continue
                     vv = np.asarray(v)
                     if vv.size == m_hrv.size:
                         ctx.hrv_tv[k] = sleep_mask.apply_sleep_mask_inplace(vv, m_hrv)
@@ -266,7 +333,7 @@ def _build_pdf(ctx: RecordingContext) -> None:
         hr_edf=ctx.hr_edf,
         t_hrv=ctx.t_hrv,
         hrv_rmssd=ctx.hrv_rmssd_clean,
-        hrv_rmssd_raw=ctx.hrv_rmssd_raw,
+        hrv_rmssd_raw=getattr(ctx, "hrv_rmssd_raw_unmasked", ctx.hrv_rmssd_raw),
         hrv_tv=ctx.hrv_tv,
         pearson_r=ctx.pearson_r,
         spear_rho=ctx.spear_rho,
@@ -275,8 +342,10 @@ def _build_pdf(ctx: RecordingContext) -> None:
         aux_df=ctx.aux_df,
         t_pat_amp=ctx.t_pat_amp,
         pat_amp=ctx.pat_amp,
-        delta_hr_calc=getattr(ctx, "delta_hr_calc", None),
-        delta_hr_edf=getattr(ctx, "delta_hr_edf", None),
+        delta_hr_calc_raw=getattr(ctx, "delta_hr_calc_raw", None),
+        delta_hr_edf_raw=getattr(ctx, "delta_hr_edf_raw", None),
+        delta_hr_calc_desat=getattr(ctx, "delta_hr_calc_desat", None),
+        delta_hr_edf_desat=getattr(ctx, "delta_hr_edf_desat", None),
     )
 
     # Store the dictionary in context for the summary CSV step
@@ -304,7 +373,56 @@ def _build_peaks_debug_pdf(ctx: RecordingContext) -> None:
 
 
 def _append_summary(ctx: RecordingContext) -> None:
-    # We pass the full psd_features dictionary to the CSV writer now
+    event_hr_features = None
+    if bool(getattr(config, "ENABLE_EVENT_HR_FEATURES", True)) and ctx.aux_df is not None:
+        try:
+            # IMPORTANT: use the series you want. I recommend RAW HR (unmasked)
+            hr_series = getattr(ctx, "hr_calc_raw", None)
+            t_series = ctx.t_hr_calc
+            if hr_series is not None and t_series is not None:
+                event_hr_features = hr_metrics.compute_event_hr_summary_features(
+                    t_hr=t_series,
+                    hr_bpm=hr_series,
+                    aux_df=ctx.aux_df,
+                )
+        except Exception as e:
+            print(f"  WARNING: event HR features failed: {e}")
+            event_hr_features = None
+
+    # ---------------------------------------------------------
+    # NEW: Save deltaHR event-segment stats to CSV (PAT + EDF)
+    # ---------------------------------------------------------
+    try:
+        ctx.delta_hr_evt_csv_pat = None
+        ctx.delta_hr_evt_csv_edf = None
+
+        if getattr(ctx, "delta_hr_evt_pat", None) is not None:
+            stats_pat = ctx.delta_hr_evt_pat.get("stats", None)
+            if stats_pat:
+                ctx.delta_hr_evt_csv_pat = hr_metrics.save_delta_hr_segment_stats_csv(
+                    edf_path=ctx.edf_path,
+                    stats=stats_pat,
+                    suffix="pat",
+                )
+                if ctx.delta_hr_evt_csv_pat is not None:
+                    print(f"  Saved ΔHR event-segment CSV (PAT): {ctx.delta_hr_evt_csv_pat}")
+
+        if getattr(ctx, "delta_hr_evt_edf", None) is not None:
+            stats_edf = ctx.delta_hr_evt_edf.get("stats", None)
+            if stats_edf:
+                ctx.delta_hr_evt_csv_edf = hr_metrics.save_delta_hr_segment_stats_csv(
+                    edf_path=ctx.edf_path,
+                    stats=stats_edf,
+                    suffix="edf",
+                )
+                if ctx.delta_hr_evt_csv_edf is not None:
+                    print(f"  Saved ΔHR event-segment CSV (EDF): {ctx.delta_hr_evt_csv_edf}")
+
+    except Exception as e:
+        print(f"  WARNING: could not save ΔHR event-segment CSVs: {e}")
+
+
+
     hr_metrics.append_hr_correlation_to_summary(
         ctx.edf_path,
         ctx.pearson_r,
@@ -319,13 +437,66 @@ def _append_summary(ctx: RecordingContext) -> None:
         hrv_raw=ctx.hrv_rmssd_raw,
         hrv_tv=ctx.hrv_tv,
         aux_df=ctx.aux_df,
-        psd_features=getattr(ctx, "psd_features", None)  # Pass the new dict
+        psd_features=getattr(ctx, "psd_features", None),
+        event_hr_features=event_hr_features,   # <--- ADD THIS ARG
     )
+
 
 
 # ----------------------------
 # Public API
 # ----------------------------
+def _compute_delta_hr_event_segments(ctx: RecordingContext) -> None:
+    ctx.delta_hr_evt_pat = None
+    ctx.delta_hr_evt_edf = None
+    if ctx.aux_df is None:
+        return
+
+    # This is NOT "desat_flag"; it's just the config telling you what that mask means.
+    desat_keep_mask_is_nondesat = bool(getattr(config, "DESAT_KEEP_MASK_IS_NONDESAT", True))
+
+    def _tag_source(stats_list, source_name: str) -> None:
+        if not stats_list:
+            return
+        for s in stats_list:
+            # dataclass / object
+            if hasattr(s, "__dict__") and hasattr(s, "source"):
+                try:
+                    setattr(s, "source", source_name)
+                    continue
+                except Exception:
+                    pass
+            # dict
+            if isinstance(s, dict):
+                s["source"] = source_name
+
+    if ctx.t_hr_calc is not None:
+        ctx.delta_hr_evt_pat = hr_metrics.compute_delta_hr_segment_stats(
+            t_sec=ctx.t_hr_calc,
+            delta_raw=getattr(ctx, "delta_hr_calc_raw", None),
+            delta_desat=getattr(ctx, "delta_hr_calc_desat", None),
+            aux_df=ctx.aux_df,
+            desat_keep_mask_is_nondesat=desat_keep_mask_is_nondesat,
+            min_seg_dur_sec=float(getattr(config, "DELTA_HR_MIN_EVT_SEG_DUR_SEC", 3.0)),
+        )
+        if ctx.delta_hr_evt_pat is not None:
+            _tag_source(ctx.delta_hr_evt_pat.get("stats", None), "pat")
+
+    if ctx.t_hr_edf is not None:
+        ctx.delta_hr_evt_edf = hr_metrics.compute_delta_hr_segment_stats(
+            t_sec=ctx.t_hr_edf,
+            delta_raw=getattr(ctx, "delta_hr_edf_raw", None),
+            delta_desat=getattr(ctx, "delta_hr_edf_desat", None),
+            aux_df=ctx.aux_df,
+            desat_keep_mask_is_nondesat=desat_keep_mask_is_nondesat,
+            min_seg_dur_sec=float(getattr(config, "DELTA_HR_MIN_EVT_SEG_DUR_SEC", 3.0)),
+        )
+        if ctx.delta_hr_evt_edf is not None:
+            _tag_source(ctx.delta_hr_evt_edf.get("stats", None), "edf")
+
+
+
+
 
 def process_view_pat_overlay_for_file(edf_path: Path) -> Path | None:
     print(f"Processing EDF for VIEW_PAT + HR + HRV plotting: {edf_path}")
@@ -339,16 +510,20 @@ def process_view_pat_overlay_for_file(edf_path: Path) -> Path | None:
         _compute_hr_from_pat(ctx)
         _load_hr_from_edf(ctx)
         _compute_delta_hr(ctx)
+
+        # NEW
+        _compute_delta_hr_event_segments(ctx)
+
         _compute_hr_correlation(ctx)
         _compute_hrv(ctx)
         _build_pdf(ctx)
         _build_peaks_debug_pdf(ctx)
+
+        # YOU MUST ADD THIS BACK
         _append_summary(ctx)
 
         return ctx.pdf_path
 
     except Exception as e:
         print(f"  ERROR: failed processing {edf_path.name}: {e}")
-        # import traceback
-        # traceback.print_exc()
         return None

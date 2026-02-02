@@ -16,6 +16,49 @@ if TYPE_CHECKING:
     import pandas as pd
 
 
+def _plot_strong_where(
+    ax: plt.Axes,
+    t_sec: np.ndarray,
+    y: np.ndarray,
+    strong_mask: np.ndarray,
+    *,
+    label: str,
+    color: str,
+    linewidth: float = 2.8,
+    alpha: float = 0.95,
+    zorder: int = 6,
+):
+    """
+    Plot y as a stronger line only where strong_mask is True.
+    Splits into contiguous runs so matplotlib doesn't bridge gaps.
+    """
+    if t_sec.size == 0:
+        return
+    ok = np.isfinite(y) & (strong_mask.astype(bool))
+    if not np.any(ok):
+        return
+
+    idx = np.flatnonzero(ok)
+    splits = np.where(np.diff(idx) > 1)[0] + 1
+    runs = np.split(idx, splits)
+
+    first = True
+    for r in runs:
+        if r.size < 2:
+            continue
+        ax.plot(
+            (t_sec[r] / 3600.0),
+            y[r],
+            color=color,
+            linewidth=linewidth,
+            alpha=alpha,
+            label=label if first else "_nolegend_",
+            zorder=zorder,
+        )
+        first = False
+
+
+
 def _plot_segment_pat(ax: plt.Axes, t_h: np.ndarray, seg_raw: np.ndarray, seg_filt: np.ndarray, title: str) -> None:
     ax.set_title(title, fontsize=12)
     ax.plot(t_h, seg_raw, label="PAT raw", linewidth=0.8)
@@ -24,29 +67,38 @@ def _plot_segment_pat(ax: plt.Axes, t_h: np.ndarray, seg_raw: np.ndarray, seg_fi
     ax.grid(True)
     _maybe_add_legend(ax, loc="upper right")
 
+def build_evt_desat_include_mask(t_sec: np.ndarray, aux_df) -> Optional[np.ndarray]:
+    if aux_df is None or t_sec is None or t_sec.size == 0:
+        return None
 
-def _apply_global_mask_to_series(
+    m_evt_keep = io_aux_csv.build_event_exclusion_mask(t_sec, aux_df)          # keep outside events
+    m_desat_keep = io_aux_csv.build_desat_window_keep_mask(t_sec, aux_df)      # keep outside desat
+
+    if m_evt_keep is None or m_desat_keep is None:
+        return None
+
+    m_evt_in = ~np.asarray(m_evt_keep, dtype=bool)
+    m_desat_in = ~np.asarray(m_desat_keep, dtype=bool)
+
+    # include ONLY where both are true
+    return m_evt_in & m_desat_in
+
+def _apply_evt_desat_only_mask_to_series(
     t_sec: np.ndarray,
     y: np.ndarray,
     aux_df: Optional["pd.DataFrame"],
 ) -> np.ndarray:
-    """
-    Returns a copy of y where excluded samples (sleep + events, per global mask)
-    are set to NaN. If mask can't be built, returns y unchanged.
-    """
     y2 = y.astype(float, copy=True)
-
     if aux_df is None or t_sec is None or t_sec.size == 0:
         return y2
 
-    m_keep = sleep_mask.build_global_include_mask_for_times(
-        t_sec, aux_df, apply_sleep=True, apply_events=True
-    )
+    m_keep = build_evt_desat_include_mask(t_sec, aux_df)
     if m_keep is None:
         return y2
 
     y2[~m_keep] = np.nan
     return y2
+
 
 def _plot_raw_dashed(
     ax: plt.Axes,
@@ -102,15 +154,16 @@ def _plot_segment_hr(
     # Mask shading (HRV-style): sleep + events combined
     # -------------------------------------------------
     if aux_df is not None and t_seg_sec.size > 0:
-        m_keep = sleep_mask.build_global_include_mask_for_times(t_seg_sec, aux_df, apply_sleep=True, apply_events=True)
-        if m_keep is not None:
+        m_evt_desat_keep = build_evt_desat_include_mask(t_seg_sec, aux_df)
+        if m_evt_desat_keep is not None:
             _shade_masked_regions(
                 ax,
-                t_sec=t_seg_sec,  # seconds
-                masked=~m_keep,  # shade excluded
-                color="0.6",
-                alpha=0.22,
+                t_sec=t_seg_sec,
+                masked=m_evt_desat_keep,  # shade WHERE YOU KEEP (event+desat)
+                color="k",
+                alpha=0.10,
             )
+
 
     seg_hr_min: Optional[float] = None
     seg_hr_max: Optional[float] = None
@@ -160,7 +213,7 @@ def _plot_segment_hr(
             )
 
             # 2) CLEAN (solid, masked)
-            y_seg = _apply_global_mask_to_series(t_sec_seg, y_raw, aux_df)
+            y_seg = _apply_evt_desat_only_mask_to_series(t_sec_seg, y_raw, aux_df)
 
             ok_plot = np.isfinite(y_seg)
             if np.any(ok_plot):
@@ -197,7 +250,7 @@ def _plot_segment_hr(
             )
 
             # 2) CLEAN (solid, masked)
-            y_seg = _apply_global_mask_to_series(t_sec_seg, y_raw, aux_df)
+            y_seg = _apply_evt_desat_only_mask_to_series(t_sec_seg, y_raw, aux_df)
 
             ok_plot = np.isfinite(y_seg)
             if np.any(ok_plot):
@@ -284,7 +337,7 @@ def _plot_segment_hrv(
         # IMPORTANT: this MUST match your RR exclusion event windows (pre/post)
         # -------------------------------------------------
         if aux_df is not None:
-            m_evt_keep = io_aux_csv.build_time_exclusion_mask(t_sec_seg, aux_df)
+            m_evt_keep = io_aux_csv.build_event_exclusion_mask(t_sec_seg, aux_df)
 
             if m_evt_keep is not None:
                 _shade_masked_regions(
@@ -416,9 +469,11 @@ def _mask_keep_nonexcluded(
 def _plot_segment_delta_hr(
     ax: plt.Axes,
     t_hr_edf: Optional[np.ndarray],
-    delta_hr_edf: Optional[np.ndarray],
+    delta_hr_edf_raw: Optional[np.ndarray],
+    delta_hr_edf_desat: Optional[np.ndarray],
     t_hr_calc: Optional[np.ndarray],
-    delta_hr_calc: Optional[np.ndarray],
+    delta_hr_calc_raw: Optional[np.ndarray],
+    delta_hr_calc_desat: Optional[np.ndarray],
     seg_start_sec: float,
     seg_end_sec: float,
     exclusion_zones: List[Tuple[float, float, str]],
@@ -426,20 +481,52 @@ def _plot_segment_delta_hr(
     t_seg_h_end: float,
     aux_df: Optional["pd.DataFrame"],
 ) -> tuple[Optional[float], Optional[float]]:
+
     _add_exclusion_spans(ax, exclusion_zones, t_seg_h_start, t_seg_h_end, label_once=True)
 
-    y_min = y_max = None
+    def _build_evt_desat_mask_for_times(t_sec_seg: np.ndarray) -> Optional[np.ndarray]:
+        if aux_df is None or t_sec_seg.size == 0:
+            return None
+
+        # EVENTS ONLY (keep=True outside event windows)
+        m_evt_keep = io_aux_csv.build_event_exclusion_mask(t_sec_seg, aux_df)
+
+        # DESAT windows (keep=True outside desat windows per your implementation)
+        m_desat_keep = io_aux_csv.build_desat_window_keep_mask(t_sec_seg, aux_df)
+
+        if m_evt_keep is None or m_desat_keep is None:
+            return None
+
+        # inside event window
+        m_evt_in = ~np.asarray(m_evt_keep, dtype=bool)
+
+        # inside desat window
+        # NOTE: build_desat_window_keep_mask returns keep outside desat => inside is ~keep
+        m_desat_in = ~np.asarray(m_desat_keep, dtype=bool)
+
+        return m_evt_in & m_desat_in
+
+    y_min: Optional[float] = None
+    y_max: Optional[float] = None
     summary_lines: List[str] = []
+
+    def _update_ylim(y: np.ndarray) -> None:
+        nonlocal y_min, y_max
+        ok = np.isfinite(y)
+        if not np.any(ok):
+            return
+        lo = float(np.nanmin(y[ok]))
+        hi = float(np.nanmax(y[ok]))
+        y_min = lo if y_min is None else min(y_min, lo)
+        y_max = hi if y_max is None else max(y_max, hi)
 
     def _stats_line(name: str, y_seg: np.ndarray) -> None:
         ok = np.isfinite(y_seg)
         n_total = int(y_seg.size)
         n_used = int(np.count_nonzero(ok))
-
         if n_used == 0:
-            summary_lines.append(f"{name}: no finite samples after masking (used 0/{n_total})")
+            summary_lines.append(f"{name}: no finite samples (used 0/{n_total})")
             return
-
         yy = y_seg[ok]
         summary_lines.append(
             f"{name}: n={n_used}/{n_total} | "
@@ -447,51 +534,130 @@ def _plot_segment_delta_hr(
             f"mean={np.mean(yy):.1f}, median={np.median(yy):.1f}, std={np.std(yy):.1f}"
         )
 
-
-    # ---- EDF ΔHR ----
-    if t_hr_edf is not None and delta_hr_edf is not None:
+    # -------------------------
+    # EDF ΔHR
+    # -------------------------
+    if t_hr_edf is not None and delta_hr_edf_raw is not None:
         mask_seg = (t_hr_edf >= seg_start_sec) & (t_hr_edf <= seg_end_sec)
         if np.any(mask_seg):
-            t_sec_seg = t_hr_edf[mask_seg]
+            t_sec_seg = t_hr_edf[mask_seg].astype(float)
             th = t_sec_seg / 3600.0
 
-            y_seg = delta_hr_edf[mask_seg].astype(float)
-            ok_plot = np.isfinite(y_seg)
-            if np.any(ok_plot):
-                ax.plot(th[ok_plot], y_seg[ok_plot], label="ΔHR EDF", linewidth=1.0, alpha=0.7, zorder=1)
-                y_min = float(np.nanmin(y_seg[ok_plot])) if y_min is None else min(y_min, float(np.nanmin(y_seg[ok_plot])))
-                y_max = float(np.nanmax(y_seg[ok_plot])) if y_max is None else max(y_max, float(np.nanmax(y_seg[ok_plot])))
+            y_raw = np.asarray(delta_hr_edf_raw[mask_seg], dtype=float)
 
-            # Summary stats computed ONLY on non-excluded samples
-            _stats_line("EDF", y_seg)
-    # ---- PAT ΔHR ----
-    if t_hr_calc is not None and delta_hr_calc is not None:
+            # RAW dashed
+            okr = np.isfinite(y_raw)
+            if np.any(okr):
+                ax.plot(
+                    th[okr], y_raw[okr],
+                    label="ΔHR EDF (raw)",
+                    linestyle="--",
+                    linewidth=1.0,
+                    alpha=0.6,
+                    color="0.5",
+                    zorder=0,
+                )
+                _update_ylim(y_raw)
+
+            # STRONG overlay (raw inside event+desat)
+            m_evt_desat_seg = _build_evt_desat_mask_for_times(t_sec_seg)
+            if m_evt_desat_seg is not None:
+                _plot_strong_where(
+                    ax,
+                    t_sec_seg,
+                    y_raw,
+                    strong_mask=m_evt_desat_seg,
+                    label="ΔHR EDF (event+desat)",
+                    color="k",
+                    linewidth=3.5,
+                    alpha=0.95,
+                    zorder=7,
+                )
+
+            # DESAT-only (optional)
+            if delta_hr_edf_desat is not None:
+                y_des = np.asarray(delta_hr_edf_desat[mask_seg], dtype=float)
+                okd = np.isfinite(y_des)
+                if np.any(okd):
+                    ax.plot(
+                        th[okd], y_des[okd],
+                        label="ΔHR EDF (desat-only)",
+                        linewidth=1.2,
+                        alpha=0.9,
+                        zorder=2,
+                    )
+                    _update_ylim(y_des)
+                _stats_line("EDF(desat)", y_des)
+            else:
+                _stats_line("EDF(raw)", y_raw)
+
+    # -------------------------
+    # PAT ΔHR
+    # -------------------------
+    if t_hr_calc is not None and delta_hr_calc_raw is not None:
         mask_seg = (t_hr_calc >= seg_start_sec) & (t_hr_calc <= seg_end_sec)
         if np.any(mask_seg):
-            t_sec_seg = t_hr_calc[mask_seg]
+            t_sec_seg = t_hr_calc[mask_seg].astype(float)
             th = t_sec_seg / 3600.0
 
-            y_seg = delta_hr_calc[mask_seg].astype(float)
-            ok_plot = np.isfinite(y_seg)
-            if np.any(ok_plot):
-                ax.plot(th[ok_plot], y_seg[ok_plot], label="ΔHR PAT", linewidth=1.0, zorder=3)
-                y_min = float(np.nanmin(y_seg[ok_plot])) if y_min is None else min(y_min, float(np.nanmin(y_seg[ok_plot])))
-                y_max = float(np.nanmax(y_seg[ok_plot])) if y_max is None else max(y_max, float(np.nanmax(y_seg[ok_plot])))
+            y_raw = np.asarray(delta_hr_calc_raw[mask_seg], dtype=float)
 
-            # Summary stats computed ONLY on non-excluded samples
-            _stats_line("PAT", y_seg)
+            # RAW dashed
+            okr = np.isfinite(y_raw)
+            if np.any(okr):
+                ax.plot(
+                    th[okr], y_raw[okr],
+                    label="ΔHR PAT (raw)",
+                    linestyle="--",
+                    linewidth=1.0,
+                    alpha=0.6,
+                    color="tab:blue",
+                    zorder=0,
+                )
+                _update_ylim(y_raw)
 
+            # STRONG overlay (raw inside event+desat)
+            m_evt_desat_seg = _build_evt_desat_mask_for_times(t_sec_seg)
+            if m_evt_desat_seg is not None:
+                _plot_strong_where(
+                    ax,
+                    t_sec_seg,
+                    y_raw,
+                    strong_mask=m_evt_desat_seg,
+                    label="ΔHR PAT (event+desat)",
+                    color="k",
+                    linewidth=3.5,
+                    alpha=0.95,
+                    zorder=7,
+                )
+
+            # DESAT-only (optional)
+            if delta_hr_calc_desat is not None:
+                y_des = np.asarray(delta_hr_calc_desat[mask_seg], dtype=float)
+                okd = np.isfinite(y_des)
+                if np.any(okd):
+                    ax.plot(
+                        th[okd], y_des[okd],
+                        label="ΔHR PAT (desat-only)",
+                        linewidth=1.2,
+                        alpha=0.95,
+                        zorder=3,
+                    )
+                    _update_ylim(y_des)
+                _stats_line("PAT(desat)", y_des)
+            else:
+                _stats_line("PAT(raw)", y_raw)
+
+    # Ax cosmetics
     ax.set_ylabel("ΔHR [bpm]")
     ax.grid(True)
     _maybe_add_legend(ax, loc="upper right")
-
-    # Zero line (put it here so it’s always visible)
     ax.axhline(0.0, linewidth=0.8, alpha=0.5, zorder=0)
 
-    if not summary_lines:
+    if summary_lines:
         ax.text(
             0.01, 0.92,
-            "ΔHR: no data in this segment",
+            "\n".join(summary_lines),
             transform=ax.transAxes,
             fontsize=9,
             va="top",
@@ -499,7 +665,7 @@ def _plot_segment_delta_hr(
     else:
         ax.text(
             0.01, 0.92,
-            "\n".join(summary_lines),
+            "ΔHR: no data in this segment",
             transform=ax.transAxes,
             fontsize=9,
             va="top",
@@ -710,8 +876,10 @@ def _add_segment_pages_to_pdf(
     exclusion_zones: List[Tuple[float, float, str]],
     t_pat_amp: Optional[np.ndarray],
     pat_amp: Optional[np.ndarray],
-    delta_hr_calc: Optional[np.ndarray],  # <--- ADD
-    delta_hr_edf: Optional[np.ndarray],  # <--- ADD
+    delta_hr_calc_raw: Optional[np.ndarray],
+    delta_hr_edf_raw: Optional[np.ndarray],
+    delta_hr_calc_desat: Optional[np.ndarray],
+    delta_hr_edf_desat: Optional[np.ndarray],
 ) -> None:
     n_samples = len(signal_raw)
     samples_per_segment = int(segment_minutes * 60.0 * sfreq)
@@ -746,8 +914,10 @@ def _add_segment_pages_to_pdf(
         enable_delta = bool(getattr(config, "ENABLE_DELTA_HR", True))
         delta_mode = str(getattr(config, "DELTA_HR_PLOT_MODE", "subplot")).lower()
         use_delta_subplot = enable_delta and (delta_mode == "subplot") and (
-                (delta_hr_calc is not None and np.size(delta_hr_calc) > 0)
-                or (delta_hr_edf is not None and np.size(delta_hr_edf) > 0)
+                (delta_hr_calc_raw is not None and np.size(delta_hr_calc_raw) > 0)
+                or (delta_hr_edf_raw is not None and np.size(delta_hr_edf_raw) > 0)
+                or (delta_hr_calc_desat is not None and np.size(delta_hr_calc_desat) > 0)
+                or (delta_hr_edf_desat is not None and np.size(delta_hr_edf_desat) > 0)
         )
 
         n_rows = 2 + (1 if use_hrv else 0) + (1 if use_pat_amp else 0) + (1 if use_delta_subplot else 0)
@@ -833,9 +1003,11 @@ def _add_segment_pages_to_pdf(
             _plot_segment_delta_hr(
                 ax_delta,
                 t_hr_edf=t_hr_edf,
-                delta_hr_edf=delta_hr_edf,
+                delta_hr_edf_raw=delta_hr_edf_raw,
+                delta_hr_edf_desat=delta_hr_edf_desat,
                 t_hr_calc=t_hr_calc,
-                delta_hr_calc=delta_hr_calc,
+                delta_hr_calc_raw=delta_hr_calc_raw,
+                delta_hr_calc_desat=delta_hr_calc_desat,
                 seg_start_sec=seg_start_sec,
                 seg_end_sec=seg_end_sec,
                 exclusion_zones=exclusion_zones,
@@ -843,6 +1015,7 @@ def _add_segment_pages_to_pdf(
                 t_seg_h_end=t_h_end,
                 aux_df=aux_df,
             )
+
             delta_ylim = ax_delta.get_ylim()
 
 
