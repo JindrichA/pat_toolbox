@@ -45,6 +45,8 @@ def plot_pat_and_hr_segments_to_pdf(
         pat_amp: Optional[np.ndarray] = None,
         delta_hr_calc: Optional[np.ndarray] = None,  # <--- ADD
         delta_hr_edf: Optional[np.ndarray] = None,
+        delta_hr_calc_evt: Optional[np.ndarray] = None,
+        delta_hr_edf_evt: Optional[np.ndarray] = None,
 ) -> Dict[str, float]:
 
     if segment_minutes is None:
@@ -108,6 +110,8 @@ def plot_pat_and_hr_segments_to_pdf(
         exclusion_zones=exclusion_zones,  # <--- ADD
         delta_hr_calc=delta_hr_calc,  # <--- ADD
         delta_hr_edf=delta_hr_edf,  # <--- ADD
+          delta_hr_calc_evt=delta_hr_calc_evt,
+       delta_hr_edf_evt=delta_hr_edf_evt,
     )
 
     fig_stage = _build_sleep_stagegram_figure(
@@ -186,6 +190,9 @@ def plot_pat_and_hr_segments_to_pdf(
             pat_amp=pat_amp,
             delta_hr_calc=delta_hr_calc,
             delta_hr_edf=delta_hr_edf,
+            delta_hr_calc_evt=delta_hr_calc_evt,
+            delta_hr_edf_evt=delta_hr_edf_evt,
+
         )
 
     return psd_features  # Return dictionary to workflow

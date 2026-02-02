@@ -419,6 +419,8 @@ def _plot_segment_delta_hr(
     delta_hr_edf: Optional[np.ndarray],
     t_hr_calc: Optional[np.ndarray],
     delta_hr_calc: Optional[np.ndarray],
+    delta_hr_edf_evt: Optional[np.ndarray],
+    delta_hr_calc_evt: Optional[np.ndarray],
     seg_start_sec: float,
     seg_end_sec: float,
     exclusion_zones: List[Tuple[float, float, str]],
@@ -447,39 +449,57 @@ def _plot_segment_delta_hr(
             f"mean={np.mean(yy):.1f}, median={np.median(yy):.1f}, std={np.std(yy):.1f}"
         )
 
-
     # ---- EDF ΔHR ----
-    if t_hr_edf is not None and delta_hr_edf is not None:
+    if t_hr_edf is not None:
         mask_seg = (t_hr_edf >= seg_start_sec) & (t_hr_edf <= seg_end_sec)
         if np.any(mask_seg):
+
             t_sec_seg = t_hr_edf[mask_seg]
             th = t_sec_seg / 3600.0
 
-            y_seg = delta_hr_edf[mask_seg].astype(float)
-            ok_plot = np.isfinite(y_seg)
-            if np.any(ok_plot):
-                ax.plot(th[ok_plot], y_seg[ok_plot], label="ΔHR EDF", linewidth=1.0, alpha=0.7, zorder=1)
-                y_min = float(np.nanmin(y_seg[ok_plot])) if y_min is None else min(y_min, float(np.nanmin(y_seg[ok_plot])))
-                y_max = float(np.nanmax(y_seg[ok_plot])) if y_max is None else max(y_max, float(np.nanmax(y_seg[ok_plot])))
+            # 1) FULL thin
+            if delta_hr_edf is not None and np.size(delta_hr_edf) == np.size(t_hr_edf):
+                y_full = delta_hr_edf[mask_seg].astype(float)
+                ok = np.isfinite(y_full)
+                if np.any(ok):
+                    ax.plot(th[ok], y_full[ok],
+                            label="ΔHR EDF (full)",
+                            linewidth=0.8, alpha=0.45, linestyle="--", zorder=1)
 
-            # Summary stats computed ONLY on non-excluded samples
-            _stats_line("EDF", y_seg)
+            # 2) EVENT-ONLY thick
+            if delta_hr_edf_evt is not None and np.size(delta_hr_edf_evt) == np.size(t_hr_edf):
+                y_evt = delta_hr_edf_evt[mask_seg].astype(float)
+                ok2 = np.isfinite(y_evt)
+                if np.any(ok2):
+                    ax.plot(th[ok2], y_evt[ok2],
+                            label="ΔHR EDF (events)",
+                            linewidth=2.2, alpha=0.95, zorder=3)
+
     # ---- PAT ΔHR ----
-    if t_hr_calc is not None and delta_hr_calc is not None:
+    if t_hr_calc is not None:
         mask_seg = (t_hr_calc >= seg_start_sec) & (t_hr_calc <= seg_end_sec)
         if np.any(mask_seg):
+
             t_sec_seg = t_hr_calc[mask_seg]
             th = t_sec_seg / 3600.0
 
-            y_seg = delta_hr_calc[mask_seg].astype(float)
-            ok_plot = np.isfinite(y_seg)
-            if np.any(ok_plot):
-                ax.plot(th[ok_plot], y_seg[ok_plot], label="ΔHR PAT", linewidth=1.0, zorder=3)
-                y_min = float(np.nanmin(y_seg[ok_plot])) if y_min is None else min(y_min, float(np.nanmin(y_seg[ok_plot])))
-                y_max = float(np.nanmax(y_seg[ok_plot])) if y_max is None else max(y_max, float(np.nanmax(y_seg[ok_plot])))
+            # 1) FULL thin
+            if delta_hr_calc is not None and np.size(delta_hr_calc) == np.size(t_hr_calc):
+                y_full = delta_hr_calc[mask_seg].astype(float)
+                ok = np.isfinite(y_full)
+                if np.any(ok):
+                    ax.plot(th[ok], y_full[ok],
+                            label="ΔHR PAT (full)",
+                            linewidth=0.9, alpha=0.45, linestyle="--", zorder=2)
 
-            # Summary stats computed ONLY on non-excluded samples
-            _stats_line("PAT", y_seg)
+            # 2) EVENT-ONLY thick
+            if delta_hr_calc_evt is not None and np.size(delta_hr_calc_evt) == np.size(t_hr_calc):
+                y_evt = delta_hr_calc_evt[mask_seg].astype(float)
+                ok2 = np.isfinite(y_evt)
+                if np.any(ok2):
+                    ax.plot(th[ok2], y_evt[ok2],
+                            label="ΔHR PAT (events)",
+                            linewidth=2.6, alpha=0.95, zorder=4)
 
     ax.set_ylabel("ΔHR [bpm]")
     ax.grid(True)
@@ -710,8 +730,11 @@ def _add_segment_pages_to_pdf(
     exclusion_zones: List[Tuple[float, float, str]],
     t_pat_amp: Optional[np.ndarray],
     pat_amp: Optional[np.ndarray],
-    delta_hr_calc: Optional[np.ndarray],  # <--- ADD
-    delta_hr_edf: Optional[np.ndarray],  # <--- ADD
+    delta_hr_calc: Optional[np.ndarray],
+    delta_hr_edf: Optional[np.ndarray],
+    # NEW: event/desat-only ΔHR arrays (NaN outside event windows)
+    delta_hr_calc_evt: Optional[np.ndarray],
+    delta_hr_edf_evt: Optional[np.ndarray],
 ) -> None:
     n_samples = len(signal_raw)
     samples_per_segment = int(segment_minutes * 60.0 * sfreq)
@@ -745,14 +768,19 @@ def _add_segment_pages_to_pdf(
         # ----------------------------
         enable_delta = bool(getattr(config, "ENABLE_DELTA_HR", True))
         delta_mode = str(getattr(config, "DELTA_HR_PLOT_MODE", "subplot")).lower()
-        use_delta_subplot = enable_delta and (delta_mode == "subplot") and (
-                (delta_hr_calc is not None and np.size(delta_hr_calc) > 0)
-                or (delta_hr_edf is not None and np.size(delta_hr_edf) > 0)
+
+        # show ΔHR subplot if ANY ΔHR series exists (full or event-only)
+        has_any_delta = (
+            (delta_hr_calc is not None and np.size(delta_hr_calc) > 0)
+            or (delta_hr_edf is not None and np.size(delta_hr_edf) > 0)
+            or (delta_hr_calc_evt is not None and np.size(delta_hr_calc_evt) > 0)
+            or (delta_hr_edf_evt is not None and np.size(delta_hr_edf_evt) > 0)
         )
 
+        use_delta_subplot = enable_delta and (delta_mode == "subplot") and has_any_delta
+
         n_rows = 2 + (1 if use_hrv else 0) + (1 if use_pat_amp else 0) + (1 if use_delta_subplot else 0)
-        height_ratios = [2, 1] + ([1] if use_hrv else []) + ([1] if use_pat_amp else []) + (
-            [1] if use_delta_subplot else [])
+        height_ratios = [2, 1] + ([1] if use_hrv else []) + ([1] if use_pat_amp else []) + ([1] if use_delta_subplot else [])
 
         fig, axes = plt.subplots(
             n_rows,
@@ -801,7 +829,7 @@ def _add_segment_pages_to_pdf(
             exclusion_zones,
             t_h_start, t_h_end,
             aux_df=aux_df,
-            t_seg_sec=t_seg_sec,  # <-- ADD
+            t_seg_sec=t_seg_sec,
         )
         hr_ylim = ax_hr.get_ylim()
 
@@ -813,7 +841,7 @@ def _add_segment_pages_to_pdf(
                 seg_start_sec, seg_end_sec,
                 exclusion_zones,
                 t_h_start, t_h_end,
-                aux_df=aux_df,  # <-- ADD
+                aux_df=aux_df,
             )
             hrv_ylim = ax_hrv.get_ylim()
 
@@ -836,6 +864,9 @@ def _add_segment_pages_to_pdf(
                 delta_hr_edf=delta_hr_edf,
                 t_hr_calc=t_hr_calc,
                 delta_hr_calc=delta_hr_calc,
+                # NEW:
+                delta_hr_edf_evt=delta_hr_edf_evt,
+                delta_hr_calc_evt=delta_hr_calc_evt,
                 seg_start_sec=seg_start_sec,
                 seg_end_sec=seg_end_sec,
                 exclusion_zones=exclusion_zones,
@@ -844,8 +875,6 @@ def _add_segment_pages_to_pdf(
                 aux_df=aux_df,
             )
             delta_ylim = ax_delta.get_ylim()
-
-
 
         _overlay_events_on_axes(
             aux_df,
@@ -861,6 +890,7 @@ def _add_segment_pages_to_pdf(
             delta_ylim=delta_ylim,
         )
 
+        # bottom x-label
         if ax_delta is not None:
             ax_delta.set_xlabel("Time (hours from recording start)")
         elif ax_amp is not None:
@@ -873,3 +903,4 @@ def _add_segment_pages_to_pdf(
         fig.tight_layout()
         pdf.savefig(fig)
         plt.close(fig)
+

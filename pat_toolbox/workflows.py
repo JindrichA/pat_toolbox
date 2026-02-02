@@ -29,33 +29,63 @@ def _compute_delta_hr(ctx: RecordingContext) -> None:
     if not bool(getattr(config, "ENABLE_DELTA_HR", True)):
         ctx.delta_hr_calc = None
         ctx.delta_hr_edf = None
+        ctx.delta_hr_calc_evt = None
+        ctx.delta_hr_edf_evt = None
         return
 
     lag = float(getattr(config, "DELTA_HR_LAG_SEC", 30.0))
     pre = float(getattr(config, "DELTA_HR_PRE_SMOOTH_SEC", 0.0))
     use_abs = bool(getattr(config, "DELTA_HR_ABS", False))
 
-    # PAT HR (assumed HR_TARGET_FS_HZ grid)
-    if ctx.t_hr_calc is not None and ctx.hr_calc is not None and ctx.hr_calc.size > 0:
+    # ---------------------------
+    # PAT ΔHR: compute from RAW HR
+    # ---------------------------
+    if ctx.t_hr_calc is not None and getattr(ctx, "hr_calc_raw", None) is not None:
         fs_pat = float(getattr(config, "HR_TARGET_FS_HZ", 1.0))
+
         ctx.delta_hr_calc = hr_metrics.compute_delta_hr(
-            ctx.t_hr_calc, ctx.hr_calc,
+            ctx.t_hr_calc, ctx.hr_calc_raw,
             lag_sec=lag, pre_smooth_sec=pre, fs=fs_pat, use_abs=use_abs
         )
+
+        # event-only mask
+        ctx.delta_hr_calc_evt = None
+        if ctx.aux_df is not None:
+            m_evt_keep = io_aux_csv.build_time_exclusion_mask(ctx.t_hr_calc, ctx.aux_df)
+            if m_evt_keep is not None:
+                m_inside = ~np.asarray(m_evt_keep, dtype=bool)
+                d = ctx.delta_hr_calc.astype(float, copy=True)
+                d[~m_inside] = np.nan
+                ctx.delta_hr_calc_evt = d
     else:
         ctx.delta_hr_calc = None
+        ctx.delta_hr_calc_evt = None
 
-    # EDF HR (estimate fs from time vector)
-    if ctx.t_hr_edf is not None and ctx.hr_edf is not None and ctx.hr_edf.size > 0:
+    # ---------------------------
+    # EDF ΔHR: compute from RAW HR
+    # ---------------------------
+    if ctx.t_hr_edf is not None and getattr(ctx, "hr_edf_raw", None) is not None:
         dt = np.diff(ctx.t_hr_edf)
         dt = dt[np.isfinite(dt) & (dt > 0)]
         fs_edf = 1.0 / float(np.median(dt)) if dt.size else 1.0
+
         ctx.delta_hr_edf = hr_metrics.compute_delta_hr(
-            ctx.t_hr_edf, ctx.hr_edf,
+            ctx.t_hr_edf, ctx.hr_edf_raw,
             lag_sec=lag, pre_smooth_sec=pre, fs=fs_edf, use_abs=use_abs
         )
+
+        ctx.delta_hr_edf_evt = None
+        if ctx.aux_df is not None:
+            m_evt_keep = io_aux_csv.build_time_exclusion_mask(ctx.t_hr_edf, ctx.aux_df)
+            if m_evt_keep is not None:
+                m_inside = ~np.asarray(m_evt_keep, dtype=bool)
+                d = ctx.delta_hr_edf.astype(float, copy=True)
+                d[~m_inside] = np.nan
+                ctx.delta_hr_edf_evt = d
     else:
         ctx.delta_hr_edf = None
+        ctx.delta_hr_edf_evt = None
+
 
 
 
@@ -111,6 +141,7 @@ def _compute_hr_from_pat(ctx: RecordingContext) -> None:
     try:
         ctx.t_hr_calc, ctx.hr_calc = hr_metrics.compute_hr_from_pat_signal(ctx.view_pat, fs=ctx.sfreq)
 
+        ctx.hr_calc_raw = None if ctx.hr_calc is None else ctx.hr_calc.copy()
         # sleep include (keep=True)
         m_sleep = sleep_mask.build_sleep_include_mask(ctx.t_hr_calc, ctx.aux_df)
         if m_sleep is not None:
@@ -136,6 +167,8 @@ def _load_hr_from_edf(ctx: RecordingContext) -> None:
         if n > 0:
             ctx.t_hr_edf = np.arange(n) / hr_fs
             ctx.hr_edf = hr_signal.astype(float) * config.HR_EDF_SCALE_FACTOR
+
+            ctx.hr_edf_raw = None if ctx.hr_edf is None else ctx.hr_edf.copy()
 
             # sleep include (keep=True)
             m_sleep = sleep_mask.build_sleep_include_mask(ctx.t_hr_edf, ctx.aux_df)
@@ -275,8 +308,11 @@ def _build_pdf(ctx: RecordingContext) -> None:
         aux_df=ctx.aux_df,
         t_pat_amp=ctx.t_pat_amp,
         pat_amp=ctx.pat_amp,
-        delta_hr_calc=getattr(ctx, "delta_hr_calc", None),
-        delta_hr_edf=getattr(ctx, "delta_hr_edf", None),
+        delta_hr_calc=ctx.delta_hr_calc,
+        delta_hr_edf=ctx.delta_hr_edf,
+        delta_hr_calc_evt=getattr(ctx, "delta_hr_calc_evt", None),
+        delta_hr_edf_evt=getattr(ctx, "delta_hr_edf_evt", None),
+
     )
 
     # Store the dictionary in context for the summary CSV step

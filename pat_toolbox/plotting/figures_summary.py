@@ -16,6 +16,45 @@ if TYPE_CHECKING:
 # Small formatting / stats helpers (kept local to this module)
 # ============================================================================
 
+
+def _finite_stats(y: Optional[np.ndarray]) -> Dict[str, Optional[float]]:
+    out = {
+        "n_total": None,
+        "n_used": None,
+        "min": None,
+        "max": None,
+        "mean": None,
+        "median": None,
+        "std": None,
+        "nan_pct": None,
+    }
+    if y is None:
+        return out
+    y = np.asarray(y, dtype=float)
+    if y.size == 0:
+        out["n_total"] = 0.0
+        out["n_used"] = 0.0
+        out["nan_pct"] = 100.0
+        return out
+
+    out["n_total"] = float(y.size)
+    out["nan_pct"] = float(100.0 * np.mean(~np.isfinite(y)))
+
+    ok = np.isfinite(y)
+    out["n_used"] = float(np.count_nonzero(ok))
+    if np.count_nonzero(ok) == 0:
+        return out
+
+    yy = y[ok]
+    out["min"] = float(np.min(yy))
+    out["max"] = float(np.max(yy))
+    out["mean"] = float(np.mean(yy))
+    out["median"] = float(np.median(yy))
+    out["std"] = float(np.std(yy))
+    return out
+
+
+
 def _nan_pct(x: Optional[np.ndarray]) -> Optional[float]:
     """Percent of non-finite values in x."""
     if x is None:
@@ -224,6 +263,9 @@ def _build_summary_figure(
     exclusion_zones: Optional[List[Tuple[float, float, str]]] = None,
     delta_hr_calc: Optional[np.ndarray] = None,
     delta_hr_edf: Optional[np.ndarray] = None,
+    delta_hr_calc_evt: Optional[np.ndarray] = None,
+    delta_hr_edf_evt: Optional[np.ndarray] = None,
+
 ) -> plt.Figure:
     fig, ax = plt.subplots(figsize=(11.69, 8.27))
     ax.axis("off")
@@ -287,26 +329,31 @@ def _build_summary_figure(
     cell_text.append(["  HRV RMSSD clean NaN %", _fmt_pct(hrv_clean_nan, 1)])
     cell_text.append(["  HRV RMSSD raw NaN %", _fmt_pct(hrv_raw_nan, 1)])
 
-    # ΔHR summary (masked by exclusion zones)
-    d_edf = _masked_stats(t_hr_edf, delta_hr_edf, exclusion_zones)
-    d_pat = _masked_stats(t_hr_calc, delta_hr_calc, exclusion_zones)
+    # ΔHR summary (INSIDE event/desat windows only)
+    # (delta_hr_*_evt are NaN everywhere except inside event/desat windows)
+    d_edf_evt = _finite_stats(delta_hr_edf_evt)
+    d_pat_evt = _finite_stats(delta_hr_calc_evt)
 
     cell_text.append(["", ""])
-    cell_text.append(["ΔHR Summary (excluding exclusion zones)", ""])
+    cell_text.append(["ΔHR Summary (INSIDE event/desat windows only)", ""])
 
-    # EDF ΔHR
-    cell_text.append(["  ΔHR EDF n used / kept", f"{_fmt_int(d_edf['n_used'])} / {_fmt_int(d_edf['n_kept'])}"])
-    cell_text.append(["  ΔHR EDF min / max [bpm]", f"{_fmt_num(d_edf['min'], 2)} / {_fmt_num(d_edf['max'], 2)}"])
-    cell_text.append(["  ΔHR EDF mean / median [bpm]", f"{_fmt_num(d_edf['mean'], 2)} / {_fmt_num(d_edf['median'], 2)}"])
-    cell_text.append(["  ΔHR EDF std [bpm]", _fmt_num(d_edf["std"], 2)])
-    cell_text.append(["  ΔHR EDF NaN % (post-excl)", _fmt_pct(d_edf["nan_pct_used"], 1)])
+    # EDF ΔHR (event-only)
+    cell_text.append(["  ΔHR EDF n used", _fmt_int(d_edf_evt["n_used"])])
+    cell_text.append(["  ΔHR EDF min / max [bpm]",
+                      f"{_fmt_num(d_edf_evt['min'], 2)} / {_fmt_num(d_edf_evt['max'], 2)}"])
+    cell_text.append(["  ΔHR EDF mean / median [bpm]",
+                      f"{_fmt_num(d_edf_evt['mean'], 2)} / {_fmt_num(d_edf_evt['median'], 2)}"])
+    cell_text.append(["  ΔHR EDF std [bpm]", _fmt_num(d_edf_evt["std"], 2)])
+    cell_text.append(["  ΔHR EDF NaN % (overall)", _fmt_pct(d_edf_evt["nan_pct"], 1)])
 
-    # PAT ΔHR
-    cell_text.append(["  ΔHR PAT n used / kept", f"{_fmt_int(d_pat['n_used'])} / {_fmt_int(d_pat['n_kept'])}"])
-    cell_text.append(["  ΔHR PAT min / max [bpm]", f"{_fmt_num(d_pat['min'], 2)} / {_fmt_num(d_pat['max'], 2)}"])
-    cell_text.append(["  ΔHR PAT mean / median [bpm]", f"{_fmt_num(d_pat['mean'], 2)} / {_fmt_num(d_pat['median'], 2)}"])
-    cell_text.append(["  ΔHR PAT std [bpm]", _fmt_num(d_pat["std"], 2)])
-    cell_text.append(["  ΔHR PAT NaN % (post-excl)", _fmt_pct(d_pat["nan_pct_used"], 1)])
+    # PAT ΔHR (event-only)
+    cell_text.append(["  ΔHR PAT n used", _fmt_int(d_pat_evt["n_used"])])
+    cell_text.append(["  ΔHR PAT min / max [bpm]",
+                      f"{_fmt_num(d_pat_evt['min'], 2)} / {_fmt_num(d_pat_evt['max'], 2)}"])
+    cell_text.append(["  ΔHR PAT mean / median [bpm]",
+                      f"{_fmt_num(d_pat_evt['mean'], 2)} / {_fmt_num(d_pat_evt['median'], 2)}"])
+    cell_text.append(["  ΔHR PAT std [bpm]", _fmt_num(d_pat_evt["std"], 2)])
+    cell_text.append(["  ΔHR PAT NaN % (overall)", _fmt_pct(d_pat_evt["nan_pct"], 1)])
 
     # Optional: add TV metrics NaN %
     if isinstance(hrv_tv, dict) and t_hrv is not None and np.size(t_hrv) > 0:
