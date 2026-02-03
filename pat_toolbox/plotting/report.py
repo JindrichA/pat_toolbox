@@ -12,7 +12,8 @@ from .. import config
 from ..metrics.psd import compute_psd_figures_and_peaks
 
 from .utils import _infer_edf_base, _compute_exclusion_zones
-from .figures_summary import _build_summary_figure, _build_sleep_stagegram_figure
+from .figures_summary import build_summary_pages, _build_sleep_stagegram_figure
+
 from .figures_hrv import _build_hrv_overview_figure, _build_hrv_tv_metrics_figure
 from .segments import _add_segment_pages_to_pdf
 
@@ -47,6 +48,10 @@ def plot_pat_and_hr_segments_to_pdf(
         delta_hr_edf: Optional[np.ndarray] = None,
         delta_hr_calc_evt: Optional[np.ndarray] = None,
         delta_hr_edf_evt: Optional[np.ndarray] = None,
+        t_hr_calc_raw: Optional[np.ndarray] = None,
+        hr_calc_raw: Optional[np.ndarray] = None,
+        t_hr_edf_raw: Optional[np.ndarray] = None,
+        hr_edf_raw: Optional[np.ndarray] = None,
 ) -> Dict[str, float]:
 
     if segment_minutes is None:
@@ -89,7 +94,7 @@ def plot_pat_and_hr_segments_to_pdf(
     duration_sec = n_samples / sfreq
 
     # --- UPDATED SUMMARY FIGURE CALL ---
-    fig_summary = _build_summary_figure(
+    summary_pages = build_summary_pages(
         edf_base=edf_base,
         pearson_r=pearson_r,
         spear_rho=spear_rho,
@@ -107,11 +112,10 @@ def plot_pat_and_hr_segments_to_pdf(
         hrv_raw=hrv_rmssd_raw,
         hrv_tv=hrv_tv,
         psd_features=psd_features,
-        exclusion_zones=exclusion_zones,  # <--- ADD
-        delta_hr_calc=delta_hr_calc,  # <--- ADD
-        delta_hr_edf=delta_hr_edf,  # <--- ADD
-          delta_hr_calc_evt=delta_hr_calc_evt,
-       delta_hr_edf_evt=delta_hr_edf_evt,
+        delta_hr_calc=delta_hr_calc,
+        delta_hr_edf=delta_hr_edf,
+        delta_hr_calc_evt=delta_hr_calc_evt,
+        delta_hr_edf_evt=delta_hr_edf_evt,
     )
 
     fig_stage = _build_sleep_stagegram_figure(
@@ -148,8 +152,9 @@ def plot_pat_and_hr_segments_to_pdf(
         )
 
     with PdfPages(str(pdf_path)) as pdf:
-        pdf.savefig(fig_summary)
-        plt.close(fig_summary)
+        for fig in summary_pages:
+            pdf.savefig(fig)
+            plt.close(fig)
 
         if fig_stage is not None:
             pdf.savefig(fig_stage)
@@ -192,6 +197,10 @@ def plot_pat_and_hr_segments_to_pdf(
             delta_hr_edf=delta_hr_edf,
             delta_hr_calc_evt=delta_hr_calc_evt,
             delta_hr_edf_evt=delta_hr_edf_evt,
+            t_hr_calc_raw=t_hr_calc_raw,
+            hr_calc_raw=hr_calc_raw,
+            t_hr_edf_raw=t_hr_edf_raw,
+            hr_edf_raw=hr_edf_raw,
 
         )
 

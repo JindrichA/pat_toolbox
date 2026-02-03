@@ -16,6 +16,83 @@ if TYPE_CHECKING:
     import pandas as pd
 
 
+from typing import Optional
+
+def _plot_no_bridge(
+    ax: plt.Axes,
+    x_sec: np.ndarray,
+    y: np.ndarray,
+    *,
+    label: str,
+    linestyle: str = "--",
+    linewidth: float = 1.0,
+    color: Optional[str] = None,
+    alpha: float = 0.6,
+    zorder: int = 0,
+    # NEW:
+    gap_factor: float = 2.5,
+    min_gap_sec: float = 2.0,
+):
+    """
+    Plot y(x) but NEVER connect across:
+      - non-finite samples (NaN/Inf)
+      - large gaps in time axis (irregular sampling / dropped samples)
+
+    Parameters:
+      gap_factor: split if dt > gap_factor * median_dt (computed from finite x)
+      min_gap_sec: absolute floor (split if dt > min_gap_sec)
+    """
+    x_sec = np.asarray(x_sec, dtype=float)
+    y = np.asarray(y, dtype=float)
+    if x_sec.size == 0 or y.size == 0 or x_sec.size != y.size:
+        return
+
+    ok = np.isfinite(x_sec) & np.isfinite(y)
+    if not np.any(ok):
+        return
+
+    # Use only finite points, but preserve original order
+    idx_ok = np.where(ok)[0]
+    x_ok = x_sec[idx_ok]
+    y_ok = y[idx_ok]
+
+    # If time is not strictly increasing, sort (prevents weird backtracking lines)
+    order = np.argsort(x_ok)
+    x_ok = x_ok[order]
+    y_ok = y_ok[order]
+
+    # Estimate a "typical" dt for gap detection
+    d = np.diff(x_ok)
+    d = d[np.isfinite(d) & (d > 0)]
+    if d.size == 0:
+        return
+    med_dt = float(np.median(d))
+
+    # Split points into runs where dt is "normal"
+    gap_thr = max(float(min_gap_sec), float(gap_factor) * med_dt)
+
+    # Indices in x_ok where a new segment starts
+    cut = np.where(np.diff(x_ok) > gap_thr)[0] + 1
+    runs = np.split(np.arange(x_ok.size), cut)
+
+    first = True
+    for r in runs:
+        if r.size < 2:
+            continue
+        ax.plot(
+            x_ok[r] / 3600.0,   # convert to hours here
+            y_ok[r],
+            linestyle=linestyle,
+            linewidth=linewidth,
+            color=color,
+            alpha=alpha,
+            label=label if first else "_nolegend_",
+            zorder=zorder,
+        )
+        first = False
+
+
+
 def _plot_segment_pat(ax: plt.Axes, t_h: np.ndarray, seg_raw: np.ndarray, seg_filt: np.ndarray, title: str) -> None:
     ax.set_title(title, fontsize=12)
     ax.plot(t_h, seg_raw, label="PAT raw", linewidth=0.8)
@@ -79,9 +156,16 @@ def _plot_raw_dashed(
 def _plot_segment_hr(
     ax: plt.Axes,
     t_hr_edf: Optional[np.ndarray],
-    hr_edf: Optional[np.ndarray],
+    hr_edf: Optional[np.ndarray],          # CLEAN (already masked)
     t_hr_calc: Optional[np.ndarray],
-    hr_calc: Optional[np.ndarray],
+    hr_calc: Optional[np.ndarray],         # CLEAN (already masked)
+
+    # NEW: RAW series (unmasked)
+    t_hr_edf_raw: Optional[np.ndarray],
+    hr_edf_raw: Optional[np.ndarray],
+    t_hr_calc_raw: Optional[np.ndarray],
+    hr_calc_raw: Optional[np.ndarray],
+
     seg_start_sec: float,
     seg_end_sec: float,
     exclusion_zones: List[Tuple[float, float, str]],
@@ -90,6 +174,7 @@ def _plot_segment_hr(
     aux_df: Optional["pd.DataFrame"],
     t_seg_sec: np.ndarray,
 ) -> tuple[Optional[float], Optional[float]]:
+
     _add_exclusion_spans(ax, exclusion_zones, t_seg_h_start, t_seg_h_end, label_once=True)
 
 
@@ -147,74 +232,112 @@ def _plot_segment_hr(
     # -------------------------
     # EDF HR
     # -------------------------
-    if t_hr_edf is not None and hr_edf is not None:
-        mask_edf = (t_hr_edf >= seg_start_sec) & (t_hr_edf <= seg_end_sec)
-        if np.any(mask_edf):
-            t_sec_seg = t_hr_edf[mask_edf]
-            t_h = t_sec_seg / 3600.0
-            y_raw = hr_edf[mask_edf].astype(float)
+    if t_hr_edf_raw is None:
+        t_hr_edf_raw = t_hr_edf
+    if hr_edf_raw is None:
+        hr_edf_raw = hr_edf
 
-            # 1) RAW (dashed, everywhere)
-            _plot_raw_dashed(
+    if t_hr_edf_raw is not None and hr_edf_raw is not None:
+        mask_edf = (t_hr_edf_raw >= seg_start_sec) & (t_hr_edf_raw <= seg_end_sec)
+        if np.any(mask_edf):
+            t_sec_seg = t_hr_edf_raw[mask_edf]
+            y_raw = hr_edf_raw[mask_edf].astype(float)
+
+            # 1) RAW dashed (everywhere raw exists)
+            _plot_no_bridge(
                 ax,
-                t_sec_seg,
-                y_raw,
+                x_sec=t_sec_seg,
+                y=y_raw,
                 label="EDF HR (raw)",
+                linestyle="--",
+                linewidth=1.0,
                 color="0.5",
+                alpha=0.6,
                 zorder=0,
             )
 
-            # 2) CLEAN (solid, masked)
-            y_seg = _apply_global_mask_to_series(t_sec_seg, y_raw, aux_df)
+            # 2) CLEAN solid (use your provided clean series if available,
+            #    otherwise compute it from raw via global mask)
+            y_clean = None
+            if t_hr_edf is not None and hr_edf is not None and np.size(hr_edf) == np.size(t_hr_edf):
+                mask_clean = (t_hr_edf >= seg_start_sec) & (t_hr_edf <= seg_end_sec)
+                if np.any(mask_clean) and np.size(t_hr_edf[mask_clean]) == np.size(t_sec_seg):
+                    # same time base (common case)
+                    y_clean = hr_edf[mask_clean].astype(float)
+                else:
+                    # fallback: mask raw with global include mask
+                    y_clean = _apply_global_mask_to_series(t_sec_seg, y_raw, aux_df)
 
-            ok_plot = np.isfinite(y_seg)
-            if np.any(ok_plot):
-                ax.plot(
-                    t_h[ok_plot],
-                    y_seg[ok_plot],
-                    label="original HR from the EDF",
-                    linewidth=1.0,
-                    alpha=0.7,
+            else:
+                y_clean = _apply_global_mask_to_series(t_sec_seg, y_raw, aux_df)
+
+            ok = np.isfinite(y_clean)
+            if np.any(ok):
+                _plot_no_bridge(
+                    ax,
+                    x_sec=t_sec_seg,
+                    y=y_clean,
+                    label="EDF HR (used)",
+                    linestyle="-",
+                    linewidth=1.2,
+                    color="0.5",
+                    alpha=0.8,
                     zorder=1,
                 )
 
-            # Summary + ylim from NON-excluded only
-            _stats_line("EDF", y_seg)
+            _stats_line("EDF", y_clean)
 
     # -------------------------
     # PAT HR
     # -------------------------
-    if t_hr_calc is not None and hr_calc is not None:
-        mask_calc = (t_hr_calc >= seg_start_sec) & (t_hr_calc <= seg_end_sec)
-        if np.any(mask_calc):
-            t_sec_seg = t_hr_calc[mask_calc]
-            t_h = t_sec_seg / 3600.0
-            y_raw = hr_calc[mask_calc].astype(float)
+    if t_hr_calc_raw is None:
+        t_hr_calc_raw = t_hr_calc
+    if hr_calc_raw is None:
+        hr_calc_raw = hr_calc
 
-            # 1) RAW (dashed, everywhere)
-            _plot_raw_dashed(
+    if t_hr_calc_raw is not None and hr_calc_raw is not None:
+        mask_calc = (t_hr_calc_raw >= seg_start_sec) & (t_hr_calc_raw <= seg_end_sec)
+        if np.any(mask_calc):
+            t_sec_seg = t_hr_calc_raw[mask_calc]
+            y_raw = hr_calc_raw[mask_calc].astype(float)
+
+            _plot_no_bridge(
                 ax,
-                t_sec_seg,
-                y_raw,
+                x_sec=t_sec_seg,
+                y=y_raw,
                 label="PAT HR (raw)",
+                linestyle="--",
+                linewidth=1.0,
                 color="tab:blue",
+                alpha=0.6,
                 zorder=0,
             )
 
-            # 2) CLEAN (solid, masked)
-            y_seg = _apply_global_mask_to_series(t_sec_seg, y_raw, aux_df)
+            y_clean = None
+            if t_hr_calc is not None and hr_calc is not None and np.size(hr_calc) == np.size(t_hr_calc):
+                mask_clean = (t_hr_calc >= seg_start_sec) & (t_hr_calc <= seg_end_sec)
+                if np.any(mask_clean) and np.size(t_hr_calc[mask_clean]) == np.size(t_sec_seg):
+                    y_clean = hr_calc[mask_clean].astype(float)
+                else:
+                    y_clean = _apply_global_mask_to_series(t_sec_seg, y_raw, aux_df)
+            else:
+                y_clean = _apply_global_mask_to_series(t_sec_seg, y_raw, aux_df)
 
-            ok_plot = np.isfinite(y_seg)
-            if np.any(ok_plot):
-                ax.plot(
-                    t_h[ok_plot],
-                    y_seg[ok_plot],
-                    label="Jindrich HR from RAW PAT",
-                    linewidth=1.0,
+            ok = np.isfinite(y_clean)
+            if np.any(ok):
+                _plot_no_bridge(
+                    ax,
+                    x_sec=t_sec_seg,
+                    y=y_clean,
+                    label="PAT HR (used)",
+                    linestyle="-",
+                    linewidth=1.4,
+                    color="tab:blue",
+                    alpha=0.95,
                     zorder=3,
                 )
 
-            _stats_line("PAT", y_seg)
+            _stats_line("PAT", y_clean)
 
     ax.set_ylabel("HR [bpm]")
     ax.grid(True)
@@ -341,45 +464,61 @@ def _plot_segment_hrv(
                     Patch(facecolor="gold", alpha=0.45, label="Raw HRV missing")
                 )
 
+        # --------------------------------------------
+        # HRV RMSSD plotting (final logic)
+        #   - RAW: dashed (reference only)
+        #   - USED/CLEAN: solid
+        # --------------------------------------------
+        yc = hrv_clean[mask].astype(float)
+
+        # RAW dashed (reference only)
         if use_raw:
-            yr = hrv_raw[mask]
-            okr = np.isfinite(yr)
-            if np.any(okr):
-                ax.plot(
-                    th[okr],
-                    yr[okr],
-                    label="Raw HRV (Unmasked)",
-                    linewidth=1.0,
+            yr = hrv_raw[mask].astype(float)
+            if np.any(np.isfinite(yr)):
+                _plot_no_bridge(
+                    ax,
+                    x_sec=t_sec_seg,
+                    y=yr,
+                    label="HRV RMSSD (raw)",
                     linestyle="--",
-                    color="tab:gray",
+                    linewidth=1.1,
+                    color="tab:green",
+                    alpha=0.45,
                     zorder=1,
                 )
 
-        yc = hrv_clean[mask]
-        okc = np.isfinite(yc)
-        if np.any(okc):
-            ax.plot(th[okc], yc[okc], label="Clean HRV (Masked)", linewidth=1.5, zorder=2)
-            y_min, y_max = ax.get_ylim()
-            hrv_ymin, hrv_ymax = float(y_min), float(y_max)
+        # USED / CLEAN solid
+        if np.any(np.isfinite(yc)):
+            _plot_no_bridge(
+                ax,
+                x_sec=t_sec_seg,
+                y=yc,
+                label="HRV RMSSD (used)",
+                linestyle="-",
+                linewidth=1.8,
+                color="tab:green",
+                alpha=0.95,
+                zorder=3,
+            )
+
+            # y-limits from USED only
+            y0 = float(np.nanmin(yc[np.isfinite(yc)]))
+            y1 = float(np.nanmax(yc[np.isfinite(yc)]))
+            if np.isfinite(y0) and np.isfinite(y1) and y1 > y0:
+                m = 0.10 * (y1 - y0)
+                ax.set_ylim(y0 - m, y1 + m)
+
+            hrv_ymin, hrv_ymax = ax.get_ylim()
+
         else:
             ax.text(
                 0.01,
                 0.92,
-                "HRV clean: no finite samples (all NaN after masking)",
+                "HRV: no valid RMSSD windows in this segment",
                 transform=ax.transAxes,
                 fontsize=9,
                 va="top",
             )
-
-            if yr is not None and okr is not None and np.any(okr):
-                y0 = float(np.nanmin(yr[okr]))
-                y1 = float(np.nanmax(yr[okr]))
-                if np.isfinite(y0) and np.isfinite(y1) and y1 > y0:
-                    m = 0.10 * (y1 - y0)
-                    ax.set_ylim(y0 - m, y1 + m)
-
-                y_min, y_max = ax.get_ylim()
-                hrv_ymin, hrv_ymax = float(y_min), float(y_max)
 
     ax.set_ylabel("RMSSD [ms]")
     ax.grid(True)
@@ -778,6 +917,10 @@ def _add_segment_pages_to_pdf(
     # NEW: event/desat-only ΔHR arrays (NaN outside event windows)
     delta_hr_calc_evt: Optional[np.ndarray],
     delta_hr_edf_evt: Optional[np.ndarray],
+    t_hr_calc_raw: Optional[np.ndarray],
+    hr_calc_raw: Optional[np.ndarray],
+    t_hr_edf_raw: Optional[np.ndarray],
+    hr_edf_raw: Optional[np.ndarray],
 ) -> None:
     n_samples = len(signal_raw)
     samples_per_segment = int(segment_minutes * 60.0 * sfreq)
@@ -866,14 +1009,26 @@ def _add_segment_pages_to_pdf(
 
         _plot_segment_hr(
             ax_hr,
-            t_hr_edf, hr_edf,
-            t_hr_calc, hr_calc,
-            seg_start_sec, seg_end_sec,
-            exclusion_zones,
-            t_h_start, t_h_end,
+            t_hr_edf=t_hr_edf,
+            hr_edf=hr_edf,
+            t_hr_calc=t_hr_calc,
+            hr_calc=hr_calc,
+
+            # NEW raw inputs (dashed)
+            t_hr_edf_raw=t_hr_edf_raw,
+            hr_edf_raw=hr_edf_raw,
+            t_hr_calc_raw=t_hr_calc_raw,
+            hr_calc_raw=hr_calc_raw,
+
+            seg_start_sec=seg_start_sec,
+            seg_end_sec=seg_end_sec,
+            exclusion_zones=exclusion_zones,
+            t_seg_h_start=t_h_start,
+            t_seg_h_end=t_h_end,
             aux_df=aux_df,
             t_seg_sec=t_seg_sec,
         )
+
         hr_ylim = ax_hr.get_ylim()
 
         hrv_ylim = None

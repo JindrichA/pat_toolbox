@@ -564,7 +564,34 @@ def compute_hrv_from_pat_signal(
     rr_ms_physio_clean = rr_sec_physio_clean * 1000.0
 
     # -----------------------------------------------------------------
-    # RR-level sleep-stage masking (first)
+    # RAW RMSSD series (TRULY raw: no sleep masking, no event exclusion)
+    # -----------------------------------------------------------------
+    rmssd_1hz_raw, _rmssd_windows_list_raw = _calculate_rmssd_series(
+        t_hrv,
+        rr_mid_physio_clean,
+        rr_ms_physio_clean,
+        float(window_sec),
+        max_gap_sec=max_gap_sec,
+        min_span_sec=rmssd_min_span_sec,
+    )
+
+    # -----------------------------------------------------------------
+    # RR-level sleep-stage masking (for USED/CLEAN series + metrics)
+    # -----------------------------------------------------------------
+    # -----------------------------------------------------------------
+    # RAW RMSSD series (TRULY raw: no sleep masking, no event exclusion)
+    # -----------------------------------------------------------------
+    rmssd_1hz_raw, _rmssd_windows_list_raw = _calculate_rmssd_series(
+        t_hrv,
+        rr_mid_physio_clean,
+        rr_ms_physio_clean,
+        float(window_sec),
+        max_gap_sec=max_gap_sec,
+        min_span_sec=rmssd_min_span_sec,
+    )
+
+    # -----------------------------------------------------------------
+    # RR-level sleep-stage masking (for USED/CLEAN series + metrics)
     # -----------------------------------------------------------------
     rr_mid_sleep = rr_mid_physio_clean
     rr_ms_sleep = rr_ms_physio_clean
@@ -577,45 +604,25 @@ def compute_hrv_from_pat_signal(
 
     if rr_ms_sleep.size < 1:
         nan_array = np.full_like(t_hrv, fill_value=np.nan, dtype=float)
-        return t_hrv, nan_array, nan_array, None
+        # RAW exists, CLEAN doesn't
+        return t_hrv, rmssd_1hz_raw, nan_array, None, None
 
     # -----------------------------------------------------------------
-    # RAW RMSSD series (sleep-masked RR, before event exclusion)
+    # RR-level sleep-stage masking (for USED/CLEAN series + metrics)
     # -----------------------------------------------------------------
-    rmssd_1hz_raw, rmssd_windows_list_raw = _calculate_rmssd_series(
-        t_hrv,
-        rr_mid_sleep,
-        rr_ms_sleep,
-        float(window_sec),
-        max_gap_sec=max_gap_sec,
-        min_span_sec=rmssd_min_span_sec,
-    )
+    rr_mid_sleep = rr_mid_physio_clean
+    rr_ms_sleep = rr_ms_physio_clean
 
-    # -----------------------------------------------------------------
-    # CLEAN RR for global metrics + clean RMSSD (sleep-masked RR + event exclusion)
-    # -----------------------------------------------------------------
-    rr_mid_for_calc = rr_mid_sleep
-    rr_ms_for_calc = rr_ms_sleep
+    if aux_df is not None and bool(getattr(config, "ENABLE_SLEEP_STAGE_MASKING", False)):
+        m_sleep = sleep_mask.build_sleep_include_mask_for_times(rr_mid_sleep, aux_df)
+        if m_sleep is not None:
+            rr_mid_sleep = rr_mid_sleep[m_sleep]
+            rr_ms_sleep = rr_ms_sleep[m_sleep]
 
-    if aux_df is not None:
-        keep_mask = io_aux_csv.get_rr_exclusion_mask(rr_mid_for_calc, aux_df)
-        rr_mid_for_calc = rr_mid_for_calc[keep_mask]
-        rr_ms_for_calc = rr_ms_for_calc[keep_mask]
-
-        if rr_ms_for_calc.size < 1:
-            print("  WARNING: All RR intervals excluded by event mask. HRV is not computed.")
-            nan_array = np.full_like(t_hrv, fill_value=np.nan, dtype=float)
-            return t_hrv, rmssd_1hz_raw, nan_array, None
-
-    # CLEAN RMSSD series
-    rmssd_1hz_clean, rmssd_windows_list_clean = _calculate_rmssd_series(
-        t_hrv,
-        rr_mid_for_calc,
-        rr_ms_for_calc,
-        float(window_sec),
-        max_gap_sec=max_gap_sec,
-        min_span_sec=rmssd_min_span_sec,
-    )
+    if rr_ms_sleep.size < 1:
+        nan_array = np.full_like(t_hrv, fill_value=np.nan, dtype=float)
+        # RAW exists, CLEAN doesn't
+        return t_hrv, rmssd_1hz_raw, nan_array, None, None
 
     # Global metrics on CLEAN RR
     sdnn_ms = _sdnn(rr_ms_for_calc)

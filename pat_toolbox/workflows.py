@@ -231,27 +231,33 @@ def _compute_hrv(ctx: RecordingContext) -> None:
             tv_window_sec=getattr(config, "HRV_TV_WINDOW_SEC"),
         )
 
-        m_hrv = sleep_mask.build_sleep_include_mask(ctx.t_hrv, ctx.aux_df)
-        m_excl = io_aux_csv.build_time_exclusion_mask(ctx.t_hrv, ctx.aux_df)
+        # Masks on the 1 Hz HRV grid
+        m_sleep = sleep_mask.build_sleep_include_mask(ctx.t_hrv, ctx.aux_df)  # True = keep
+        m_excl = io_aux_csv.build_time_exclusion_mask(ctx.t_hrv, ctx.aux_df)  # True = keep
+
+        # IMPORTANT:
+        # - Do NOT mask ctx.hrv_rmssd_raw here. It should stay truly "raw" for dashed plotting.
+        # - Mask only the "clean/used" series + TV metrics.
+
         if m_excl is not None:
-            sleep_mask.apply_sleep_mask_inplace(ctx.hrv_rmssd_raw, m_excl)
             sleep_mask.apply_sleep_mask_inplace(ctx.hrv_rmssd_clean, m_excl)
             if isinstance(ctx.hrv_tv, dict):
                 for k, v in list(ctx.hrv_tv.items()):
-                    if v is None: continue
+                    if v is None:
+                        continue
                     vv = np.asarray(v)
                     if vv.size == m_excl.size:
                         ctx.hrv_tv[k] = sleep_mask.apply_sleep_mask_inplace(vv, m_excl)
 
-        if m_hrv is not None:
-            sleep_mask.apply_sleep_mask_inplace(ctx.hrv_rmssd_raw, m_hrv)
-            sleep_mask.apply_sleep_mask_inplace(ctx.hrv_rmssd_clean, m_hrv)
+        if m_sleep is not None:
+            sleep_mask.apply_sleep_mask_inplace(ctx.hrv_rmssd_clean, m_sleep)
             if isinstance(ctx.hrv_tv, dict):
                 for k, v in list(ctx.hrv_tv.items()):
-                    if v is None: continue
+                    if v is None:
+                        continue
                     vv = np.asarray(v)
-                    if vv.size == m_hrv.size:
-                        ctx.hrv_tv[k] = sleep_mask.apply_sleep_mask_inplace(vv, m_hrv)
+                    if vv.size == m_sleep.size:
+                        ctx.hrv_tv[k] = sleep_mask.apply_sleep_mask_inplace(vv, m_sleep)
 
         if ctx.hrv_summary is not None:
             s = ctx.hrv_summary
@@ -297,6 +303,10 @@ def _build_pdf(ctx: RecordingContext) -> None:
         hr_calc=ctx.hr_calc,
         t_hr_edf=ctx.t_hr_edf,
         hr_edf=ctx.hr_edf,
+        t_hr_calc_raw=ctx.t_hr_calc,
+        hr_calc_raw=getattr(ctx, "hr_calc_raw", None),
+        t_hr_edf_raw=ctx.t_hr_edf,
+        hr_edf_raw=getattr(ctx, "hr_edf_raw", None),
         t_hrv=ctx.t_hrv,
         hrv_rmssd=ctx.hrv_rmssd_clean,
         hrv_rmssd_raw=ctx.hrv_rmssd_raw,
@@ -312,6 +322,7 @@ def _build_pdf(ctx: RecordingContext) -> None:
         delta_hr_edf=ctx.delta_hr_edf,
         delta_hr_calc_evt=getattr(ctx, "delta_hr_calc_evt", None),
         delta_hr_edf_evt=getattr(ctx, "delta_hr_edf_evt", None),
+
 
     )
 
