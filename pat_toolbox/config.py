@@ -42,6 +42,12 @@ def _slug(s: str) -> str:
 # Sleep stage handling / masking  (MOVED UP so OUTPUT_SUBFOLDER sees it)
 # =============================================================================
 
+
+
+# Show the PAT raw/filtered subplot at top of each segment page
+ENABLE_PAT_SIGNAL_PLOT = False
+
+
 ENABLE_SLEEP_STAGE_MASKING = True
 
 # Sleep stage filtering policy
@@ -361,3 +367,13 @@ def sleep_include_numeric() -> set[int]:
 
     return {1, 2, 3}
 
+
+# =============================================================================
+# PAT burden (event+desat region)
+# =============================================================================
+ENABLE_PAT_BURDEN = True
+PAT_BURDEN_BASELINE_LOOKBACK_SEC = 30.0
+PAT_BURDEN_BASELINE_MIN_SAMPLES = 5
+PAT_BURDEN_BASELINE_PCTL = 95.0
+PAT_BURDEN_MIN_EPISODE_SEC = 5.0
+PAT_BURDEN_RELATIVE = False

@@ -44,7 +44,7 @@ def plot_pat_and_hr_segments_to_pdf(
         aux_df: "Optional[pd.DataFrame]" = None,
         t_pat_amp: Optional[np.ndarray] = None,
         pat_amp: Optional[np.ndarray] = None,
-        delta_hr_calc: Optional[np.ndarray] = None,  # <--- ADD
+        delta_hr_calc: Optional[np.ndarray] = None,
         delta_hr_edf: Optional[np.ndarray] = None,
         delta_hr_calc_evt: Optional[np.ndarray] = None,
         delta_hr_edf_evt: Optional[np.ndarray] = None,
@@ -52,6 +52,10 @@ def plot_pat_and_hr_segments_to_pdf(
         hr_calc_raw: Optional[np.ndarray] = None,
         t_hr_edf_raw: Optional[np.ndarray] = None,
         hr_edf_raw: Optional[np.ndarray] = None,
+
+        # PAT burden already present in your signature:
+        pat_burden: Optional[float] = None,
+        pat_burden_diag: Optional[Dict[str, float]] = None,
 ) -> Dict[str, float]:
 
     if segment_minutes is None:
@@ -73,9 +77,8 @@ def plot_pat_and_hr_segments_to_pdf(
 
     exclusion_zones = _compute_exclusion_zones(aux_df)
 
-    # --- UPDATED PSD CALL ---
     (
-        psd_features,  # <--- Now receiving the feature dictionary
+        psd_features,
         fig_psd_zoom,
         fig_psd_full,
         _psd_png_zoom,
@@ -84,16 +87,15 @@ def plot_pat_and_hr_segments_to_pdf(
         signal_raw,
         sfreq,
         edf_base=edf_base,
-        aux_df=aux_df,  # <--- Passing aux_df for masking
+        aux_df=aux_df,
     )
 
-    # Extract peaks for legacy support if needed, but we pass the whole dict below
     mayer_peak_freq = psd_features.get("mayer_peak_hz")
     resp_peak_freq = psd_features.get("resp_peak_hz")
 
     duration_sec = n_samples / sfreq
 
-    # --- UPDATED SUMMARY FIGURE CALL ---
+    # ✅ FIX: forward PAT burden into summary pages
     summary_pages = build_summary_pages(
         edf_base=edf_base,
         pearson_r=pearson_r,
@@ -116,6 +118,10 @@ def plot_pat_and_hr_segments_to_pdf(
         delta_hr_edf=delta_hr_edf,
         delta_hr_calc_evt=delta_hr_calc_evt,
         delta_hr_edf_evt=delta_hr_edf_evt,
+
+        # ✅ ADD THESE TWO LINES
+        pat_burden=pat_burden,
+        pat_burden_diag=pat_burden_diag,
     )
 
     fig_stage = _build_sleep_stagegram_figure(
@@ -201,7 +207,6 @@ def plot_pat_and_hr_segments_to_pdf(
             hr_calc_raw=hr_calc_raw,
             t_hr_edf_raw=t_hr_edf_raw,
             hr_edf_raw=hr_edf_raw,
-
         )
 
-    return psd_features  # Return dictionary to workflow
+    return psd_features

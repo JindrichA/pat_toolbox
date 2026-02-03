@@ -11,12 +11,142 @@ from .specs import EventSpec, DEFAULT_EVENT_PLOT_SPEC
 from .utils import _add_exclusion_spans, _shade_masked_regions, _maybe_add_legend, _h_to_hhmm
 from .. import io_aux_csv
 from matplotlib.patches import Patch
-
+from ..metrics.pat_burden import compute_pat_burden_from_pat_amp
 if TYPE_CHECKING:
     import pandas as pd
 
 
 from typing import Optional
+
+
+def _overlay_pat_burden_area(
+    ax: plt.Axes,
+    *,
+    t_sec_all: np.ndarray,
+    pat_amp_all: np.ndarray,
+    aux_df,
+    seg_start_sec: float,
+    seg_end_sec: float,
+) -> None:
+    """
+    Draw PAT-burden visualization on ax:
+      - dashed baseline per episode
+      - red filled area where PAT < baseline within 'inside' (sleep & excluded) windows
+    Uses same logic as compute_pat_burden_from_pat_amp.
+    """
+    if aux_df is None:
+        return
+    if t_sec_all is None or pat_amp_all is None:
+        return
+
+    t = np.asarray(t_sec_all, dtype=float)
+    y = np.asarray(pat_amp_all, dtype=float)
+    if t.size == 0 or y.size == 0 or t.size != y.size:
+        return
+
+    # Masks on the PAT amp timebase
+    m_sleep_keep = sleep_mask.build_sleep_include_mask_for_times(t, aux_df)
+    if m_sleep_keep is None:
+        m_sleep_keep = np.ones_like(t, dtype=bool)
+
+    m_evt_keep = io_aux_csv.build_time_exclusion_mask(t, aux_df)  # True = keep (outside excluded)
+    if m_evt_keep is None:
+        return
+
+    m_inside = np.asarray(m_sleep_keep, bool) & (~np.asarray(m_evt_keep, bool))
+
+    # Baseline parameters (same as burden)
+    min_ep_sec = float(getattr(config, "PAT_BURDEN_MIN_EPISODE_SEC", 5.0))
+    lookback = float(getattr(config, "PAT_BURDEN_BASELINE_LOOKBACK_SEC", 30.0))
+    pctl = float(getattr(config, "PAT_BURDEN_BASELINE_PCTL", 95.0))
+    min_base_n = int(getattr(config, "PAT_BURDEN_BASELINE_MIN_SAMPLES", 5))
+
+    # Eligible baseline samples: sleep_keep AND outside excluded region
+    m_baseline_ok = np.asarray(m_sleep_keep, bool) & np.asarray(m_evt_keep, bool) & np.isfinite(y)
+
+    # Helper: contiguous True runs
+    def _runs(mask: np.ndarray) -> list[tuple[int, int]]:
+        mask = np.asarray(mask, dtype=bool)
+        if mask.size == 0 or not np.any(mask):
+            return []
+        d = np.diff(mask.astype(int))
+        starts = np.where(d == 1)[0] + 1
+        ends = np.where(d == -1)[0] + 1
+        if mask[0]:
+            starts = np.r_[0, starts]
+        if mask[-1]:
+            ends = np.r_[ends, mask.size]
+        return [(int(s), int(e)) for s, e in zip(starts, ends) if e > s]
+
+    episodes = _runs(m_inside)
+
+    # We only DRAW what overlaps the segment window
+    # (but baseline computation can look back outside the segment)
+    for s, e in episodes:
+        t0 = float(t[s])
+        t1 = float(t[e - 1])
+        if not (np.isfinite(t0) and np.isfinite(t1)):
+            continue
+        if (t1 - t0) < min_ep_sec:
+            continue
+
+        # baseline window [t0-lookback, t0)
+        w0 = t0 - lookback
+        w1 = t0
+        m_pre = (t >= w0) & (t < w1) & m_baseline_ok
+        if np.count_nonzero(m_pre) < min_base_n:
+            continue
+
+        baseline = float(np.nanpercentile(y[m_pre], pctl))
+        if not np.isfinite(baseline):
+            continue
+
+        # Episode arrays
+        tt = t[s:e]
+        yy = y[s:e]
+        good = np.isfinite(tt) & np.isfinite(yy)
+        if np.count_nonzero(good) < 2:
+            continue
+        tt = tt[good]
+        yy = yy[good]
+
+        # Clip to plotting segment time window
+        m_seg = (tt >= seg_start_sec) & (tt <= seg_end_sec)
+        if np.count_nonzero(m_seg) < 2:
+            continue
+        tt = tt[m_seg]
+        yy = yy[m_seg]
+
+        # Where PAT is below baseline
+        below = yy < baseline
+        if not np.any(below):
+            continue
+
+        # Draw baseline (dashed) across the visible portion of the episode
+        ax.plot(
+            tt / 3600.0,
+            np.full_like(tt, baseline, dtype=float),
+            linestyle="--",
+            linewidth=1.1,
+            alpha=0.7,
+            color="0.25",
+            label="_nolegend_",
+            zorder=2,
+        )
+
+        # Fill burden area (between PAT and baseline where PAT is below baseline)
+        ax.fill_between(
+            tt / 3600.0,
+            yy,
+            baseline,
+            where=below,
+            interpolate=True,
+            alpha=0.22,
+            color="tab:red",
+            label="_nolegend_",
+            zorder=1,
+        )
+
 
 def _plot_no_bridge(
     ax: plt.Axes,
@@ -647,7 +777,7 @@ def _plot_segment_delta_hr(
                         th,
                         np.ma.masked_invalid(y_evt),
                         label="ΔHR EDF (events)",
-                        linewidth=2.2,
+                        linewidth=1.4,
                         alpha=0.95,
                         zorder=3,
                     )
@@ -676,7 +806,7 @@ def _plot_segment_delta_hr(
                 if np.any(ok2):
                     ax.plot(th, np.ma.masked_invalid(y_evt),
                             label="ΔHR PAT (events)",
-                            linewidth=2.6, alpha=0.95, zorder=4)
+                            linewidth=1.4, alpha=0.95, zorder=4)
 
     ax.set_ylabel("ΔHR [bpm]")
     ax.grid(True)
@@ -725,6 +855,7 @@ def _plot_segment_pat_amp(
     exclusion_zones: List[Tuple[float, float, str]],
     t_seg_h_start: float,
     t_seg_h_end: float,
+    aux_df,  # <-- add this
 ) -> tuple[Optional[float], Optional[float]]:
     _add_exclusion_spans(ax, exclusion_zones, t_seg_h_start, t_seg_h_end, label_once=True)
 
@@ -736,17 +867,29 @@ def _plot_segment_pat_amp(
         y = pat_amp[mask].astype(float)
         ok = np.isfinite(y)
         if np.any(ok):
-            ax.plot(th[ok], y[ok], label="DERIVED_PAT_AMP", linewidth=1.0, zorder=1)
+            ax.plot(th[ok], y[ok], label="DERIVED_PAT_AMP", linewidth=1.0, zorder=3)
             y_min = float(np.nanmin(y[ok]))
             y_max = float(np.nanmax(y[ok]))
             if np.isfinite(y_min) and np.isfinite(y_max):
                 margin = 0.1 * max(1e-6, y_max - y_min)
                 ax.set_ylim(y_min - margin, y_max + margin)
 
+    # NEW: overlay baseline + red burden fill (uses full arrays, clipped to segment)
+    if bool(getattr(config, "ENABLE_PAT_BURDEN", True)) and aux_df is not None:
+        _overlay_pat_burden_area(
+            ax,
+            t_sec_all=t_pat_amp,
+            pat_amp_all=pat_amp,
+            aux_df=aux_df,
+            seg_start_sec=seg_start_sec,
+            seg_end_sec=seg_end_sec,
+        )
+
     ax.set_ylabel("PAT amp")
     ax.grid(True)
     ax.legend(loc="upper right")
     return y_min, y_max
+
 
 
 def _overlay_events_on_axes(
@@ -922,9 +1065,19 @@ def _add_segment_pages_to_pdf(
     t_hr_edf_raw: Optional[np.ndarray],
     hr_edf_raw: Optional[np.ndarray],
 ) -> None:
+    """
+    Segment page subplot order:
+      1) HR
+      2) ΔHR (if enabled + available)
+      3) HRV RMSSD (if available)
+      4) PAT signal (if enabled)
+      5) PAT amp (if available)
+    """
     n_samples = len(signal_raw)
     samples_per_segment = int(segment_minutes * 60.0 * sfreq)
     segment_index = 0
+
+    use_pat_signal_plot = bool(getattr(config, "ENABLE_PAT_SIGNAL_PLOT", True))
 
     use_hrv = t_hrv is not None and hrv_clean is not None and np.size(hrv_clean) > 0
     use_pat_amp = (
@@ -946,6 +1099,23 @@ def _add_segment_pages_to_pdf(
 
         seg_start_sec = float(t_seg_sec[0])
         seg_end_sec = float(t_seg_sec[-1])
+        # -----------------------
+        # PAT burden for this segment
+        # -----------------------
+        pat_burden = None
+        pat_burden_diag = None
+
+        if bool(getattr(config, "ENABLE_PAT_BURDEN", True)) and aux_df is not None:
+            if t_pat_amp is not None and pat_amp is not None:
+                m_seg_amp = (t_pat_amp >= seg_start_sec) & (t_pat_amp <= seg_end_sec)
+                if np.any(m_seg_amp):
+                    pat_burden, pat_burden_diag, _ = compute_pat_burden_from_pat_amp(
+                        t_sec=np.asarray(t_pat_amp[m_seg_amp], dtype=float),
+                        pat_amp=np.asarray(pat_amp[m_seg_amp], dtype=float),
+                        aux_df=aux_df,
+                    )
+
+
         t_h_start = float(t_seg_h[0])
         t_h_end = float(t_seg_h[-1])
 
@@ -965,8 +1135,30 @@ def _add_segment_pages_to_pdf(
 
         use_delta_subplot = enable_delta and (delta_mode == "subplot") and has_any_delta
 
-        n_rows = 2 + (1 if use_hrv else 0) + (1 if use_pat_amp else 0) + (1 if use_delta_subplot else 0)
-        height_ratios = [2, 1] + ([1] if use_hrv else []) + ([1] if use_pat_amp else []) + ([1] if use_delta_subplot else [])
+        # -------------------------------------------------
+        # NEW ORDER:
+        #   HR -> ΔHR -> HRV -> PAT -> PAT AMP
+        # -------------------------------------------------
+        n_rows = 1  # HR always
+        if use_delta_subplot:
+            n_rows += 1
+        if use_hrv:
+            n_rows += 1
+        if use_pat_signal_plot:
+            n_rows += 1
+        if use_pat_amp:
+            n_rows += 1
+
+        height_ratios: List[float] = []
+        height_ratios.append(1)  # HR row
+        if use_delta_subplot:
+            height_ratios.append(1)  # ΔHR row
+        if use_hrv:
+            height_ratios.append(1)  # HRV row
+        if use_pat_signal_plot:
+            height_ratios.append(2)  # PAT signal row
+        if use_pat_amp:
+            height_ratios.append(1)  # PAT amp row
 
         fig, axes = plt.subplots(
             n_rows,
@@ -978,23 +1170,34 @@ def _add_segment_pages_to_pdf(
         if n_rows == 1:
             axes = [axes]
 
-        ax_pat = axes[0]
-        ax_hr = axes[1]
+        idx = 0
 
-        idx = 2
+        # HR first (always)
+        ax_hr = axes[idx]
+        idx += 1
+
+        # ΔHR second (optional)
+        ax_delta = None
+        if use_delta_subplot:
+            ax_delta = axes[idx]
+            idx += 1
+
+        # HRV third (optional)
         ax_hrv = None
         if use_hrv:
             ax_hrv = axes[idx]
             idx += 1
 
+        # PAT fourth (optional)
+        ax_pat = None
+        if use_pat_signal_plot:
+            ax_pat = axes[idx]
+            idx += 1
+
+        # PAT amp last (optional)
         ax_amp = None
         if use_pat_amp:
             ax_amp = axes[idx]
-            idx += 1
-
-        ax_delta = None
-        if use_delta_subplot:
-            ax_delta = axes[idx]
             idx += 1
 
         title_lines = []
@@ -1005,21 +1208,21 @@ def _add_segment_pages_to_pdf(
         title_lines.append(
             f"Segment {segment_index}: {_h_to_hhmm(t_h_start)}–{_h_to_hhmm(t_h_end)} (hh:mm from start)"
         )
-        _plot_segment_pat(ax_pat, t_seg_h, seg_raw, seg_filt, " - ".join(title_lines))
 
+        # -----------------------
+        # 1) HR
+        # -----------------------
         _plot_segment_hr(
             ax_hr,
             t_hr_edf=t_hr_edf,
             hr_edf=hr_edf,
             t_hr_calc=t_hr_calc,
             hr_calc=hr_calc,
-
-            # NEW raw inputs (dashed)
+            # raw inputs (dashed)
             t_hr_edf_raw=t_hr_edf_raw,
             hr_edf_raw=hr_edf_raw,
             t_hr_calc_raw=t_hr_calc_raw,
             hr_calc_raw=hr_calc_raw,
-
             seg_start_sec=seg_start_sec,
             seg_end_sec=seg_end_sec,
             exclusion_zones=exclusion_zones,
@@ -1028,41 +1231,19 @@ def _add_segment_pages_to_pdf(
             aux_df=aux_df,
             t_seg_sec=t_seg_sec,
         )
-
         hr_ylim = ax_hr.get_ylim()
 
-        hrv_ylim = None
-        if use_hrv and ax_hrv is not None and t_hrv is not None and hrv_clean is not None:
-            _plot_segment_hrv(
-                ax_hrv,
-                t_hrv, hrv_clean, hrv_raw,
-                seg_start_sec, seg_end_sec,
-                exclusion_zones,
-                t_h_start, t_h_end,
-                aux_df=aux_df,
-            )
-            hrv_ylim = ax_hrv.get_ylim()
-
-        amp_ylim = None
-        if use_pat_amp and ax_amp is not None and t_pat_amp is not None and pat_amp is not None:
-            _plot_segment_pat_amp(
-                ax_amp,
-                t_pat_amp, pat_amp,
-                seg_start_sec, seg_end_sec,
-                exclusion_zones,
-                t_h_start, t_h_end,
-            )
-            amp_ylim = ax_amp.get_ylim()
-
+        # -----------------------
+        # 2) ΔHR (optional)
+        # -----------------------
         delta_ylim = None
-        if use_delta_subplot and ax_delta is not None:
+        if ax_delta is not None:
             _plot_segment_delta_hr(
                 ax_delta,
                 t_hr_edf=t_hr_edf,
                 delta_hr_edf=delta_hr_edf,
                 t_hr_calc=t_hr_calc,
                 delta_hr_calc=delta_hr_calc,
-                # NEW:
                 delta_hr_edf_evt=delta_hr_edf_evt,
                 delta_hr_calc_evt=delta_hr_calc_evt,
                 seg_start_sec=seg_start_sec,
@@ -1074,6 +1255,83 @@ def _add_segment_pages_to_pdf(
             )
             delta_ylim = ax_delta.get_ylim()
 
+        # -----------------------
+        # 3) HRV (optional)
+        # -----------------------
+        hrv_ylim = None
+        if ax_hrv is not None and t_hrv is not None and hrv_clean is not None:
+            _plot_segment_hrv(
+                ax_hrv,
+                t_hrv,
+                hrv_clean,
+                hrv_raw,
+                seg_start_sec,
+                seg_end_sec,
+                exclusion_zones,
+                t_h_start,
+                t_h_end,
+                aux_df=aux_df,
+            )
+            hrv_ylim = ax_hrv.get_ylim()
+
+        # -----------------------
+        # 4) PAT signal (optional)
+        # -----------------------
+        if ax_pat is not None:
+            _plot_segment_pat(ax_pat, t_seg_h, seg_raw, seg_filt, " - ".join(title_lines))
+
+        # -----------------------
+        # 5) PAT amp (optional)
+        # -----------------------
+        amp_ylim = None
+        if ax_amp is not None and t_pat_amp is not None and pat_amp is not None:
+            _plot_segment_pat_amp(
+                ax_amp,
+                t_pat_amp,
+                pat_amp,
+                seg_start_sec,
+                seg_end_sec,
+                exclusion_zones,
+                t_h_start,
+                t_h_end,
+                aux_df=aux_df,  # <-- add this
+            )
+            amp_ylim = ax_amp.get_ylim()
+            # -----------------------
+            # Annotate PAT burden on PAT amp subplot
+            # -----------------------
+            if pat_burden_diag is not None:
+                if pat_burden is not None and np.isfinite(pat_burden):
+                    rel = bool(pat_burden_diag.get("relative", False))
+                    units = "rel·min/hr" if rel else "amp·min/hr"
+                    sleep_h = float(pat_burden_diag.get("sleep_hours", np.nan))
+                    n_used = int(pat_burden_diag.get("n_episodes_used", 0))
+                    total_area = float(pat_burden_diag.get("total_area_min", np.nan))
+
+                    ax_amp.text(
+                        0.01, 0.95,
+                        f"PAT burden: {pat_burden:.3f} {units}\n"
+                        f"sleep: {sleep_h:.2f} h | episodes used: {n_used} | area: {total_area:.2f} min",
+                        transform=ax_amp.transAxes,
+                        fontsize=9,
+                        va="top",
+                        bbox=dict(boxstyle="round,pad=0.25", alpha=0.15),
+                    )
+                else:
+                    reason = pat_burden_diag.get("reason", "n/a")
+                    ax_amp.text(
+                        0.01, 0.95,
+                        f"PAT burden: n/a ({reason})",
+                        transform=ax_amp.transAxes,
+                        fontsize=9,
+                        va="top",
+                        bbox=dict(boxstyle="round,pad=0.25", alpha=0.15),
+                    )
+
+
+        # -----------------------
+        # Event overlays
+        # -----------------------
         _overlay_events_on_axes(
             aux_df,
             seg_start_sec,
@@ -1088,17 +1346,20 @@ def _add_segment_pages_to_pdf(
             delta_ylim=delta_ylim,
         )
 
-        # bottom x-label
-        if ax_delta is not None:
-            ax_delta.set_xlabel("Time (hours from recording start)")
-        elif ax_amp is not None:
+        # bottom x-label (lowest subplot in the stack)
+        if ax_amp is not None:
             ax_amp.set_xlabel("Time (hours from recording start)")
+        elif ax_pat is not None:
+            ax_pat.set_xlabel("Time (hours from recording start)")
         elif ax_hrv is not None:
             ax_hrv.set_xlabel("Time (hours from recording start)")
+        elif ax_delta is not None:
+            ax_delta.set_xlabel("Time (hours from recording start)")
         else:
             ax_hr.set_xlabel("Time (hours from recording start)")
 
         fig.tight_layout()
         pdf.savefig(fig)
         plt.close(fig)
+
 

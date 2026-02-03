@@ -54,6 +54,10 @@ class RecordingContext:
     t_actigraph: Optional[np.ndarray] = None
     actigraph: Optional[np.ndarray] = None
 
+    pat_burden: Optional[float] = None
+    pat_burden_diag: Optional[dict] = None
+    pat_burden_episodes: Optional[list] = None
+
 
     # PSD peaks
     mayer_peak_freq: Optional[float] = None

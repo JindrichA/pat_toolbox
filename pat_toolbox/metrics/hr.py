@@ -39,6 +39,8 @@ def append_hr_correlation_to_summary(
         hrv_tv: Optional[Dict[str, np.ndarray]] = None,  # time-varying HRV dict
         aux_df: Optional[Any] = None,  # pandas df (kept Any to avoid hard dependency)
         psd_features: Optional[Dict[str, float]] = None,  # <--- NEW ARGUMENT ADDED HERE
+        pat_burden: Optional[float] = None,
+        pat_burden_diag: Optional[dict] = None,
 ) -> Path:
     """
     Append one row with HR correlation + HRV summary + spectral peaks + extra "summary page" features.
@@ -205,6 +207,27 @@ def append_hr_correlation_to_summary(
         "mayer_peak_hz": mayer_peak_freq,
         "resp_peak_hz": resp_peak_freq,
     }
+
+
+    # ----------------------------
+    # PAT burden (event+desat)
+    # ----------------------------
+    row["pat_burden"] = pat_burden
+
+    if isinstance(pat_burden_diag, dict):
+        row["pat_burden_sleep_hours"] = pat_burden_diag.get("sleep_hours")
+        row["pat_burden_total_area_min"] = pat_burden_diag.get("total_area_min")
+        row["pat_burden_n_episodes"] = pat_burden_diag.get("n_episodes")
+        row["pat_burden_n_episodes_used"] = pat_burden_diag.get("n_episodes_used")
+        row["pat_burden_relative"] = int(bool(pat_burden_diag.get("relative", False)))
+        row["pat_burden_nan_pct"] = pat_burden_diag.get("nan_pct_inside")
+    else:
+        row["pat_burden_sleep_hours"] = np.nan
+        row["pat_burden_total_area_min"] = np.nan
+        row["pat_burden_n_episodes"] = np.nan
+        row["pat_burden_n_episodes_used"] = np.nan
+        row["pat_burden_relative"] = np.nan
+        row["pat_burden_nan_pct_inside"] = np.nan
 
     # HRV summary fields
     if hrv_summary is not None:

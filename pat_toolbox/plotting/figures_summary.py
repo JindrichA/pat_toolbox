@@ -384,10 +384,24 @@ def _render_table_page(
     )
     table.auto_set_font_size(False)
     table.set_fontsize(font_size)
-    table.scale(1.15, scale_y)
+
+    # --- NEW: auto-tune vertical scaling to avoid clipping when many rows ---
+    # If you add more rows (PAT burden), the previous fixed scale can push
+    # the bottom off the page.
+    n_rows = len(rows) + 1  # +1 for header row
+    if n_rows > 36:
+        scale_y_eff = min(scale_y, 1.05)
+    elif n_rows > 30:
+        scale_y_eff = min(scale_y, 1.20)
+    else:
+        scale_y_eff = scale_y
+
+    table.scale(1.15, scale_y_eff)
 
     ax.set_title(f"{edf_base} – {title}", fontsize=16, pad=18)
-    fig.tight_layout(rect=[0, 0, 0.82, 1])
+
+    # leave more room on the right for long labels; slight bottom room too
+    fig.tight_layout(rect=[0, 0.02, 0.82, 1])
     return fig
 
 
@@ -417,9 +431,13 @@ def build_summary_pages(
     # ΔHR series:
     delta_hr_calc: Optional[np.ndarray] = None,
     delta_hr_edf: Optional[np.ndarray] = None,
-    # event-only ΔHR (already masked outside events/desats):
+    # event-only ΔHR:
     delta_hr_calc_evt: Optional[np.ndarray] = None,
     delta_hr_edf_evt: Optional[np.ndarray] = None,
+
+    # ✅ PAT burden:
+    pat_burden: Optional[float] = None,
+    pat_burden_diag: Optional[Dict[str, float]] = None,
 ) -> List[plt.Figure]:
     """
     Returns exactly 4 figures (pages) in a logical, readable layout.
@@ -433,9 +451,8 @@ def build_summary_pages(
     hrv_clean_nan = _nan_pct(hrv_clean)
     hrv_raw_nan = _nan_pct(hrv_raw)
 
-    rows_p1: List[List[str]] = []
-    rows_p1 += [
-        ["HR Agreement (Reference vs PAT-derived)", ""],
+    rows_p1: List[List[str]] = [
+        ["HR Agreement (Reference vs Jindrich PAT-derived)", ""],
         ["  Pearson r", _fmt(pearson_r, 3)],
         ["  Spearman ρ", _fmt(spear_rho, 3)],
         ["  RMSE [bpm]", _fmt(rmse, 2)],
@@ -466,7 +483,7 @@ def build_summary_pages(
     lf_hf = hrv_summary.get("lf_hf") if hrv_summary else None
 
     rows_p2: List[List[str]] = [
-        ["HRV summary (Clean RR)", ""],
+        ["HRV summary (Clean RR) after sleep masking and R-R rejection etc.", ""],
         ["  RMSSD mean [ms]", _fmt(rmssd_mean, 2)],
         ["  RMSSD median [ms]", _fmt(rmssd_median, 2)],
         ["  SDNN [ms]", _fmt(sdnn, 2)],
@@ -498,7 +515,7 @@ def build_summary_pages(
     )
 
     # -------------------------
-    # Page 3: ΔHR baseline (all) + ΔHR event-only (this is your key change)
+    # Page 3: ΔHR baseline + event-only
     # -------------------------
     d_ref_all = _finite_stats(delta_hr_edf)
     d_pat_all = _finite_stats(delta_hr_calc)
@@ -514,11 +531,11 @@ def build_summary_pages(
         ["  Reference ΔHR std [bpm]", _fmt_num(d_ref_all["std"], 2)],
         ["  Reference ΔHR NaN %", _fmt_pct(d_ref_all["nan_pct"], 1)],
         ["", ""],
-        ["  PAT ΔHR n used", _fmt_int(d_pat_all["n_used"])],
-        ["  PAT ΔHR min / max [bpm]", f"{_fmt_num(d_pat_all['min'],2)} / {_fmt_num(d_pat_all['max'],2)}"],
-        ["  PAT ΔHR mean / median [bpm]", f"{_fmt_num(d_pat_all['mean'],2)} / {_fmt_num(d_pat_all['median'],2)}"],
-        ["  PAT ΔHR std [bpm]", _fmt_num(d_pat_all["std"], 2)],
-        ["  PAT ΔHR NaN %", _fmt_pct(d_pat_all["nan_pct"], 1)],
+        ["  Jin-PAT ΔHR n used", _fmt_int(d_pat_all["n_used"])],
+        ["  Jin-PAT ΔHR min / max [bpm]", f"{_fmt_num(d_pat_all['min'],2)} / {_fmt_num(d_pat_all['max'],2)}"],
+        ["  Jin-PAT ΔHR mean / median [bpm]", f"{_fmt_num(d_pat_all['mean'],2)} / {_fmt_num(d_pat_all['median'],2)}"],
+        ["  Jin-PAT ΔHR std [bpm]", _fmt_num(d_pat_all["std"], 2)],
+        ["  Jin-PAT ΔHR NaN %", _fmt_pct(d_pat_all["nan_pct"], 1)],
         ["", ""],
         ["ΔHR event-only (inside event/desat windows only)", ""],
         ["  Reference ΔHR n used", _fmt_int(d_ref_evt["n_used"])],
@@ -527,11 +544,11 @@ def build_summary_pages(
         ["  Reference ΔHR std [bpm]", _fmt_num(d_ref_evt["std"], 2)],
         ["  Reference ΔHR NaN %", _fmt_pct(d_ref_evt["nan_pct"], 1)],
         ["", ""],
-        ["  PAT ΔHR n used", _fmt_int(d_pat_evt["n_used"])],
-        ["  PAT ΔHR min / max [bpm]", f"{_fmt_num(d_pat_evt['min'],2)} / {_fmt_num(d_pat_evt['max'],2)}"],
-        ["  PAT ΔHR mean / median [bpm]", f"{_fmt_num(d_pat_evt['mean'],2)} / {_fmt_num(d_pat_evt['median'],2)}"],
-        ["  PAT ΔHR std [bpm]", _fmt_num(d_pat_evt["std"], 2)],
-        ["  PAT ΔHR NaN %", _fmt_pct(d_pat_evt["nan_pct"], 1)],
+        ["  Jin-PAT ΔHR n used", _fmt_int(d_pat_evt["n_used"])],
+        ["  Jin-PAT ΔHR min / max [bpm]", f"{_fmt_num(d_pat_evt['min'],2)} / {_fmt_num(d_pat_evt['max'],2)}"],
+        ["  Jin-PAT ΔHR mean / median [bpm]", f"{_fmt_num(d_pat_evt['mean'],2)} / {_fmt_num(d_pat_evt['median'],2)}"],
+        ["  Jin-PAT ΔHR std [bpm]", _fmt_num(d_pat_evt["std"], 2)],
+        ["  Jin-PAT ΔHR NaN %", _fmt_pct(d_pat_evt["nan_pct"], 1)],
     ]
 
     fig3 = _render_table_page(
@@ -543,7 +560,7 @@ def build_summary_pages(
     )
 
     # -------------------------
-    # Page 4: Events + sleep (clean readable)
+    # Page 4: Events + sleep + PAT burden
     # -------------------------
     rows_p4: List[List[str]] = []
 
@@ -562,7 +579,7 @@ def build_summary_pages(
         unc4_n, unc4_pct = _count_flags(aux_df, "evt_unclassified_4")
 
         rows_p4 += [
-            ["Event summary (aux CSV)", ""],
+            ["Overall Event summary (aux CSV)", ""],
             ["  Samples (rows)", f"{aux_total:d}"],
             ["  Desaturation flags", f"{desat_n:d} ({desat_pct})"],
             ["  Exclude HR flags", f"{excl_hr_n:d} ({excl_hr_pct})"],
@@ -581,9 +598,29 @@ def build_summary_pages(
 
         rows_p4 += [["", ""]]
         rows_p4 += _sleep_stage_rows(aux_df)
-
     else:
         rows_p4 += [["Event summary", "No aux_df available"]]
+
+    # ✅ PAT burden block (always added; shows NA if missing)
+    rows_p4 += [["", ""]]
+    rows_p4 += [["PAT burden (event+desat within included sleep)", ""]]
+
+    # If compute returned np.nan, show "NA"
+    burden_val = None
+    if pat_burden is not None and np.isfinite(pat_burden):
+        burden_val = float(pat_burden)
+
+    # unit can be relative/min/h if diag says so
+    unit = "rel·min/h" if isinstance(pat_burden_diag, dict) and pat_burden_diag.get("relative") else "amp·min/h"
+    rows_p4 += [[f"  Burden [{unit}]", _fmt(burden_val, 3)]]
+
+    if isinstance(pat_burden_diag, dict):
+        rows_p4 += [
+            ["  Sleep hours", _fmt_num(pat_burden_diag.get("sleep_hours"), 2)],
+            ["  Episodes (total)", _fmt_int(pat_burden_diag.get("n_episodes"))],
+            ["  Episodes used", _fmt_int(pat_burden_diag.get("n_episodes_used"))],
+            ["  Total area [min]", _fmt_num(pat_burden_diag.get("total_area_min"), 2)],
+        ]
 
     fig4 = _render_table_page(
         "Summary (Events & Sleep Stages)",
@@ -594,6 +631,7 @@ def build_summary_pages(
     )
 
     return [fig1, fig2, fig3, fig4]
+
 
 
 # ============================================================================

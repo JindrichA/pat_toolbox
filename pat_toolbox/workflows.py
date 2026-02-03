@@ -13,6 +13,7 @@ from .context import RecordingContext
 from .metrics import hr as hr_metrics
 from .metrics import hrv as hrv_metrics
 from .metrics.hr import compute_hr_correlation
+from .metrics import pat_burden as pat_burden_metrics
 
 # Make sure plotting import points to where plot_pat_and_hr_segments_to_pdf is exposed
 # If you are using the split file structure, this might need to be:
@@ -134,6 +135,39 @@ def _load_aux_csv(ctx: RecordingContext) -> None:
     except Exception as e:
         print(f"  WARNING: could not read aux CSV for {ctx.edf_path.name}: {e}")
         ctx.aux_df = None
+
+def _compute_pat_burden(ctx: RecordingContext) -> None:
+    if not bool(getattr(config, "ENABLE_PAT_BURDEN", True)):
+        ctx.pat_burden = None
+        ctx.pat_burden_diag = None
+        ctx.pat_burden_episodes = None
+        return
+
+    if ctx.aux_df is None or ctx.t_pat_amp is None or ctx.pat_amp is None:
+        ctx.pat_burden = None
+        ctx.pat_burden_diag = {"reason": "missing_aux_or_pat_amp"}
+        ctx.pat_burden_episodes = None
+        return
+
+    try:
+        val, diag, eps = pat_burden_metrics.compute_pat_burden_from_pat_amp(
+            t_sec=ctx.t_pat_amp,
+            pat_amp=ctx.pat_amp,
+            aux_df=ctx.aux_df,
+        )
+        ctx.pat_burden = val
+        ctx.pat_burden_diag = diag
+        ctx.pat_burden_episodes = eps
+        if val is not None and np.isfinite(val):
+            unit = "rel·min/h" if diag.get("relative") else "amp·min/h"
+            print(f"  PAT burden (event+desat): {val:.3f} {unit} (episodes_used={diag.get('n_episodes_used')})")
+    except Exception as e:
+        ctx.pat_burden = None
+        ctx.pat_burden_diag = {"reason": "exception", "error": str(e)}
+        ctx.pat_burden_episodes = None
+
+
+
 
 
 def _compute_hr_from_pat(ctx: RecordingContext) -> None:
@@ -290,7 +324,6 @@ def _build_pdf(ctx: RecordingContext) -> None:
     pdf_name = f"{ctx.edf_base}__VIEW_PAT_HR_HRV_{config.SEGMENT_MINUTES}min_overlay{suffix}.pdf"
     ctx.pdf_path = out_folder / pdf_name
 
-    # We now expect a DICTIONARY back, not a tuple of 2 floats.
     psd_results_dict = plotting.plot_pat_and_hr_segments_to_pdf(
         signal_raw=ctx.view_pat,
         signal_filt=ctx.view_pat_filt,
@@ -323,17 +356,17 @@ def _build_pdf(ctx: RecordingContext) -> None:
         delta_hr_calc_evt=getattr(ctx, "delta_hr_calc_evt", None),
         delta_hr_edf_evt=getattr(ctx, "delta_hr_edf_evt", None),
 
-
+        # ✅ ADD THESE TWO LINES
+        pat_burden=getattr(ctx, "pat_burden", None),
+        pat_burden_diag=getattr(ctx, "pat_burden_diag", None),
     )
 
-    # Store the dictionary in context for the summary CSV step
     ctx.psd_features = psd_results_dict
-
-    # Extract the peaks for context (backward compatibility)
     ctx.mayer_peak_freq = psd_results_dict.get("mayer_peak_hz")
     ctx.resp_peak_freq = psd_results_dict.get("resp_peak_hz")
 
     print(f"  Saved VIEW_PAT + HR + HRV overlay plots to: {ctx.pdf_path}")
+
 
 
 def _build_peaks_debug_pdf(ctx: RecordingContext) -> None:
@@ -366,7 +399,9 @@ def _append_summary(ctx: RecordingContext) -> None:
         hrv_raw=ctx.hrv_rmssd_raw,
         hrv_tv=ctx.hrv_tv,
         aux_df=ctx.aux_df,
-        psd_features=getattr(ctx, "psd_features", None)  # Pass the new dict
+        psd_features=getattr(ctx, "psd_features", None),  # Pass the new dict
+        pat_burden=getattr(ctx, "pat_burden", None),
+        pat_burden_diag=getattr(ctx, "pat_burden_diag", None),
     )
 
 
@@ -383,6 +418,7 @@ def process_view_pat_overlay_for_file(edf_path: Path) -> Path | None:
         _filter_pat(ctx)
         _load_pat_amp(ctx)
         _load_aux_csv(ctx)
+        _compute_pat_burden(ctx)
         _compute_hr_from_pat(ctx)
         _load_hr_from_edf(ctx)
         _compute_delta_hr(ctx)
