@@ -22,7 +22,12 @@ def _plot_segment_pat(ax: plt.Axes, t_h: np.ndarray, seg_raw: np.ndarray, seg_fi
     ax.plot(t_h, seg_filt, label="PAT filtered", linewidth=1.0)
     ax.set_ylabel("Amplitude")
     ax.grid(True)
-    _maybe_add_legend(ax, loc="upper right")
+    ax.legend(
+        loc="center left",
+        bbox_to_anchor=(1.01, 0.5),
+        borderaxespad=0.0,
+        fontsize=9,
+    )
 
 
 def _apply_global_mask_to_series(
@@ -213,8 +218,12 @@ def _plot_segment_hr(
 
     ax.set_ylabel("HR [bpm]")
     ax.grid(True)
-    _maybe_add_legend(ax, loc="upper right")
-
+    ax.legend(
+        loc="center left",
+        bbox_to_anchor=(1.01, 0.5),
+        borderaxespad=0.0,
+        fontsize=9,
+    )
     # Show summary like your ΔHR plot (top-left text)
     if summary_lines:
         ax.text(
@@ -374,17 +383,37 @@ def _plot_segment_hrv(
 
     ax.set_ylabel("RMSSD [ms]")
     ax.grid(True)
-    _maybe_add_legend(ax, loc="upper right")
+
 
     # Ensure shading appears in legend
+    # Build a single legend outside-right (lines + selected patches)
+    handles, labels = ax.get_legend_handles_labels()
+
+    # OPTIONAL: if you still want patches, keep only a couple (or none)
+    # e.g. keep events + sleep only:
     if "legend_patches" in locals() and legend_patches:
-        handles, labels = ax.get_legend_handles_labels()
-        existing = set(labels)
+        keep_patch_labels = {"Events excluded", "Sleep masked"}  # adjust or empty set()
         for p in legend_patches:
-            if p.get_label() not in existing:
+            if p.get_label() in keep_patch_labels:
                 handles.append(p)
                 labels.append(p.get_label())
-        ax.legend(handles, labels, loc="upper right")
+
+    # De-duplicate
+    seen = set()
+    h2, l2 = [], []
+    for h, l in zip(handles, labels):
+        if l not in seen and l != "_nolegend_":
+            h2.append(h)
+            l2.append(l)
+            seen.add(l)
+
+    ax.legend(
+        h2, l2,
+        loc="center left",
+        bbox_to_anchor=(1.01, 0.5),
+        borderaxespad=0.0,
+        fontsize=9,
+    )
 
     return hrv_ymin, hrv_ymax
 
@@ -460,20 +489,29 @@ def _plot_segment_delta_hr(
             # 1) FULL thin
             if delta_hr_edf is not None and np.size(delta_hr_edf) == np.size(t_hr_edf):
                 y_full = delta_hr_edf[mask_seg].astype(float)
-                ok = np.isfinite(y_full)
-                if np.any(ok):
-                    ax.plot(th[ok], y_full[ok],
-                            label="ΔHR EDF (full)",
-                            linewidth=0.8, alpha=0.45, linestyle="--", zorder=1)
+                if np.any(np.isfinite(y_full)):
+                    ax.plot(
+                        th,
+                        np.ma.masked_invalid(y_full),
+                        label="ΔHR EDF (full)",
+                        linewidth=0.8,
+                        alpha=0.45,
+                        linestyle="--",
+                        zorder=1,
+                    )
 
             # 2) EVENT-ONLY thick
             if delta_hr_edf_evt is not None and np.size(delta_hr_edf_evt) == np.size(t_hr_edf):
                 y_evt = delta_hr_edf_evt[mask_seg].astype(float)
-                ok2 = np.isfinite(y_evt)
-                if np.any(ok2):
-                    ax.plot(th[ok2], y_evt[ok2],
-                            label="ΔHR EDF (events)",
-                            linewidth=2.2, alpha=0.95, zorder=3)
+                if np.any(np.isfinite(y_evt)):
+                    ax.plot(
+                        th,
+                        np.ma.masked_invalid(y_evt),
+                        label="ΔHR EDF (events)",
+                        linewidth=2.2,
+                        alpha=0.95,
+                        zorder=3,
+                    )
 
     # ---- PAT ΔHR ----
     if t_hr_calc is not None:
@@ -488,7 +526,7 @@ def _plot_segment_delta_hr(
                 y_full = delta_hr_calc[mask_seg].astype(float)
                 ok = np.isfinite(y_full)
                 if np.any(ok):
-                    ax.plot(th[ok], y_full[ok],
+                    ax.plot(th, np.ma.masked_invalid(y_full),
                             label="ΔHR PAT (full)",
                             linewidth=0.9, alpha=0.45, linestyle="--", zorder=2)
 
@@ -497,13 +535,18 @@ def _plot_segment_delta_hr(
                 y_evt = delta_hr_calc_evt[mask_seg].astype(float)
                 ok2 = np.isfinite(y_evt)
                 if np.any(ok2):
-                    ax.plot(th[ok2], y_evt[ok2],
+                    ax.plot(th, np.ma.masked_invalid(y_evt),
                             label="ΔHR PAT (events)",
                             linewidth=2.6, alpha=0.95, zorder=4)
 
     ax.set_ylabel("ΔHR [bpm]")
     ax.grid(True)
-    _maybe_add_legend(ax, loc="upper right")
+    ax.legend(
+        loc="center left",
+        bbox_to_anchor=(1.01, 0.5),
+        borderaxespad=0.0,
+        fontsize=9,
+    )
 
     # Zero line (put it here so it’s always visible)
     ax.axhline(0.0, linewidth=0.8, alpha=0.5, zorder=0)
