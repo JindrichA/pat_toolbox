@@ -823,7 +823,7 @@ def _plot_segment_delta_hr(
     if not summary_lines:
         ax.text(
             0.01, 0.92,
-            "ΔHR: no data in this segment",
+            "ΔHR:",
             transform=ax.transAxes,
             fontsize=9,
             va="top",
