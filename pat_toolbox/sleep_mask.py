@@ -44,7 +44,6 @@ def ensure_stage_code_column(aux_df: "pd.DataFrame") -> "pd.DataFrame":
     if stage_code_col in aux_df.columns:
         return aux_df
 
-    # raw stage column name (from config.COL_NAMES)
     raw_stage_col = None
     try:
         raw_stage_col = config.COL_NAMES.get("stage", None)

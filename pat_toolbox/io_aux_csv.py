@@ -306,9 +306,11 @@ def desat_windows_from_aux(aux_df: pd.DataFrame) -> List[Tuple[float, float]]:
     return windows
 
 
+#TODO: Double masking in the code
+
 
 # =============================================================================
-# RR exclusion mask (FINAL)
+# RR exclusion mask
 # =============================================================================
 
 def get_rr_exclusion_mask(
