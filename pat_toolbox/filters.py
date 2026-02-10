@@ -1,11 +1,10 @@
 # pat_toolbox/filters.py
 from typing import Optional
 
-import numpy as np
-from scipy.signal import butter, filtfilt
 
 from . import config
-
+import numpy as np
+from scipy.signal import butter, filtfilt
 
 def bandpass_filter(
     data: np.ndarray,
@@ -54,8 +53,7 @@ def bandpass_filter(
     return filtered
 
 
-import numpy as np
-from scipy.signal import butter, filtfilt
+
 
 def _butter_filter(x: np.ndarray, fs: float, low: float | None = None, high: float | None = None, order: int = 3):
     nyq = 0.5 * fs
