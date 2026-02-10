@@ -14,6 +14,7 @@ from .metrics import hr as hr_metrics
 from .metrics import hrv as hrv_metrics
 from .metrics.hr import compute_hr_correlation
 from .metrics import pat_burden as pat_burden_metrics
+from .metrics.hr_delta import compute_delta_hr
 
 # Make sure plotting import points to where plot_pat_and_hr_segments_to_pdf is exposed
 # If you are using the split file structure, this might need to be:
@@ -44,9 +45,12 @@ def _compute_delta_hr(ctx: RecordingContext) -> None:
     if ctx.t_hr_calc is not None and getattr(ctx, "hr_calc_raw", None) is not None:
         fs_pat = float(getattr(config, "HR_TARGET_FS_HZ", 1.0))
 
-        ctx.delta_hr_calc = hr_metrics.compute_delta_hr(
-            ctx.t_hr_calc, ctx.hr_calc_raw,
-            lag_sec=lag, pre_smooth_sec=pre, fs=fs_pat, use_abs=use_abs
+        ctx.delta_hr_calc = compute_delta_hr(
+            ctx.hr_calc_raw,
+            lag_sec=lag,
+            pre_smooth_sec=pre,
+            fs=fs_pat,
+            use_abs=use_abs,
         )
 
         # event-only mask
@@ -70,9 +74,12 @@ def _compute_delta_hr(ctx: RecordingContext) -> None:
         dt = dt[np.isfinite(dt) & (dt > 0)]
         fs_edf = 1.0 / float(np.median(dt)) if dt.size else 1.0
 
-        ctx.delta_hr_edf = hr_metrics.compute_delta_hr(
-            ctx.t_hr_edf, ctx.hr_edf_raw,
-            lag_sec=lag, pre_smooth_sec=pre, fs=fs_edf, use_abs=use_abs
+        ctx.delta_hr_edf = compute_delta_hr(
+            ctx.hr_edf_raw,
+            lag_sec=lag,
+            pre_smooth_sec=pre,
+            fs=fs_edf,
+            use_abs=use_abs,
         )
 
         ctx.delta_hr_edf_evt = None
