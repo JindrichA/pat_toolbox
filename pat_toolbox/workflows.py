@@ -16,15 +16,9 @@ from .metrics.hr import compute_hr_correlation
 from .metrics import pat_burden as pat_burden_metrics
 from .metrics.hr_delta import compute_delta_hr
 
-# Make sure plotting import points to where plot_pat_and_hr_segments_to_pdf is exposed
-# If you are using the split file structure, this might need to be:
-# from .plotting.report import plot_pat_and_hr_segments_to_pdf
-# But usually .plotting.__init__ exposes it.
 
 if TYPE_CHECKING:
     import pandas as pd
-
-
 
 
 def _compute_delta_hr(ctx: RecordingContext) -> None:
@@ -93,8 +87,6 @@ def _compute_delta_hr(ctx: RecordingContext) -> None:
     else:
         ctx.delta_hr_edf = None
         ctx.delta_hr_edf_evt = None
-
-
 
 
 # ----------------------------
@@ -175,8 +167,6 @@ def _compute_pat_burden(ctx: RecordingContext) -> None:
 
 
 
-
-
 def _compute_hr_from_pat(ctx: RecordingContext) -> None:
     assert ctx.view_pat is not None and ctx.sfreq is not None
     try:
@@ -216,7 +206,6 @@ def _load_hr_from_edf(ctx: RecordingContext) -> None:
             if m_sleep is not None:
                 sleep_mask.apply_sleep_mask_inplace(ctx.hr_edf, m_sleep)
 
-            # event include (keep=True)  <-- ADD THIS
             m_evt = io_aux_csv.build_time_exclusion_mask(ctx.t_hr_edf, ctx.aux_df)
             if m_evt is not None:
                 sleep_mask.apply_sleep_mask_inplace(ctx.hr_edf, m_evt)
@@ -275,10 +264,6 @@ def _compute_hrv(ctx: RecordingContext) -> None:
         # Masks on the 1 Hz HRV grid
         m_sleep = sleep_mask.build_sleep_include_mask(ctx.t_hrv, ctx.aux_df)  # True = keep
         m_excl = io_aux_csv.build_time_exclusion_mask(ctx.t_hrv, ctx.aux_df)  # True = keep
-
-        # IMPORTANT:
-        # - Do NOT mask ctx.hrv_rmssd_raw here. It should stay truly "raw" for dashed plotting.
-        # - Mask only the "clean/used" series + TV metrics.
 
         if m_excl is not None:
             sleep_mask.apply_sleep_mask_inplace(ctx.hrv_rmssd_clean, m_excl)
@@ -362,8 +347,6 @@ def _build_pdf(ctx: RecordingContext) -> None:
         delta_hr_edf=ctx.delta_hr_edf,
         delta_hr_calc_evt=getattr(ctx, "delta_hr_calc_evt", None),
         delta_hr_edf_evt=getattr(ctx, "delta_hr_edf_evt", None),
-
-        # ✅ ADD THESE TWO LINES
         pat_burden=getattr(ctx, "pat_burden", None),
         pat_burden_diag=getattr(ctx, "pat_burden_diag", None),
     )
@@ -371,9 +354,7 @@ def _build_pdf(ctx: RecordingContext) -> None:
     ctx.psd_features = psd_results_dict
     ctx.mayer_peak_freq = psd_results_dict.get("mayer_peak_hz")
     ctx.resp_peak_freq = psd_results_dict.get("resp_peak_hz")
-
     print(f"  Saved VIEW_PAT + HR + HRV overlay plots to: {ctx.pdf_path}")
-
 
 
 def _build_peaks_debug_pdf(ctx: RecordingContext) -> None:
@@ -391,7 +372,6 @@ def _build_peaks_debug_pdf(ctx: RecordingContext) -> None:
 
 
 def _append_summary(ctx: RecordingContext) -> None:
-    # We pass the full psd_features dictionary to the CSV writer now
     hr_metrics.append_hr_correlation_to_summary(
         ctx.edf_path,
         ctx.pearson_r,
@@ -410,7 +390,6 @@ def _append_summary(ctx: RecordingContext) -> None:
         pat_burden=getattr(ctx, "pat_burden", None),
         pat_burden_diag=getattr(ctx, "pat_burden_diag", None),
     )
-
 
 # ----------------------------
 # Public API
@@ -439,6 +418,4 @@ def process_view_pat_overlay_for_file(edf_path: Path) -> Path | None:
 
     except Exception as e:
         print(f"  ERROR: failed processing {edf_path.name}: {e}")
-        # import traceback
-        # traceback.print_exc()
         return None
