@@ -1,6 +1,5 @@
 # pat_toolbox/config.py
 from __future__ import annotations
-from pathlib import Path
 from typing import Dict
 from datetime import datetime
 import re
@@ -9,11 +8,7 @@ from pathlib import Path
 # =============================================================================
 # Output base directory (ALL results go here)
 # =============================================================================
-
-BASE_OUTPUT_DIR = Path("/Users/jindrich/Projects/mayo_sleep_pat/PAT_outputs012026")
-# examples:
-# BASE_OUTPUT_DIR = Path.home() / "pat_outputs"
-# BASE_OUTPUT_DIR = Path("/mnt/data/pat_outputs")
+BASE_OUTPUT_DIR = Path("/Users/jindrich/Projects/PAT_022026_output_data/")
 # Debug: limit number of EDF files processed (None = all)
 MAX_FILES = None
 # =============================================================================
@@ -24,9 +19,7 @@ EDF_FOLDER = Path(
 )
 # Unique run identifier (set once at import time)
 RUN_ID = datetime.now().strftime("%Y%m%d_%H%M%S")
-
 # Optional short message/tag to make folders self-describing (edit this, not dates)
-# Examples: "desat", "debug", "paper_figs", "subject_12"
 RUN_TAG = "desat_2min_FD_fixed"
 
 def _slug(s: str) -> str:
@@ -41,13 +34,8 @@ def _slug(s: str) -> str:
 # =============================================================================
 # Sleep stage handling / masking  (MOVED UP so OUTPUT_SUBFOLDER sees it)
 # =============================================================================
-
-
-
 # Show the PAT raw/filtered subplot at top of each segment page
-ENABLE_PAT_SIGNAL_PLOT = False
-
-
+ENABLE_PAT_SIGNAL_PLOT = True
 ENABLE_SLEEP_STAGE_MASKING = True
 
 # Sleep stage filtering policy
@@ -58,9 +46,6 @@ ENABLE_SLEEP_STAGE_MASKING = True
 #   "deep_only"       - Include only deep sleep (2)
 #   "nrem_light_only" - Include only NREM light (1)
 #   "custom"          - Use SLEEP_INCLUDE_LABELS / SLEEP_INCLUDE_NUMERIC
-
-
-# Legacy: "n2n3_only" treated as "deep_only"
 SLEEP_STAGE_POLICY = "nrem_only"
 
 
@@ -162,15 +147,15 @@ HR_MAX_RR_GAP_SEC = 2.5
 # =============================================================================
 
 HR_RR_MEDFILT_KERNEL = 5              # local median window (odd)
-HR_RR_OUTLIER_REL_THR = 0.25          # |rr - med| / med <= thr
+HR_RR_OUTLIER_REL_THR = 0.30          # |rr - med| / med <= thr
 
 # Reject "very long" RR relative to local median (missed beats / broken segments)
-HR_RR_GAP_FACTOR = 2.2                # rr <= gap_factor * local_median
+HR_RR_GAP_FACTOR = 2.4                # rr <= gap_factor * local_median
 
 # Reject abrupt RR jumps (helps with transient mis-detections)
-HR_RR_JUMP_REL_THR = 0.5              # relative jump threshold
+HR_RR_JUMP_REL_THR = 0.6              # relative jump threshold
 
-# Reject adjacent short+long (or long+short) pairs (double-peak + missed-peak signature)
+# Reject adjacent short+long (or long+short) pairs (double- + missed-peak signature)
 HR_RR_ALT_SHORT_REL = 0.25            # short if < (1 - x) * local_median
 HR_RR_ALT_LONG_REL = 0.35             # long  if > (1 + y) * local_median
 
@@ -192,7 +177,7 @@ HRV_HAMPEL_WINDOW_SEC = 30.0
 HRV_HAMPEL_SIGMA = 3.0
 
 # Gap handling for RMSSD windows
-HRV_MAX_RR_GAP_SEC = 3.0              # reject windows spanning gaps > this
+HRV_MAX_RR_GAP_SEC = 4.0              # reject windows spanning gaps > this
 HRV_RMSSD_MIN_SPAN_SEC = 10.0         # reject windows with tiny coverage clusters
 
 # Frequency-domain (LF/HF)
@@ -205,6 +190,12 @@ HRV_MAX_TACHO_GAP_SEC = 3.0           # used by TV metrics windowing
 HRV_LFHF_FIXED_WINDOW_SEC = 120.0
 HRV_LFHF_FIXED_HOP_SEC = 120.0   # non-overlapping
 HRV_LFHF_FIXED_MIN_RR = 0        # optional; set e.g. 200 for stricter filtering
+
+
+HRV_RMSSD_VETO_BIGDIFF = False
+# or, if you want to keep it:
+HRV_RMSSD_BIGDIFF_THR_MS = 300.0
+HRV_RMSSD_BIGDIFF_MAX_FRAC = 0.35
 
 
 # =============================================================================
@@ -291,7 +282,7 @@ HRV_RMSSD_DIFF_MAD_SIGMAS = 3.0
 HRV_RMSSD_MIN_DIFFS = 3
 
 HRV_RMSSD_FLOOR_MS = 2.0
-HRV_MIN_WINDOW_COVERAGE = 0.6
+HRV_MIN_WINDOW_COVERAGE = 0.4
 
 # =============================================================================
 # Sleep stage handling / masking
@@ -332,10 +323,6 @@ DELTA_HR_ABS = False
 #   "subplot" -> extra row showing ΔHR
 #   "twinx"   -> overlay ΔHR on HR axis using a 2nd y-axis
 DELTA_HR_PLOT_MODE = "subplot"
-
-
-
-
 
 
 def sleep_include_numeric() -> set[int]:
