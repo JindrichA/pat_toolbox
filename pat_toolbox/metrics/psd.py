@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 from scipy.signal import welch
 
 from .. import config, paths, sleep_mask, io_aux_csv
-from . import hr as hr_metrics  # ✅ use the same RR extraction as HRV
+from . import hr as hr_metrics
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -101,7 +101,7 @@ def _compute_hrv_matched_psd(
     if rr_ms.size < 4:
         return np.array([]), np.array([]), 0, {"reason": "rr_removed_by_event_mask"}
 
-    # ---- Fixed window definition (same config as HRV Option A) ----
+    # ---- Fixed window definition
     window_sec = float(getattr(config, "HRV_LFHF_FIXED_WINDOW_SEC", 300.0))
     hop_sec = float(getattr(config, "HRV_LFHF_FIXED_HOP_SEC", window_sec))
     max_gap_sec = float(getattr(config, "HRV_MAX_RR_GAP_SEC", 4.0))
@@ -113,7 +113,7 @@ def _compute_hrv_matched_psd(
     if centers.size == 0:
         return np.array([]), np.array([]), 0, {"reason": "no_windows_defined"}
 
-    # Two-pointer RR windowing (same pattern as your HRV implementation)
+    # Two-pointer RR windowing
     n = rr_mid.size
     left = 0
     right = 0

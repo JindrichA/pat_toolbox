@@ -118,8 +118,6 @@ def plot_pat_and_hr_segments_to_pdf(
         delta_hr_edf=delta_hr_edf,
         delta_hr_calc_evt=delta_hr_calc_evt,
         delta_hr_edf_evt=delta_hr_edf_evt,
-
-        # ✅ ADD THESE TWO LINES
         pat_burden=pat_burden,
         pat_burden_diag=pat_burden_diag,
     )

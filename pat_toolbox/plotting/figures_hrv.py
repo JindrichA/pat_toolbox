@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from typing import Optional, Tuple, Dict, TYPE_CHECKING, List
-
 import numpy as np
 import matplotlib.pyplot as plt
 

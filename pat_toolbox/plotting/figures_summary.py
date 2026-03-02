@@ -11,13 +11,9 @@ from .utils import _fmt, _count_flags
 if TYPE_CHECKING:
     import pandas as pd
 
-
-
 # ============================================================================
-# Small formatting / stats helpers (kept local to this module)
+# Small formatting / stats helpers
 # ============================================================================
-
-
 def _finite_stats(y: Optional[np.ndarray]) -> Dict[str, Optional[float]]:
     out = {
         "n_total": None,
@@ -237,8 +233,6 @@ def _sleep_stage_stats(aux_df: Optional["pd.DataFrame"]) -> Optional[list[list[s
     return rows
 
 
-
-
 # -----------------------------------------------------------------------------
 # Small formatting helpers
 # -----------------------------------------------------------------------------
@@ -385,9 +379,6 @@ def _render_table_page(
     table.auto_set_font_size(False)
     table.set_fontsize(font_size)
 
-    # --- NEW: auto-tune vertical scaling to avoid clipping when many rows ---
-    # If you add more rows (PAT burden), the previous fixed scale can push
-    # the bottom off the page.
     n_rows = len(rows) + 1  # +1 for header row
     if n_rows > 36:
         scale_y_eff = min(scale_y, 1.05)
@@ -434,8 +425,6 @@ def build_summary_pages(
     # event-only ΔHR:
     delta_hr_calc_evt: Optional[np.ndarray] = None,
     delta_hr_edf_evt: Optional[np.ndarray] = None,
-
-    # ✅ PAT burden:
     pat_burden: Optional[float] = None,
     pat_burden_diag: Optional[Dict[str, float]] = None,
 ) -> List[plt.Figure]:
@@ -601,7 +590,6 @@ def build_summary_pages(
     else:
         rows_p4 += [["Event summary", "No aux_df available"]]
 
-    # ✅ PAT burden block (always added; shows NA if missing)
     rows_p4 += [["", ""]]
     rows_p4 += [["PAT burden (event+desat within included sleep)", ""]]
 
@@ -631,8 +619,6 @@ def build_summary_pages(
     )
 
     return [fig1, fig2, fig3, fig4]
-
-
 
 # ============================================================================
 # Sleep stagegram (hypnogram) page

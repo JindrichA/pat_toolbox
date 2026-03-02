@@ -1057,7 +1057,6 @@ def _add_segment_pages_to_pdf(
     pat_amp: Optional[np.ndarray],
     delta_hr_calc: Optional[np.ndarray],
     delta_hr_edf: Optional[np.ndarray],
-    # NEW: event/desat-only ΔHR arrays (NaN outside event windows)
     delta_hr_calc_evt: Optional[np.ndarray],
     delta_hr_edf_evt: Optional[np.ndarray],
     t_hr_calc_raw: Optional[np.ndarray],
@@ -1135,10 +1134,6 @@ def _add_segment_pages_to_pdf(
 
         use_delta_subplot = enable_delta and (delta_mode == "subplot") and has_any_delta
 
-        # -------------------------------------------------
-        # NEW ORDER:
-        #   HR -> ΔHR -> HRV -> PAT -> PAT AMP
-        # -------------------------------------------------
         n_rows = 1  # HR always
         if use_delta_subplot:
             n_rows += 1
