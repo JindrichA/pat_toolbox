@@ -23,39 +23,45 @@ if TYPE_CHECKING:
 
 
 def plot_pat_and_hr_segments_to_pdf(
-        signal_raw: np.ndarray,
-        signal_filt: np.ndarray,
-        sfreq: float,
-        pdf_path: Path,
-        segment_minutes: Optional[float] = None,
-        title_prefix: str = "",
-        channel_name: str = "",
-        t_hr_calc: Optional[np.ndarray] = None,
-        hr_calc: Optional[np.ndarray] = None,
-        t_hr_edf: Optional[np.ndarray] = None,
-        hr_edf: Optional[np.ndarray] = None,
-        t_hrv: Optional[np.ndarray] = None,
-        hrv_rmssd: Optional[np.ndarray] = None,
-        hrv_rmssd_raw: Optional[np.ndarray] = None,
-        hrv_tv: Optional[Dict[str, np.ndarray]] = None,
-        pearson_r: Optional[float] = None,
-        spear_rho: Optional[float] = None,
-        rmse: Optional[float] = None,
-        hrv_summary: Optional[Dict[str, float]] = None,
-        aux_df: "Optional[pd.DataFrame]" = None,
-        t_pat_amp: Optional[np.ndarray] = None,
-        pat_amp: Optional[np.ndarray] = None,
-        delta_hr_calc: Optional[np.ndarray] = None,
-        delta_hr_edf: Optional[np.ndarray] = None,
-        delta_hr_calc_evt: Optional[np.ndarray] = None,
-        delta_hr_edf_evt: Optional[np.ndarray] = None,
-        t_hr_calc_raw: Optional[np.ndarray] = None,
-        hr_calc_raw: Optional[np.ndarray] = None,
-        t_hr_edf_raw: Optional[np.ndarray] = None,
-        hr_edf_raw: Optional[np.ndarray] = None,
-        pat_burden: Optional[float] = None,
-        pat_burden_diag: Optional[Dict[str, float]] = None,
+    signal_raw: np.ndarray,
+    signal_filt: np.ndarray,
+    sfreq: float,
+    pdf_path: Path,
+    segment_minutes: Optional[float] = None,
+    title_prefix: str = "",
+    channel_name: str = "",
+    t_hr_calc: Optional[np.ndarray] = None,
+    hr_calc: Optional[np.ndarray] = None,
+    t_hr_edf: Optional[np.ndarray] = None,
+    hr_edf: Optional[np.ndarray] = None,
+    t_hrv: Optional[np.ndarray] = None,
+    hrv_rmssd: Optional[np.ndarray] = None,
+    hrv_rmssd_raw: Optional[np.ndarray] = None,
+    hrv_tv: Optional[Dict[str, np.ndarray]] = None,
+    pearson_r: Optional[float] = None,
+    spear_rho: Optional[float] = None,
+    rmse: Optional[float] = None,
+    hrv_summary: Optional[Dict[str, float]] = None,
+    aux_df: "Optional[pd.DataFrame]" = None,
+    t_pat_amp: Optional[np.ndarray] = None,
+    pat_amp: Optional[np.ndarray] = None,
+    delta_hr_calc: Optional[np.ndarray] = None,
+    delta_hr_edf: Optional[np.ndarray] = None,
+    delta_hr_calc_evt: Optional[np.ndarray] = None,
+    delta_hr_edf_evt: Optional[np.ndarray] = None,
+    t_hr_calc_raw: Optional[np.ndarray] = None,
+    hr_calc_raw: Optional[np.ndarray] = None,
+    t_hr_edf_raw: Optional[np.ndarray] = None,
+    hr_edf_raw: Optional[np.ndarray] = None,
+    pat_burden: Optional[float] = None,
+    pat_burden_diag: Optional[Dict[str, float]] = None,
 ) -> Dict[str, float]:
+    """
+    Plotting-only mode:
+      - keep upstream API compatible
+      - hide proprietary/device HR and its comparison from all plots
+      - keep PAT-derived HR / HRV / PAT amplitude / PSD plotting active
+    """
 
     if segment_minutes is None:
         segment_minutes = config.SEGMENT_MINUTES
@@ -92,28 +98,44 @@ def plot_pat_and_hr_segments_to_pdf(
     resp_peak_freq = psd_features.get("resp_peak_hz")
     duration_sec = n_samples / sfreq
 
+    # -------------------------------------------------------------
+    # Plotting-only switch-off for proprietary/device HR
+    # Keep function signature compatible, but hide EDF/device HR
+    # from summary pages and segment plots.
+    # -------------------------------------------------------------
+    t_hr_edf_plot = None
+    hr_edf_plot = None
+    delta_hr_edf_plot = None
+    delta_hr_edf_evt_plot = None
+    t_hr_edf_raw_plot = None
+    hr_edf_raw_plot = None
+
+    pearson_r_plot = None
+    spear_rho_plot = None
+    rmse_plot = None
+
     summary_pages = build_summary_pages(
         edf_base=edf_base,
-        pearson_r=pearson_r,
-        spear_rho=spear_rho,
-        rmse=rmse,
+        pearson_r=pearson_r_plot,
+        spear_rho=spear_rho_plot,
+        rmse=rmse_plot,
         hrv_summary=hrv_summary,
         mayer_peak_freq=mayer_peak_freq,
         resp_peak_freq=resp_peak_freq,
         aux_df=aux_df,
         t_hr_calc=t_hr_calc,
         hr_calc=hr_calc,
-        t_hr_edf=t_hr_edf,
-        hr_edf=hr_edf,
+        t_hr_edf=t_hr_edf_plot,
+        hr_edf=hr_edf_plot,
         t_hrv=t_hrv,
         hrv_clean=hrv_rmssd,
         hrv_raw=hrv_rmssd_raw,
         hrv_tv=hrv_tv,
         psd_features=psd_features,
         delta_hr_calc=delta_hr_calc,
-        delta_hr_edf=delta_hr_edf,
+        delta_hr_edf=delta_hr_edf_plot,
         delta_hr_calc_evt=delta_hr_calc_evt,
-        delta_hr_edf_evt=delta_hr_edf_evt,
+        delta_hr_edf_evt=delta_hr_edf_evt_plot,
         pat_burden=pat_burden,
         pat_burden_diag=pat_burden_diag,
     )
@@ -189,8 +211,8 @@ def plot_pat_and_hr_segments_to_pdf(
                 channel_name=channel_name,
                 t_hr_calc=t_hr_calc,
                 hr_calc=hr_calc,
-                t_hr_edf=t_hr_edf,
-                hr_edf=hr_edf,
+                t_hr_edf=t_hr_edf_plot,
+                hr_edf=hr_edf_plot,
                 t_hrv=t_hrv,
                 hrv_clean=hrv_rmssd,
                 hrv_raw=hrv_rmssd_raw,
@@ -199,13 +221,13 @@ def plot_pat_and_hr_segments_to_pdf(
                 t_pat_amp=t_pat_amp,
                 pat_amp=pat_amp,
                 delta_hr_calc=delta_hr_calc,
-                delta_hr_edf=delta_hr_edf,
+                delta_hr_edf=delta_hr_edf_plot,
                 delta_hr_calc_evt=delta_hr_calc_evt,
-                delta_hr_edf_evt=delta_hr_edf_evt,
+                delta_hr_edf_evt=delta_hr_edf_evt_plot,
                 t_hr_calc_raw=t_hr_calc_raw,
                 hr_calc_raw=hr_calc_raw,
-                t_hr_edf_raw=t_hr_edf_raw,
-                hr_edf_raw=hr_edf_raw,
+                t_hr_edf_raw=t_hr_edf_raw_plot,
+                hr_edf_raw=hr_edf_raw_plot,
             )
     except Exception:
         if pdf_path.exists():

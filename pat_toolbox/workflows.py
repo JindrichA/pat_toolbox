@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional, Dict, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -12,10 +12,8 @@ from . import sleep_mask
 from .context import RecordingContext
 from .metrics import hr as hr_metrics
 from .metrics import hrv as hrv_metrics
-from .metrics.hr import compute_hr_correlation
 from .metrics import pat_burden as pat_burden_metrics
 from .metrics.hr_delta import compute_delta_hr
-
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -24,18 +22,13 @@ if TYPE_CHECKING:
 def _compute_delta_hr(ctx: RecordingContext) -> None:
     if not bool(getattr(config, "ENABLE_DELTA_HR", True)):
         ctx.delta_hr_calc = None
-        ctx.delta_hr_edf = None
         ctx.delta_hr_calc_evt = None
-        ctx.delta_hr_edf_evt = None
         return
 
     lag = float(getattr(config, "DELTA_HR_LAG_SEC", 30.0))
     pre = float(getattr(config, "DELTA_HR_PRE_SMOOTH_SEC", 0.0))
     use_abs = bool(getattr(config, "DELTA_HR_ABS", False))
 
-    # ---------------------------
-    # PAT ΔHR: compute from RAW HR
-    # ---------------------------
     if ctx.t_hr_calc is not None and getattr(ctx, "hr_calc_raw", None) is not None:
         fs_pat = float(getattr(config, "HR_TARGET_FS_HZ", 1.0))
 
@@ -47,7 +40,6 @@ def _compute_delta_hr(ctx: RecordingContext) -> None:
             use_abs=use_abs,
         )
 
-        # event-only mask
         ctx.delta_hr_calc_evt = None
         if ctx.aux_df is not None:
             m_evt_keep = io_aux_csv.build_time_exclusion_mask(ctx.t_hr_calc, ctx.aux_df)
@@ -60,37 +52,9 @@ def _compute_delta_hr(ctx: RecordingContext) -> None:
         ctx.delta_hr_calc = None
         ctx.delta_hr_calc_evt = None
 
-    # ---------------------------
-    # EDF ΔHR: compute from RAW HR
-    # ---------------------------
-    if ctx.t_hr_edf is not None and getattr(ctx, "hr_edf_raw", None) is not None:
-        dt = np.diff(ctx.t_hr_edf)
-        dt = dt[np.isfinite(dt) & (dt > 0)]
-        fs_edf = 1.0 / float(np.median(dt)) if dt.size else 1.0
-
-        ctx.delta_hr_edf = compute_delta_hr(
-            ctx.hr_edf_raw,
-            lag_sec=lag,
-            pre_smooth_sec=pre,
-            fs=fs_edf,
-            use_abs=use_abs,
-        )
-
-        ctx.delta_hr_edf_evt = None
-        if ctx.aux_df is not None:
-            m_evt_keep = io_aux_csv.build_time_exclusion_mask(ctx.t_hr_edf, ctx.aux_df)
-            if m_evt_keep is not None:
-                m_inside = ~np.asarray(m_evt_keep, dtype=bool)
-                d = ctx.delta_hr_edf.astype(float, copy=True)
-                d[~m_inside] = np.nan
-                ctx.delta_hr_edf_evt = d
-    else:
-        ctx.delta_hr_edf = None
-        ctx.delta_hr_edf_evt = None
-
 
 # ----------------------------
-# Small helper steps (readable)
+# Small helper steps
 # ----------------------------
 
 def _load_pat(ctx: RecordingContext) -> None:
@@ -118,6 +82,7 @@ def _load_pat_amp(ctx: RecordingContext) -> None:
             ctx.pat_amp = pat_amp_signal.astype(float)
         else:
             print("  WARNING: PAT AMP channel exists but is empty.")
+            ctx.t_pat_amp, ctx.pat_amp = None, None
     except Exception as e:
         print(f"  WARNING: could not read PAT AMP channel '{config.PAT_AMP_CHANNEL_NAME}': {e}")
         ctx.t_pat_amp, ctx.pat_amp = None, None
@@ -134,6 +99,7 @@ def _load_aux_csv(ctx: RecordingContext) -> None:
     except Exception as e:
         print(f"  WARNING: could not read aux CSV for {ctx.edf_path.name}: {e}")
         ctx.aux_df = None
+
 
 def _compute_pat_burden(ctx: RecordingContext) -> None:
     if not bool(getattr(config, "ENABLE_PAT_BURDEN", True)):
@@ -166,19 +132,17 @@ def _compute_pat_burden(ctx: RecordingContext) -> None:
         ctx.pat_burden_episodes = None
 
 
-
 def _compute_hr_from_pat(ctx: RecordingContext) -> None:
     assert ctx.view_pat is not None and ctx.sfreq is not None
     try:
         ctx.t_hr_calc, ctx.hr_calc = hr_metrics.compute_hr_from_pat_signal(ctx.view_pat, fs=ctx.sfreq)
 
         ctx.hr_calc_raw = None if ctx.hr_calc is None else ctx.hr_calc.copy()
-        # sleep include (keep=True)
+
         m_sleep = sleep_mask.build_sleep_include_mask(ctx.t_hr_calc, ctx.aux_df)
         if m_sleep is not None:
             sleep_mask.apply_sleep_mask_inplace(ctx.hr_calc, m_sleep)
 
-        # event include (keep=True)  <-- ADD THIS
         m_evt = io_aux_csv.build_time_exclusion_mask(ctx.t_hr_calc, ctx.aux_df)
         if m_evt is not None:
             sleep_mask.apply_sleep_mask_inplace(ctx.hr_calc, m_evt)
@@ -186,60 +150,7 @@ def _compute_hr_from_pat(ctx: RecordingContext) -> None:
     except Exception as e:
         print(f"  WARNING: could not compute HR from PAT: {e}")
         ctx.t_hr_calc, ctx.hr_calc = None, None
-
-
-def _load_hr_from_edf(ctx: RecordingContext) -> None:
-    try:
-        hr_signal, hr_fs = io_edf.read_edf_channel(ctx.edf_path, config.HR_CHANNEL_NAME)
-        if hr_fs <= 0:
-            raise ValueError("HR sampling frequency <= 0")
-
-        n = len(hr_signal)
-        if n > 0:
-            ctx.t_hr_edf = np.arange(n) / hr_fs
-            ctx.hr_edf = hr_signal.astype(float) * config.HR_EDF_SCALE_FACTOR
-
-            ctx.hr_edf_raw = None if ctx.hr_edf is None else ctx.hr_edf.copy()
-
-            # sleep include (keep=True)
-            m_sleep = sleep_mask.build_sleep_include_mask(ctx.t_hr_edf, ctx.aux_df)
-            if m_sleep is not None:
-                sleep_mask.apply_sleep_mask_inplace(ctx.hr_edf, m_sleep)
-
-            m_evt = io_aux_csv.build_time_exclusion_mask(ctx.t_hr_edf, ctx.aux_df)
-            if m_evt is not None:
-                sleep_mask.apply_sleep_mask_inplace(ctx.hr_edf, m_evt)
-
-        else:
-            print("  WARNING: HR channel exists but is empty.")
-    except Exception as e:
-        print(f"  WARNING: could not read HR channel '{config.HR_CHANNEL_NAME}': {e}")
-        ctx.t_hr_edf, ctx.hr_edf = None, None
-
-
-
-def _compute_hr_correlation(ctx: RecordingContext) -> None:
-    if (
-            ctx.t_hr_edf is None or ctx.hr_edf is None
-            or ctx.t_hr_calc is None or ctx.hr_calc is None
-    ):
-        print("  HR correlation: HR EDF or PAT HR missing, not computed.")
-        ctx.pearson_r = ctx.spear_rho = ctx.rmse = None
-        return
-
-    ctx.pearson_r, ctx.spear_rho, ctx.rmse = compute_hr_correlation(
-        ctx.t_hr_edf,
-        ctx.hr_edf,
-        ctx.t_hr_calc,
-        ctx.hr_calc,
-        common_fs=config.HR_TARGET_FS_HZ,
-    )
-
-    if ctx.pearson_r is not None:
-        print(
-            f"  HR correlation: Pearson={ctx.pearson_r:.3f}, "
-            f"Spearman={ctx.spear_rho:.3f}, RMSE={ctx.rmse:.2f} bpm"
-        )
+        ctx.hr_calc_raw = None
 
 
 def _compute_hrv(ctx: RecordingContext) -> None:
@@ -261,9 +172,8 @@ def _compute_hrv(ctx: RecordingContext) -> None:
             tv_window_sec=getattr(config, "HRV_TV_WINDOW_SEC"),
         )
 
-        # Masks on the 1 Hz HRV grid
-        m_sleep = sleep_mask.build_sleep_include_mask(ctx.t_hrv, ctx.aux_df)  # True = keep
-        m_excl = io_aux_csv.build_time_exclusion_mask(ctx.t_hrv, ctx.aux_df)  # True = keep
+        m_sleep = sleep_mask.build_sleep_include_mask(ctx.t_hrv, ctx.aux_df)
+        m_excl = io_aux_csv.build_time_exclusion_mask(ctx.t_hrv, ctx.aux_df)
 
         if m_excl is not None:
             sleep_mask.apply_sleep_mask_inplace(ctx.hrv_rmssd_clean, m_excl)
@@ -303,7 +213,9 @@ def _compute_hrv(ctx: RecordingContext) -> None:
 
     except Exception as e:
         print(f"  WARNING: HRV computation failed: {e}")
-        ctx.t_hrv = ctx.hrv_rmssd_raw = ctx.hrv_rmssd_clean = None
+        ctx.t_hrv = None
+        ctx.hrv_rmssd_raw = None
+        ctx.hrv_rmssd_clean = None
         ctx.hrv_summary = None
         ctx.hrv_tv = None
 
@@ -326,27 +238,27 @@ def _build_pdf(ctx: RecordingContext) -> None:
         channel_name=config.VIEW_PAT_CHANNEL_NAME,
         t_hr_calc=ctx.t_hr_calc,
         hr_calc=ctx.hr_calc,
-        t_hr_edf=ctx.t_hr_edf,
-        hr_edf=ctx.hr_edf,
+        t_hr_edf=None,
+        hr_edf=None,
         t_hr_calc_raw=ctx.t_hr_calc,
         hr_calc_raw=getattr(ctx, "hr_calc_raw", None),
-        t_hr_edf_raw=ctx.t_hr_edf,
-        hr_edf_raw=getattr(ctx, "hr_edf_raw", None),
+        t_hr_edf_raw=None,
+        hr_edf_raw=None,
         t_hrv=ctx.t_hrv,
         hrv_rmssd=ctx.hrv_rmssd_clean,
         hrv_rmssd_raw=ctx.hrv_rmssd_raw,
         hrv_tv=ctx.hrv_tv,
-        pearson_r=ctx.pearson_r,
-        spear_rho=ctx.spear_rho,
-        rmse=ctx.rmse,
+        pearson_r=None,
+        spear_rho=None,
+        rmse=None,
         hrv_summary=ctx.hrv_summary,
         aux_df=ctx.aux_df,
         t_pat_amp=ctx.t_pat_amp,
         pat_amp=ctx.pat_amp,
         delta_hr_calc=ctx.delta_hr_calc,
-        delta_hr_edf=ctx.delta_hr_edf,
+        delta_hr_edf=None,
         delta_hr_calc_evt=getattr(ctx, "delta_hr_calc_evt", None),
-        delta_hr_edf_evt=getattr(ctx, "delta_hr_edf_evt", None),
+        delta_hr_edf_evt=None,
         pat_burden=getattr(ctx, "pat_burden", None),
         pat_burden_diag=getattr(ctx, "pat_burden_diag", None),
     )
@@ -372,24 +284,21 @@ def _build_peaks_debug_pdf(ctx: RecordingContext) -> None:
 
 
 def _append_summary(ctx: RecordingContext) -> None:
-    hr_metrics.append_hr_correlation_to_summary(
+    hr_metrics.append_hr_hrv_summary(
         ctx.edf_path,
-        ctx.pearson_r,
-        ctx.spear_rho,
-        ctx.rmse,
         ctx.hrv_summary,
         ctx.mayer_peak_freq,
         ctx.resp_peak_freq,
         hr_calc=ctx.hr_calc,
-        hr_edf=ctx.hr_edf,
         hrv_clean=ctx.hrv_rmssd_clean,
         hrv_raw=ctx.hrv_rmssd_raw,
         hrv_tv=ctx.hrv_tv,
         aux_df=ctx.aux_df,
-        psd_features=getattr(ctx, "psd_features", None),  # Pass the new dict
+        psd_features=getattr(ctx, "psd_features", None),
         pat_burden=getattr(ctx, "pat_burden", None),
         pat_burden_diag=getattr(ctx, "pat_burden_diag", None),
     )
+
 
 # ----------------------------
 # Public API
@@ -400,15 +309,23 @@ def process_view_pat_overlay_for_file(edf_path: Path) -> Path | None:
     ctx = RecordingContext(edf_path=edf_path)
 
     try:
+        # Explicitly disable removed reference-HR fields on context
+        ctx.t_hr_edf = None
+        ctx.hr_edf = None
+        ctx.hr_edf_raw = None
+        ctx.delta_hr_edf = None
+        ctx.delta_hr_edf_evt = None
+        ctx.pearson_r = None
+        ctx.spear_rho = None
+        ctx.rmse = None
+
         _load_pat(ctx)
         _filter_pat(ctx)
         _load_pat_amp(ctx)
         _load_aux_csv(ctx)
         _compute_pat_burden(ctx)
         _compute_hr_from_pat(ctx)
-        _load_hr_from_edf(ctx)
         _compute_delta_hr(ctx)
-        _compute_hr_correlation(ctx)
         _compute_hrv(ctx)
         _build_pdf(ctx)
         _build_peaks_debug_pdf(ctx)

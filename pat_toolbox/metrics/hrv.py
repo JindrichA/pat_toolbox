@@ -10,12 +10,11 @@ import pandas as pd
 from scipy.signal import welch
 
 from .. import config, paths, io_aux_csv
-from . import hr as hr_metrics  # reuse RR extraction + cleaning
+from . import hr as hr_metrics
 from .. import sleep_mask
 
 if TYPE_CHECKING:
     from pandas import DataFrame as pd_DataFrame
-
 
 
 def _calculate_lfhf_fixed_windows(
@@ -32,11 +31,6 @@ def _calculate_lfhf_fixed_windows(
     """
     Compute LF/HF on fixed-length windows (publication-style).
     Non-overlapping by default (hop_sec == window_sec).
-
-    Returns dict:
-      - t_win_center_sec
-      - lf_ms2, hf_ms2, lf_hf
-      - valid_mask (bool)
     """
     out = {
         "t_win_center_sec": np.array([], dtype=float),
@@ -53,7 +47,6 @@ def _calculate_lfhf_fixed_windows(
     hop_sec = float(hop_sec)
     half = 0.5 * window_sec
 
-    # Window centers: only those fully inside [0, duration]
     centers = np.arange(half, max(half, duration_sec - half) + 1e-9, hop_sec)
     if centers.size == 0:
         return out
@@ -63,7 +56,6 @@ def _calculate_lfhf_fixed_windows(
     lf_hf = np.full(centers.shape, np.nan, dtype=float)
     valid = np.zeros(centers.shape, dtype=bool)
 
-    # Two-pointer windowing over sorted rr_mid
     n = rr_mid.size
     left = 0
     right = 0
@@ -88,13 +80,10 @@ def _calculate_lfhf_fixed_windows(
         rr_win_ms = rr_ms[left:right]
         rr_mid_win = rr_mid[left:right]
 
-        # Reject windows spanning gaps
         if rr_mid_win.size >= 2:
             if np.any(np.diff(rr_mid_win) > float(max_gap_sec)):
                 continue
             span = float(rr_mid_win[-1] - rr_mid_win[0])
-            # Require the RR coverage to span most of the window
-            # (prevents tiny clusters inside a 5-min window)
             if span < 0.8 * window_sec:
                 continue
         else:
@@ -115,9 +104,6 @@ def _calculate_lfhf_fixed_windows(
     return out
 
 
-
-
-
 # ---------------------------------------------------------------------
 # Basic HRV metrics on RR intervals
 # ---------------------------------------------------------------------
@@ -131,13 +117,11 @@ def _rmssd(rr_ms: np.ndarray) -> float:
     if diffs.size < 2:
         return np.nan
 
-    # Hard cap (optional, but very effective for PAT peak glitches)
     hard_cap_ms = float(getattr(config, "HRV_RMSSD_DIFF_HARD_CAP_MS"))
     diffs = diffs[np.abs(diffs) <= hard_cap_ms]
     if diffs.size < 2:
         return np.nan
 
-    # MAD-based outlier rejection on diffs
     med = float(np.median(diffs))
     mad = float(np.median(np.abs(diffs - med)))
     if mad > 0:
@@ -146,14 +130,12 @@ def _rmssd(rr_ms: np.ndarray) -> float:
         keep = np.abs(diffs - med) <= (k * sigma)
         diffs = diffs[keep]
 
-    # Require enough diffs left
     min_diffs = int(getattr(config, "HRV_RMSSD_MIN_DIFFS"))
     if diffs.size < min_diffs:
         return np.nan
 
     rmssd = float(np.sqrt(np.mean(diffs ** 2)))
 
-    # Prevent "fake perfect stability" (near-zero RMSSD) from showing as 0
     rmssd_floor_ms = float(getattr(config, "HRV_RMSSD_FLOOR_MS", 2.0))
     if not np.isfinite(rmssd) or rmssd < rmssd_floor_ms:
         return np.nan
@@ -175,10 +157,6 @@ def _lf_hf_from_rr(
 ) -> Tuple[float, float, float]:
     """
     Compute LF, HF, LF/HF from RR intervals using Welch PSD on a resampled tachogram.
-
-    IMPORTANT: This assumes rr_mid_times_sec is "continuous enough".
-    If there are large gaps, interpolation will create artificial low-frequency power.
-    For gap-robust use, call _lf_hf_from_rr_segmented(...).
     """
     if rr_ms.size < 4 or rr_mid_times_sec.size < 4:
         return np.nan, np.nan, np.nan
@@ -210,15 +188,15 @@ def _lf_hf_from_rr(
 
     lf = float(np.trapz(pxx[lf_band], f[lf_band]))
     hf = float(np.trapz(pxx[hf_band], f[hf_band]))
-    lf_hf = float(lf / hf) if hf > 0 else np.nan
 
     lf_ms2 = lf * 1e6
     hf_ms2 = hf * 1e6
-    return lf_ms2, hf_ms2, (lf_ms2 / hf_ms2 if hf_ms2 > 0 else np.nan)
+    lf_hf = float(lf_ms2 / hf_ms2) if hf_ms2 > 0 else np.nan
+    return lf_ms2, hf_ms2, lf_hf
 
 
 # ---------------------------------------------------------------------
-# Gap-robust helpers (split into contiguous runs and avoid bridging gaps)
+# Gap-robust helpers
 # ---------------------------------------------------------------------
 
 def _split_into_contiguous_runs(t: np.ndarray, max_gap_sec: float) -> List[np.ndarray]:
@@ -248,12 +226,6 @@ def _lf_hf_from_rr_segmented(
 ) -> Tuple[float, float, float] | Tuple[float, float, float, Dict[str, float]]:
     """
     Compute LF, HF, LF/HF from RR intervals WITHOUT interpolating across big gaps.
-    Split into contiguous runs, compute per-run, duration-weight average.
-
-    If return_info=True, also returns a dict with:
-      - n_segments_total: number of contiguous RR runs found (before min-span filtering)
-      - n_segments_used: number of runs actually used for PSD (span >= min_span_sec and finite LF/HF)
-      - dur_used_sec: total seconds contributing to PSD (sum of used run spans)
     """
     if rr_ms.size < 4 or rr_mid_times_sec.size < 4:
         if return_info:
@@ -325,7 +297,7 @@ def _lf_hf_from_rr_segmented(
 
 
 # ---------------------------------------------------------------------
-# Time-varying RMSSD calculation helper (gap-aware)
+# Time-varying RMSSD helper
 # ---------------------------------------------------------------------
 
 def _calculate_rmssd_series(
@@ -339,23 +311,12 @@ def _calculate_rmssd_series(
 ) -> Tuple[np.ndarray, List[float]]:
     """
     Calculate RMSSD series over a 1 Hz grid.
-
-    SAME behavior as the original implementation, but faster:
-      - replaces per-sample boolean masking (O(N_grid * N_rr)) with
-        a two-pointer sliding window (O(N_grid + N_rr)).
-
-    Protections:
-      - minimum RR count per window
-      - reject windows spanning RR gaps
-      - reject tiny clusters / poor coverage
-      - optional veto of "bigdiff bursts"
-      - floor near-zero RMSSD -> NaN
     """
     target_fs = float(getattr(config, "HRV_TARGET_FS_HZ", 1.0))
     half_win = 0.5 * float(window_sec)
 
     min_intervals = int(getattr(config, "HRV_MIN_INTERVALS_PER_WINDOW", 4))
-    min_cov = float(getattr(config, "HRV_MIN_WINDOW_COVERAGE", 0.0))  # 0 disables
+    min_cov = float(getattr(config, "HRV_MIN_WINDOW_COVERAGE", 0.0))
 
     veto_bigdiff = bool(getattr(config, "HRV_RMSSD_VETO_BIGDIFF", True))
     bigdiff_thr_ms = float(getattr(config, "HRV_RMSSD_BIGDIFF_THR_MS", 250.0))
@@ -369,7 +330,6 @@ def _calculate_rmssd_series(
     if t_hrv.size == 0 or rr_mid.size == 0 or rr_ms.size == 0:
         return rmssd_1hz, rmssd_windows_list
 
-    # rr_mid is expected to be sorted (it is derived from peak mid-times).
     n = rr_mid.size
     left = 0
     right = 0
@@ -378,12 +338,10 @@ def _calculate_rmssd_series(
         start = t - half_win
         end = t + half_win
 
-        # Advance left to maintain rr_mid[left] >= start
         while left < n and rr_mid[left] < start:
             left += 1
         if right < left:
             right = left
-        # Advance right to maintain rr_mid[right-1] < end  (window is [left:right))
         while right < n and rr_mid[right] < end:
             right += 1
 
@@ -394,7 +352,6 @@ def _calculate_rmssd_series(
         rr_win_ms = rr_ms[left:right]
         rr_mid_win = rr_mid[left:right]
 
-        # Reject windows spanning broken segments (prevents bridging gaps)
         if rr_mid_win.size >= 2:
             gaps = np.diff(rr_mid_win)
             if gaps.size > 0 and np.any(gaps > float(max_gap_sec)):
@@ -407,7 +364,6 @@ def _calculate_rmssd_series(
             if min_cov > 0.0 and span < (min_cov * float(window_sec)):
                 continue
 
-        # Optional: veto windows where too many successive RR diffs are huge
         if veto_bigdiff and rr_win_ms.size >= 3:
             diffs = np.abs(np.diff(rr_win_ms.astype(float)))
             if diffs.size > 0:
@@ -422,7 +378,6 @@ def _calculate_rmssd_series(
         rmssd_1hz[i] = rmssd_win
         rmssd_windows_list.append(rmssd_win)
 
-    # Optional smoothing only when there are no NaNs (keeps your original behavior)
     if not np.any(np.isnan(rmssd_1hz)):
         smooth_sec = float(getattr(config, "HRV_SMOOTHING_WINDOW_SEC", 0.0))
         smooth_samples = int(round(smooth_sec * target_fs))
@@ -434,7 +389,7 @@ def _calculate_rmssd_series(
 
 
 # ---------------------------------------------------------------------
-# Windowed HRV metrics for TV plots (gap-aware)
+# Windowed HRV metrics for TV plots
 # ---------------------------------------------------------------------
 
 def _calculate_hrv_windowed_series(
@@ -490,10 +445,7 @@ def _calculate_hrv_windowed_series(
         out["rmssd_ms"][i] = _rmssd(rr_win_ms)
         out["sdnn_ms"][i] = _sdnn(rr_win_ms)
 
-        if rr_mid_win.size >= 2:
-            span = float(rr_mid_win[-1] - rr_mid_win[0])
-        else:
-            span = 0.0
+        span = float(rr_mid_win[-1] - rr_mid_win[0]) if rr_mid_win.size >= 2 else 0.0
         if span < float(min_span_sec):
             continue
 
@@ -510,7 +462,7 @@ def _calculate_hrv_windowed_series(
 
 
 # ---------------------------------------------------------------------
-# Main HRV computation (RR-level sleep masking + RR-level event exclusion)
+# Main HRV computation (PAT-only)
 # ---------------------------------------------------------------------
 
 def compute_hrv_from_pat_signal(
@@ -521,17 +473,13 @@ def compute_hrv_from_pat_signal(
     window_sec: float = None,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, Optional[Dict[str, float]]]:
     """
-    Compute HRV from PAT signal using the SAME RR extraction/cleaning as HR.
+    Compute HRV from PAT signal using the same RR extraction/cleaning as HR.
 
     Outputs:
-      - t_hrv: 1 Hz time axis [s from start]
-      - rmssd_1hz_raw: RMSSD on RR after sleep masking (but BEFORE event exclusion)
-      - rmssd_1hz_clean: RMSSD on RR after sleep masking + event exclusion
-      - summary: global HRV metrics on CLEAN RR (sleep masked + event excluded)
-
-    Notes:
-      - RMSSD window computation rejects windows that span RR gaps.
-      - Global LF/HF uses segmented computation to avoid interpolating across gaps.
+      - t_hrv
+      - rmssd_1hz_raw: after sleep masking, before event exclusion
+      - rmssd_1hz_clean: after sleep masking + event exclusion
+      - summary: global HRV metrics on clean RR
     """
     if target_fs is None:
         target_fs = float(getattr(config, "HRV_TARGET_FS_HZ"))
@@ -547,7 +495,6 @@ def compute_hrv_from_pat_signal(
 
     max_gap_sec = float(getattr(config, "HRV_MAX_RR_GAP_SEC"))
     rmssd_min_span_sec = float(getattr(config, "HRV_RMSSD_MIN_SPAN_SEC"))
-
     fs_resample = float(getattr(config, "HRV_TACHO_RESAMPLE_HZ"))
     min_freq_span_sec = float(getattr(config, "HRV_MIN_FREQ_DOMAIN_SEC"))
 
@@ -563,36 +510,6 @@ def compute_hrv_from_pat_signal(
 
     rr_ms_physio_clean = rr_sec_physio_clean * 1000.0
 
-    # -----------------------------------------------------------------
-    # RAW RMSSD series (TRULY raw: no sleep masking, no event exclusion)
-    # -----------------------------------------------------------------
-    rmssd_1hz_raw, _rmssd_windows_list_raw = _calculate_rmssd_series(
-        t_hrv,
-        rr_mid_physio_clean,
-        rr_ms_physio_clean,
-        float(window_sec),
-        max_gap_sec=max_gap_sec,
-        min_span_sec=rmssd_min_span_sec,
-    )
-
-    # -----------------------------------------------------------------
-    # RR-level sleep-stage masking (for USED/CLEAN series + metrics)
-    # -----------------------------------------------------------------
-    # -----------------------------------------------------------------
-    # RAW RMSSD series (TRULY raw: no sleep masking, no event exclusion)
-    # -----------------------------------------------------------------
-    rmssd_1hz_raw, _rmssd_windows_list_raw = _calculate_rmssd_series(
-        t_hrv,
-        rr_mid_physio_clean,
-        rr_ms_physio_clean,
-        float(window_sec),
-        max_gap_sec=max_gap_sec,
-        min_span_sec=rmssd_min_span_sec,
-    )
-
-    # -----------------------------------------------------------------
-    # RR-level sleep-stage masking (for USED/CLEAN series + metrics)
-    # -----------------------------------------------------------------
     rr_mid_sleep = rr_mid_physio_clean
     rr_ms_sleep = rr_ms_physio_clean
 
@@ -602,29 +519,40 @@ def compute_hrv_from_pat_signal(
             rr_mid_sleep = rr_mid_sleep[m_sleep]
             rr_ms_sleep = rr_ms_sleep[m_sleep]
 
-    if rr_ms_sleep.size < 1:
-        nan_array = np.full_like(t_hrv, fill_value=np.nan, dtype=float)
-        # RAW exists, CLEAN doesn't
-        return t_hrv, rmssd_1hz_raw, nan_array, None, None
-
-    # -----------------------------------------------------------------
-    # RR-level sleep-stage masking (for USED/CLEAN series + metrics)
-    # -----------------------------------------------------------------
-    rr_mid_sleep = rr_mid_physio_clean
-    rr_ms_sleep = rr_ms_physio_clean
-
-    if aux_df is not None and bool(getattr(config, "ENABLE_SLEEP_STAGE_MASKING", False)):
-        m_sleep = sleep_mask.build_sleep_include_mask_for_times(rr_mid_sleep, aux_df)
-        if m_sleep is not None:
-            rr_mid_sleep = rr_mid_sleep[m_sleep]
-            rr_ms_sleep = rr_ms_sleep[m_sleep]
+    rmssd_1hz_raw, _rmssd_windows_list_raw = _calculate_rmssd_series(
+        t_hrv,
+        rr_mid_sleep,
+        rr_ms_sleep,
+        float(window_sec),
+        max_gap_sec=max_gap_sec,
+        min_span_sec=rmssd_min_span_sec,
+    )
 
     if rr_ms_sleep.size < 1:
         nan_array = np.full_like(t_hrv, fill_value=np.nan, dtype=float)
-        # RAW exists, CLEAN doesn't
-        return t_hrv, rmssd_1hz_raw, nan_array, None, None
+        return t_hrv, rmssd_1hz_raw, nan_array, None
 
-    # Global metrics on CLEAN RR
+    rr_mid_for_calc = rr_mid_sleep
+    rr_ms_for_calc = rr_ms_sleep
+
+    if aux_df is not None and rr_mid_for_calc.size > 0:
+        keep_mask = io_aux_csv.get_rr_exclusion_mask(rr_mid_for_calc, aux_df)
+        rr_mid_for_calc = rr_mid_for_calc[keep_mask]
+        rr_ms_for_calc = rr_ms_for_calc[keep_mask]
+
+        if rr_ms_for_calc.size < 1:
+            nan_array = np.full_like(t_hrv, fill_value=np.nan, dtype=float)
+            return t_hrv, rmssd_1hz_raw, nan_array, None
+
+    rmssd_1hz_clean, rmssd_windows_list_clean = _calculate_rmssd_series(
+        t_hrv,
+        rr_mid_for_calc,
+        rr_ms_for_calc,
+        float(window_sec),
+        max_gap_sec=max_gap_sec,
+        min_span_sec=rmssd_min_span_sec,
+    )
+
     sdnn_ms = _sdnn(rr_ms_for_calc)
 
     lf, hf, lf_hf, lf_info = _lf_hf_from_rr_segmented(
@@ -646,7 +574,6 @@ def compute_hrv_from_pat_signal(
             "hf": float(hf),
             "lf_hf": float(lf_hf),
             "lf_n_segments_used": int(lf_info["n_segments_used"]),
-
         }
     else:
         summary = {
@@ -657,14 +584,13 @@ def compute_hrv_from_pat_signal(
             "hf": float(hf),
             "lf_hf": float(lf_hf),
             "lf_n_segments_used": int(lf_info["n_segments_used"]),
-
         }
 
     return t_hrv, rmssd_1hz_raw, rmssd_1hz_clean, summary
 
 
 # ---------------------------------------------------------------------
-# HRV computation with TV metrics (RR-level sleep masking + RR-level event exclusion)
+# HRV computation with TV metrics (PAT-only)
 # ---------------------------------------------------------------------
 
 def compute_hrv_from_pat_signal_with_tv_metrics(
@@ -675,25 +601,15 @@ def compute_hrv_from_pat_signal_with_tv_metrics(
     window_sec: float = None,
     tv_window_sec: float = None,
 ) -> Tuple[
-    np.ndarray,                      # t_hrv
-    np.ndarray,                      # rmssd_1hz_raw
-    np.ndarray,                      # rmssd_1hz_clean
-    Optional[Dict[str, float]],      # summary (global on CLEAN RR)
-    Optional[Dict[str, np.ndarray]]  # tv metrics on CLEAN RR (sleep-masked + event-masked)
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    Optional[Dict[str, float]],
+    Optional[Dict[str, np.ndarray]],
 ]:
     """
-    Same outputs as before, but avoids re-extracting RR a second time.
-
-    Adds "Option A" fixed-length LF/HF windows (publication-style) into summary:
-      - lf_hf_fixed_median, lf_hf_fixed_mean
-      - lf_hf_fixed_n_windows_valid, lf_hf_fixed_n_windows_total
-      - lf_hf_fixed_window_sec, lf_hf_fixed_hop_sec
-
-    Also keeps your segmented LF/HF + diagnostics:
-      - lf, hf, lf_hf
-      - lf_n_segments_used
+    Same as compute_hrv_from_pat_signal, but also returns time-varying HRV metrics.
     """
-    # Defaults (match compute_hrv_from_pat_signal behavior)
     if target_fs is None:
         target_fs = float(getattr(config, "HRV_TARGET_FS_HZ"))
     if window_sec is None:
@@ -713,11 +629,9 @@ def compute_hrv_from_pat_signal_with_tv_metrics(
     fs_resample_global = float(getattr(config, "HRV_TACHO_RESAMPLE_HZ"))
     min_freq_span_sec = float(getattr(config, "HRV_MIN_FREQ_DOMAIN_SEC"))
 
-    # TV-specific params (match previous code)
     fs_resample_tv = float(getattr(config, "HRV_TV_TACHO_RESAMPLE_HZ"))
     min_rr_tv = int(getattr(config, "HRV_TV_MIN_RR_PER_WINDOW"))
 
-    # ---- Extract RR ONCE ----
     rr_sec_physio_clean, rr_mid_physio_clean, duration_sec = hr_metrics.extract_clean_rr_from_pat(
         pat_signal, fs
     )
@@ -729,9 +643,7 @@ def compute_hrv_from_pat_signal_with_tv_metrics(
 
     rr_ms_physio_clean = rr_sec_physio_clean * 1000.0
 
-    # -----------------------------------------------------------------
-    # RR-level sleep-stage masking (first)
-    # -----------------------------------------------------------------
+    # Sleep masking
     rr_mid_sleep = rr_mid_physio_clean
     rr_ms_sleep = rr_ms_physio_clean
 
@@ -745,9 +657,7 @@ def compute_hrv_from_pat_signal_with_tv_metrics(
         nan_array = np.full_like(t_hrv, fill_value=np.nan, dtype=float)
         return t_hrv, nan_array, nan_array, None, None
 
-    # -----------------------------------------------------------------
-    # RAW RMSSD series (sleep-masked RR, before event exclusion)
-    # -----------------------------------------------------------------
+    # RAW RMSSD = sleep-masked, before event exclusion
     rmssd_1hz_raw, _rmssd_windows_list_raw = _calculate_rmssd_series(
         t_hrv,
         rr_mid_sleep,
@@ -757,9 +667,7 @@ def compute_hrv_from_pat_signal_with_tv_metrics(
         min_span_sec=rmssd_min_span_sec,
     )
 
-    # -----------------------------------------------------------------
-    # CLEAN RR for global metrics + clean RMSSD (sleep-masked RR + event exclusion)
-    # -----------------------------------------------------------------
+    # CLEAN RR = sleep-masked + event-excluded
     rr_mid_for_calc = rr_mid_sleep
     rr_ms_for_calc = rr_ms_sleep
 
@@ -769,7 +677,6 @@ def compute_hrv_from_pat_signal_with_tv_metrics(
         rr_ms_for_calc = rr_ms_for_calc[keep_mask]
 
         if rr_ms_for_calc.size < 1:
-            print("  WARNING: All RR intervals excluded by event mask. HRV is not computed.")
             nan_array = np.full_like(t_hrv, fill_value=np.nan, dtype=float)
             return t_hrv, rmssd_1hz_raw, nan_array, None, None
 
@@ -782,10 +689,8 @@ def compute_hrv_from_pat_signal_with_tv_metrics(
         min_span_sec=rmssd_min_span_sec,
     )
 
-    # Global metrics on CLEAN RR
     sdnn_ms = _sdnn(rr_ms_for_calc)
 
-    # Segmented (gap-robust) LF/HF (existing behavior) + diagnostics
     lf, hf, lf_hf, lf_info = _lf_hf_from_rr_segmented(
         rr_ms_for_calc,
         rr_mid_for_calc,
@@ -795,9 +700,6 @@ def compute_hrv_from_pat_signal_with_tv_metrics(
         return_info=True,
     )
 
-    # ----------------------------
-    # Build summary (base)
-    # ----------------------------
     if len(rmssd_windows_list_clean) > 0:
         rmssd_arr = np.asarray(rmssd_windows_list_clean, dtype=float)
         summary: Dict[str, float] = {
@@ -820,15 +722,12 @@ def compute_hrv_from_pat_signal_with_tv_metrics(
             "lf_n_segments_used": int(lf_info["n_segments_used"]),
         }
 
-    # -----------------------------------------------------------------
-    # Option A: Fixed-length LF/HF windows (publication-style)
-    # -----------------------------------------------------------------
+    # Fixed-window LF/HF
     fixed_win_sec = float(getattr(config, "HRV_LFHF_FIXED_WINDOW_SEC", 300.0))
     fixed_hop_sec = float(getattr(config, "HRV_LFHF_FIXED_HOP_SEC", fixed_win_sec))
     fs_resample_fixed = float(getattr(config, "HRV_TACHO_RESAMPLE_HZ", 4.0))
     fixed_min_rr = int(getattr(config, "HRV_LFHF_FIXED_MIN_RR", 0))
 
-    # Uses the helper I suggested earlier: _calculate_lfhf_fixed_windows(...)
     lfhf_fixed = _calculate_lfhf_fixed_windows(
         rr_mid=rr_mid_for_calc,
         rr_ms=rr_ms_for_calc,
@@ -857,9 +756,6 @@ def compute_hrv_from_pat_signal_with_tv_metrics(
     summary["lf_hf_fixed_window_sec"] = float(fixed_win_sec)
     summary["lf_hf_fixed_hop_sec"] = float(fixed_hop_sec)
 
-    # -----------------------------------------------------------------
-    # TV metrics on CLEAN RR (sleep-masked + event-excluded)
-    # -----------------------------------------------------------------
     if rr_mid_for_calc.size == 0:
         tv = {
             "rmssd_ms": np.full_like(t_hrv, np.nan, dtype=float),
@@ -886,7 +782,6 @@ def compute_hrv_from_pat_signal_with_tv_metrics(
     return t_hrv, rmssd_1hz_raw, rmssd_1hz_clean, summary, tv
 
 
-
 # ---------------------------------------------------------------------
 # CSV saving
 # ---------------------------------------------------------------------
@@ -898,12 +793,10 @@ def save_hrv_series_to_csv(
 ) -> Optional[Path]:
     """
     Save HRV 1 Hz series (RMSSD sliding) to CSV: time_sec, rmssd_ms
-    (NOTE: This saves the final series passed from workflows.py)
     """
     if t_hrv.size == 0 or rmssd_1hz.size == 0:
         return None
 
-    # Prefer a dedicated HRV folder, fall back to HR_OUTPUT_SUBFOLDER for backward compatibility
     hrv_sub = getattr(config, "HRV_OUTPUT_SUBFOLDER", getattr(config, "HR_OUTPUT_SUBFOLDER", "HRV"))
     hrv_folder = paths.get_output_folder(hrv_sub)
 

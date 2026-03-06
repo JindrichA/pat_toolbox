@@ -1,8 +1,9 @@
 # pat_toolbox/metrics/hr.py
 
 from pathlib import Path
-from typing import Tuple, Optional, Dict
+from typing import Tuple, Optional, Dict, Any
 
+import csv
 import numpy as np
 from scipy.signal import find_peaks
 
@@ -10,58 +11,33 @@ from .. import config, filters, io_edf, paths, plotting
 
 
 # ---------------------------------------------------------------------
-# Summary CSV
+# Summary CSV (PAT-only)
 # ---------------------------------------------------------------------
 
-import csv
-from pathlib import Path
-from typing import Optional, Dict, Any
-
-import numpy as np
-
-from .. import config, paths
-
-
-def append_hr_correlation_to_summary(
-        edf_path: Path,
-        pearson_r: Optional[float],
-        spear_rho: Optional[float],
-        rmse: Optional[float],
-        hrv_summary: Optional[Dict[str, float]] = None,
-        mayer_peak_freq: Optional[float] = None,
-        resp_peak_freq: Optional[float] = None,
-        *,
-        # --- NEW optional inputs to capture "page 1" + more ---
-        hr_calc: Optional[np.ndarray] = None,  # PAT-derived HR (masked)
-        hr_edf: Optional[np.ndarray] = None,  # EDF HR (masked)
-        hrv_clean: Optional[np.ndarray] = None,  # RMSSD clean (masked)
-        hrv_raw: Optional[np.ndarray] = None,  # RMSSD raw (unmasked)
-        hrv_tv: Optional[Dict[str, np.ndarray]] = None,  # time-varying HRV dict
-        aux_df: Optional[Any] = None,  # pandas df (kept Any to avoid hard dependency)
-        psd_features: Optional[Dict[str, float]] = None,  # <--- NEW ARGUMENT ADDED HERE
-        pat_burden: Optional[float] = None,
-        pat_burden_diag: Optional[dict] = None,
+def append_hr_hrv_summary(
+    edf_path: Path,
+    hrv_summary: Optional[Dict[str, float]] = None,
+    mayer_peak_freq: Optional[float] = None,
+    resp_peak_freq: Optional[float] = None,
+    *,
+    hr_calc: Optional[np.ndarray] = None,          # PAT-derived HR (masked)
+    hrv_clean: Optional[np.ndarray] = None,        # RMSSD clean (masked)
+    hrv_raw: Optional[np.ndarray] = None,          # RMSSD raw (unmasked)
+    hrv_tv: Optional[Dict[str, np.ndarray]] = None,
+    aux_df: Optional[Any] = None,
+    psd_features: Optional[Dict[str, float]] = None,
+    pat_burden: Optional[float] = None,
+    pat_burden_diag: Optional[dict] = None,
 ) -> Path:
     """
-    Append one row with HR correlation + HRV summary + spectral peaks + extra "summary page" features.
-
-    Extra columns (when available):
-      - NaN% for HR/HRV series + TV metrics
-      - aux flag counts + percentages
-      - sleep-stage masking stats + stage breakdown
-      - NEW: PSD Spectral Power features (VLF, Mayer, Resp)
-
-    Returns summary CSV path.
+    Append one PAT-only summary row with:
+      - HRV summary
+      - spectral peaks / PSD features
+      - PAT HR / HRV NaN quality
+      - aux event counts
+      - sleep-stage masking stats
+      - PAT burden
     """
-
-    # ----------------------------
-    # helpers
-    # ----------------------------
-    def _isfinite_scalar(x: Any) -> bool:
-        try:
-            return bool(np.isfinite(float(x)))
-        except Exception:
-            return False
 
     def _nan_pct(x: Optional[np.ndarray]) -> Optional[float]:
         if x is None:
@@ -105,9 +81,6 @@ def append_hr_correlation_to_summary(
             return ""
 
     def _count_flags(df: Any, col: str) -> tuple[Optional[int], Optional[float]]:
-        """
-        Returns (count, pct_of_rows) where count is sum of (col==1) after fillna(0).
-        """
         if df is None:
             return (None, None)
         try:
@@ -157,7 +130,6 @@ def append_hr_correlation_to_summary(
             def pct(n: int) -> float:
                 return 100.0 * float(n) / float(total)
 
-            # stage counts (0,1,2,3)
             counts = {k: int(np.sum(stage_i == k)) for k in [0, 1, 2, 3]}
 
             out.update(
@@ -182,9 +154,6 @@ def append_hr_correlation_to_summary(
         except Exception:
             return out
 
-    # ----------------------------
-    # paths / filename
-    # ----------------------------
     summary_folder = paths.get_output_folder(config.HR_OUTPUT_SUBFOLDER)
 
     sleep_stage_policy = (
@@ -196,21 +165,14 @@ def append_hr_correlation_to_summary(
     summary_filename = f"HR_HRV_summary__{sleep_stage_policy}__{run_id}.csv"
     summary_path = summary_folder / summary_filename
 
-    # ----------------------------
-    # core row (existing columns)
-    # ----------------------------
     row: Dict[str, Any] = {
         "edf_file": edf_path.name,
-        "pearson": pearson_r,
-        "spearman": spear_rho,
-        "rmse_bpm": rmse,
         "mayer_peak_hz": mayer_peak_freq,
         "resp_peak_hz": resp_peak_freq,
     }
 
-
     # ----------------------------
-    # PAT burden (event+desat)
+    # PAT burden
     # ----------------------------
     row["pat_burden"] = pat_burden
 
@@ -227,9 +189,11 @@ def append_hr_correlation_to_summary(
         row["pat_burden_n_episodes"] = np.nan
         row["pat_burden_n_episodes_used"] = np.nan
         row["pat_burden_relative"] = np.nan
-        row["pat_burden_nan_pct_inside"] = np.nan
+        row["pat_burden_nan_pct"] = np.nan
 
-    # HRV summary fields
+    # ----------------------------
+    # HRV summary
+    # ----------------------------
     if hrv_summary is not None:
         row.update(
             {
@@ -239,17 +203,13 @@ def append_hr_correlation_to_summary(
                 "lf": hrv_summary.get("lf", np.nan),
                 "hf": hrv_summary.get("hf", np.nan),
                 "lf_hf": hrv_summary.get("lf_hf", np.nan),
-
-                # --- NEW: LF/HF segmentation diagnostics ---
                 "lf_n_segments_used": hrv_summary.get("lf_n_segments_used", np.nan),
-                # --- NEW: Fixed-window LF/HF (Option A) ---
                 "lf_hf_fixed_median": hrv_summary.get("lf_hf_fixed_median", np.nan),
                 "lf_hf_fixed_mean": hrv_summary.get("lf_hf_fixed_mean", np.nan),
                 "lf_hf_fixed_n_windows_valid": hrv_summary.get("lf_hf_fixed_n_windows_valid", np.nan),
                 "lf_hf_fixed_n_windows_total": hrv_summary.get("lf_hf_fixed_n_windows_total", np.nan),
                 "lf_hf_fixed_window_sec": hrv_summary.get("lf_hf_fixed_window_sec", np.nan),
                 "lf_hf_fixed_hop_sec": hrv_summary.get("lf_hf_fixed_hop_sec", np.nan),
-
             }
         )
     else:
@@ -261,42 +221,38 @@ def append_hr_correlation_to_summary(
                 "lf": np.nan,
                 "hf": np.nan,
                 "lf_hf": np.nan,
-
-                # --- NEW: LF/HF segmentation diagnostics ---
                 "lf_n_segments_used": np.nan,
-                # --- NEW: Fixed-window LF/HF (Option A) ---
                 "lf_hf_fixed_median": np.nan,
                 "lf_hf_fixed_mean": np.nan,
                 "lf_hf_fixed_n_windows_valid": np.nan,
                 "lf_hf_fixed_n_windows_total": np.nan,
                 "lf_hf_fixed_window_sec": np.nan,
                 "lf_hf_fixed_hop_sec": np.nan,
-                # optional:
-                # "lf_n_segments_total": np.nan,
-                # "lf_dur_used_sec": np.nan,
             }
         )
 
-    # --- NEW: Spectral Power Features ---
+    # ----------------------------
+    # PSD features
+    # ----------------------------
     if psd_features:
-        row.update({
-            "psd_pow_vlf": psd_features.get("pow_vlf"),
-            "psd_pow_mayer": psd_features.get("pow_mayer"),
-            "psd_pow_resp": psd_features.get("pow_resp"),
-            "psd_norm_mayer": psd_features.get("norm_mayer"),
-            "psd_norm_resp": psd_features.get("norm_resp"),
-            "psd_valid_windows": psd_features.get("n_windows"),
-        })
+        row.update(
+            {
+                "psd_pow_vlf": psd_features.get("pow_vlf"),
+                "psd_pow_mayer": psd_features.get("pow_mayer"),
+                "psd_pow_resp": psd_features.get("pow_resp"),
+                "psd_norm_mayer": psd_features.get("norm_mayer"),
+                "psd_norm_resp": psd_features.get("norm_resp"),
+                "psd_valid_windows": psd_features.get("n_windows"),
+            }
+        )
 
     # ----------------------------
-    # "Page 1" additions: NaN% quality
+    # PAT-only quality metrics
     # ----------------------------
     row["hr_pat_nan_pct"] = _nan_pct(hr_calc)
-    row["hr_edf_nan_pct"] = _nan_pct(hr_edf)
     row["hrv_rmssd_clean_nan_pct"] = _nan_pct(hrv_clean)
     row["hrv_rmssd_raw_nan_pct"] = _nan_pct(hrv_raw)
 
-    # TV metric NaN% (if present)
     if isinstance(hrv_tv, dict):
         for k, v in hrv_tv.items():
             if v is None:
@@ -304,11 +260,10 @@ def append_hr_correlation_to_summary(
             try:
                 row[f"hrv_tv_{k}_nan_pct"] = _nan_pct(np.asarray(v))
             except Exception:
-                # ignore weird entries
                 pass
 
     # ----------------------------
-    # "Page 1" additions: aux event summary
+    # Aux event summary
     # ----------------------------
     if aux_df is not None and hasattr(aux_df, "__len__"):
         try:
@@ -316,7 +271,6 @@ def append_hr_correlation_to_summary(
         except Exception:
             row["aux_rows"] = ""
 
-        # keep these aligned with your plotting page and config canonical keys
         aux_keys = [
             ("desat", "desat_flag"),
             ("exclude_hr", "exclude_hr_flag"),
@@ -336,19 +290,15 @@ def append_hr_correlation_to_summary(
                 row[f"{short}_pct"] = p
 
     # ----------------------------
-    # "Page 1" additions: sleep-stage masking stats
+    # Sleep-stage masking stats
     # ----------------------------
     row.update(_sleep_stage_stats(aux_df))
 
     # ----------------------------
     # Write CSV (upgrade schema if needed)
     # ----------------------------
-    # Preferred column order (stable + readable). Any new keys get appended.
     base_order = [
         "edf_file",
-        "pearson",
-        "spearman",
-        "rmse_bpm",
         "rmssd_mean_ms",
         "rmssd_median_ms",
         "sdnn_ms",
@@ -356,7 +306,6 @@ def append_hr_correlation_to_summary(
         "hf",
         "lf_hf",
         "lf_n_segments_used",
-        # --- NEW: Fixed-window LF/HF (Option A) ---
         "lf_hf_fixed_median",
         "lf_hf_fixed_mean",
         "lf_hf_fixed_n_windows_valid",
@@ -365,12 +314,20 @@ def append_hr_correlation_to_summary(
         "lf_hf_fixed_hop_sec",
         "mayer_peak_hz",
         "resp_peak_hz",
-        # --- NEW Spectral Cols ---
-        "psd_pow_vlf", "psd_pow_mayer", "psd_pow_resp",
-        "psd_norm_mayer", "psd_norm_resp", "psd_valid_windows",
-        # -------------------------
+        "psd_pow_vlf",
+        "psd_pow_mayer",
+        "psd_pow_resp",
+        "psd_norm_mayer",
+        "psd_norm_resp",
+        "psd_valid_windows",
+        "pat_burden",
+        "pat_burden_sleep_hours",
+        "pat_burden_total_area_min",
+        "pat_burden_n_episodes",
+        "pat_burden_n_episodes_used",
+        "pat_burden_relative",
+        "pat_burden_nan_pct",
         "hr_pat_nan_pct",
-        "hr_edf_nan_pct",
         "hrv_rmssd_clean_nan_pct",
         "hrv_rmssd_raw_nan_pct",
         "aux_rows",
@@ -408,20 +365,6 @@ def append_hr_correlation_to_summary(
         "sleep_rem_pct",
     ]
 
-    # Normalize the aux column names used above (desat_n etc.)
-    # We wrote row keys as: desat_n etc. only if present; ensure consistent naming here:
-    # The loop wrote short keys as "desat_n/pct" etc; base_order expects that format.
-    # But we used short names "evt_central_3" etc in the loop.
-    # Fix: rename keys from loop's short names to the exact base_order names.
-    # (This keeps your CSV column names explicit and stable.)
-    renames = {}
-    if "desat_n" not in row and "desat_n" in row:
-        pass  # noop
-
-    # Actually, our loop used `short` like "desat", "evt_central_3" etc:
-    # so keys are "desat_n", "evt_central_3_n", ... already. Good.
-
-    # Determine final fieldnames
     row_keys = list(row.keys())
     fieldnames = [c for c in base_order if c in row_keys]
     extras = sorted([k for k in row_keys if k not in set(fieldnames)])
@@ -436,7 +379,6 @@ def append_hr_correlation_to_summary(
             elif isinstance(v, (int, np.integer)):
                 out[k] = str(int(v))
             elif isinstance(v, (float, np.floating)):
-                # Use 6 decimals for most numeric fields, 1 decimal for pct fields
                 if k.startswith("psd_pow_"):
                     out[k] = _fmt_sci(float(v))
                 elif k.endswith("_pct") or k.endswith("_nan_pct"):
@@ -444,11 +386,9 @@ def append_hr_correlation_to_summary(
                 else:
                     out[k] = _fmt6(float(v))
             else:
-                # strings / others
                 out[k] = str(v)
         return out
 
-    # If file doesn't exist: straightforward write
     if not summary_path.exists():
         summary_folder.mkdir(parents=True, exist_ok=True)
         with summary_path.open("w", newline="", encoding="utf-8") as f:
@@ -457,36 +397,71 @@ def append_hr_correlation_to_summary(
             w.writerow(_format_row_for_csv(row, fieldnames))
         return summary_path
 
-    # If exists: check header; if mismatch, upgrade (rewrite union header)
     with summary_path.open("r", newline="", encoding="utf-8") as f:
         r = csv.DictReader(f)
         existing_fieldnames = r.fieldnames or []
         existing_rows = list(r)
 
-    # Union header preserving existing order, then adding new columns
     union_fieldnames = list(existing_fieldnames)
     for k in fieldnames:
         if k not in union_fieldnames:
             union_fieldnames.append(k)
 
-    # If headers differ, rewrite full file with union header
     if union_fieldnames != existing_fieldnames:
         with summary_path.open("w", newline="", encoding="utf-8") as f:
             w = csv.DictWriter(f, fieldnames=union_fieldnames)
             w.writeheader()
             for old in existing_rows:
-                # DictReader returns strings already; just ensure all columns exist
                 full_old = {k: old.get(k, "") for k in union_fieldnames}
                 w.writerow(full_old)
             w.writerow(_format_row_for_csv(row, union_fieldnames))
         return summary_path
 
-    # Headers match: append one row
     with summary_path.open("a", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=existing_fieldnames)
         w.writerow(_format_row_for_csv(row, existing_fieldnames))
 
     return summary_path
+
+
+# Backward-compatible alias while you update the rest of the codebase
+def append_hr_correlation_to_summary(
+    edf_path: Path,
+    pearson_r: Optional[float],
+    spear_rho: Optional[float],
+    rmse: Optional[float],
+    hrv_summary: Optional[Dict[str, float]] = None,
+    mayer_peak_freq: Optional[float] = None,
+    resp_peak_freq: Optional[float] = None,
+    *,
+    hr_calc: Optional[np.ndarray] = None,
+    hr_edf: Optional[np.ndarray] = None,
+    hrv_clean: Optional[np.ndarray] = None,
+    hrv_raw: Optional[np.ndarray] = None,
+    hrv_tv: Optional[Dict[str, np.ndarray]] = None,
+    aux_df: Optional[Any] = None,
+    psd_features: Optional[Dict[str, float]] = None,
+    pat_burden: Optional[float] = None,
+    pat_burden_diag: Optional[dict] = None,
+) -> Path:
+    """
+    Backward-compatible wrapper.
+    Proprietary/reference HR and correlation inputs are ignored.
+    """
+    return append_hr_hrv_summary(
+        edf_path=edf_path,
+        hrv_summary=hrv_summary,
+        mayer_peak_freq=mayer_peak_freq,
+        resp_peak_freq=resp_peak_freq,
+        hr_calc=hr_calc,
+        hrv_clean=hrv_clean,
+        hrv_raw=hrv_raw,
+        hrv_tv=hrv_tv,
+        aux_df=aux_df,
+        psd_features=psd_features,
+        pat_burden=pat_burden,
+        pat_burden_diag=pat_burden_diag,
+    )
 
 
 # ---------------------------------------------------------------------
@@ -511,10 +486,8 @@ def _detect_pat_peaks(
     if pat_signal.ndim != 1 or n_samples == 0:
         raise ValueError("PAT signal must be a non-empty 1D array.")
 
-    # 1) Filter PAT
     pat_filt = filters.bandpass_filter(pat_signal, fs=fs)
 
-    # 2) Peak detection parameters
     min_rr_samples = int(config.HR_MIN_RR_SEC * fs)
     if min_rr_samples < 1:
         min_rr_samples = 1
@@ -536,7 +509,6 @@ def _detect_pat_peaks(
             distance=min_rr_samples,
         )
 
-    # Optional basic RR sanity filter (very light)
     if len(peaks) >= 2:
         peak_times_sec = peaks / fs
         rr_intervals_sec = np.diff(peak_times_sec)
@@ -565,15 +537,13 @@ def extract_clean_rr_from_pat(
       2) Compute RR intervals and mid-times
       3) Apply physiologic RR limits
       4) Apply median-based RR outlier rejection
-      5) Reject gaps, abrupt jumps, and short/long alternans pairs (double-peak + missed-peak)
-      6) Keep only contiguous "good" runs (drop isolated points)
+      5) Reject gaps, abrupt jumps, and short/long alternans pairs
+      6) Keep only contiguous "good" runs
 
     Returns:
         rr_sec_clean: np.ndarray of RR intervals [s]
         rr_mid_clean: np.ndarray of RR mid-times [s]
         duration_sec: float, total signal duration [s]
-
-    If cleaning fails, rr_sec_clean and rr_mid_clean are empty arrays.
     """
     if fs <= 0:
         raise ValueError("Sampling frequency fs must be positive.")
@@ -593,7 +563,6 @@ def extract_clean_rr_from_pat(
     rr_sec = np.diff(peak_times_sec)
     rr_mid_times = 0.5 * (peak_times_sec[1:] + peak_times_sec[:-1])
 
-    # Physiologic limits
     valid_rr = (rr_sec >= config.HR_MIN_RR_SEC) & (rr_sec <= config.HR_MAX_RR_SEC)
     rr_sec_valid = rr_sec[valid_rr]
     rr_mid_valid = rr_mid_times[valid_rr]
@@ -601,7 +570,6 @@ def extract_clean_rr_from_pat(
     if rr_sec_valid.size < 1:
         return np.array([]), np.array([]), duration_sec
 
-    # Median-based RR outlier rejection (local median)
     kernel_len = int(getattr(config, "HR_RR_MEDFILT_KERNEL", 5))
     if kernel_len < 1:
         kernel_len = 1
@@ -621,17 +589,11 @@ def extract_clean_rr_from_pat(
 
     good = rel_dev <= rel_thr
 
-    # -----------------------------------------------------------------
-    # Gap masking (reject very long RR relative to local median)
-    # -----------------------------------------------------------------
-    gap_factor = float(getattr(config, "HR_RR_GAP_FACTOR", 2.2))  # typical 1.8–2.5
+    gap_factor = float(getattr(config, "HR_RR_GAP_FACTOR", 2.2))
     gap_ok = rr_sec_valid <= (gap_factor * rr_med)
     good &= gap_ok
 
-    # -----------------------------------------------------------------
-    # Abrupt jump masking (helps when detector briefly misfires)
-    # -----------------------------------------------------------------
-    jump_thr = float(getattr(config, "HR_RR_JUMP_REL_THR", 0.5))  # 0.3–0.8
+    jump_thr = float(getattr(config, "HR_RR_JUMP_REL_THR", 0.5))
     if rr_sec_valid.size >= 2:
         rr_prev = rr_sec_valid[:-1]
         rr_next = rr_sec_valid[1:]
@@ -641,12 +603,8 @@ def extract_clean_rr_from_pat(
         jump_bad[1:] = rel_jump > jump_thr
         good &= ~jump_bad
 
-    # -----------------------------------------------------------------
-    # Alternans pair rejection: short+long (or long+short) adjacent pairs
-    # This is the classic "double peak then missed peak" signature.
-    # -----------------------------------------------------------------
-    alt_short_rel = float(getattr(config, "HR_RR_ALT_SHORT_REL", 0.25))  # 25% below med
-    alt_long_rel = float(getattr(config, "HR_RR_ALT_LONG_REL", 0.35))    # 35% above med
+    alt_short_rel = float(getattr(config, "HR_RR_ALT_SHORT_REL", 0.25))
+    alt_long_rel = float(getattr(config, "HR_RR_ALT_LONG_REL", 0.35))
 
     if rr_sec_valid.size >= 2:
         short = rr_sec_valid < (1.0 - alt_short_rel) * rr_med
@@ -657,20 +615,15 @@ def extract_clean_rr_from_pat(
 
         alt_bad = np.zeros_like(rr_sec_valid, dtype=bool)
         alt_bad[:-1] |= (pair1 | pair2)
-        alt_bad[1:]  |= (pair1 | pair2)
+        alt_bad[1:] |= (pair1 | pair2)
         good &= ~alt_bad
 
-    # Apply mask
     rr_sec_good = rr_sec_valid[good]
     rr_mid_good = rr_mid_valid[good]
 
     if rr_sec_good.size < 1:
         return np.array([]), np.array([]), duration_sec
 
-    # -----------------------------------------------------------------
-    # Keep only contiguous "good" runs (drop isolated points)
-    # Contiguity is in the ORIGINAL rr index space (before masking), which is what we want.
-    # -----------------------------------------------------------------
     min_keep_run = int(getattr(config, "HR_RR_MIN_GOOD_RUN", 3))
     if min_keep_run > 1:
         idx = np.flatnonzero(good)
@@ -704,12 +657,7 @@ def _hampel_filter_1d(
     n_sigmas: float = 3.0,
 ) -> np.ndarray:
     """
-    Simple Hampel filter: replace points that deviate from the local median
-    by more than n_sigmas * local MAD with the local median.
-
-    NOTE: If x contains NaNs, this implementation will not behave well.
-    We avoid running Hampel on NaN-heavy arrays by only applying it to HR after
-    interpolation and smoothing (or you can add a nan-aware version).
+    Simple Hampel filter.
     """
     if x.ndim != 1 or x.size == 0:
         return x
@@ -749,7 +697,7 @@ def _interp_with_gaps(
     max_gap_sec: float,
 ) -> np.ndarray:
     """
-    Interpolate y(t) onto t_grid, but do NOT bridge across gaps in t bigger than max_gap_sec.
+    Interpolate y(t) onto t_grid, but do NOT bridge across gaps.
     Returns NaN in gap regions.
     """
     out = np.full_like(t_grid, np.nan, dtype=float)
@@ -773,7 +721,7 @@ def compute_hr_from_pat_signal(
     target_fs: float = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
-    Compute HR (1 Hz) from PAT using shared RR extraction + smoothing + despiking.
+    Compute HR (1 Hz by default) from PAT using shared RR extraction.
     """
     if target_fs is None:
         target_fs = float(getattr(config, "HR_TARGET_FS_HZ", 1.0))
@@ -785,18 +733,15 @@ def compute_hr_from_pat_signal(
         hr_1hz = np.full_like(t_hr, fill_value=np.nan, dtype=float)
         return t_hr, hr_1hz
 
-    inst_hr = 60.0 / rr_sec_clean  # bpm
+    inst_hr = 60.0 / rr_sec_clean
 
-    # Interpolate to regular grid WITHOUT bridging bad segments
     max_gap_sec = float(getattr(config, "HR_MAX_RR_GAP_SEC", 2.5))
     hr_grid = _interp_with_gaps(t_hr, rr_mid_clean, inst_hr, max_gap_sec=max_gap_sec)
 
-    # Light smoothing (moving average) but preserve NaNs (avoid smearing across gaps)
     smooth_sec = float(getattr(config, "HR_SMOOTHING_WINDOW_SEC", 0.0))
     smooth_samples = int(round(smooth_sec * target_fs))
 
     if smooth_samples > 1:
-        # NaN-aware moving average
         kernel = np.ones(smooth_samples, dtype=float)
         x = hr_grid.astype(float)
 
@@ -811,14 +756,12 @@ def compute_hr_from_pat_signal(
     else:
         hr_smooth = hr_grid
 
-    # Clip only finite values
     hr_smooth = np.where(
         np.isfinite(hr_smooth),
         np.clip(hr_smooth, config.HR_MIN_BPM, config.HR_MAX_BPM),
         np.nan,
     )
 
-    # HR-domain Hampel despiking (only if few NaNs)
     hampel_win_sec = float(getattr(config, "HR_HAMPEL_WINDOW_SEC", 10.0))
     hampel_sigmas = float(getattr(config, "HR_HAMPEL_SIGMA", 3.0))
     hampel_win_samples = int(round(hampel_win_sec * target_fs))
@@ -838,7 +781,6 @@ def compute_hr_from_pat_signal(
         np.nan,
     )
 
-    # Optional slope limiting (finite-only; preserve NaNs)
     max_delta_per_sec = float(getattr(config, "HR_MAX_DELTA_BPM_PER_SEC", 0.0))
     if max_delta_per_sec > 0:
         hr_limited = hr_despiked.copy()
@@ -907,13 +849,9 @@ def create_peaks_debug_pdf_for_edf(edf_path: Path) -> Path | None:
     """
     Create a debug PDF showing PAT signal and detected peaks (1 min per page),
     with ACTIGRAPH subplot if available.
-
-    ACTIGRAPH is preprocessed into a smooth "motion envelope" for easier visual correlation:
-      high-pass -> abs -> low-pass -> (optional) z-score
     """
     print(f"Creating PAT peaks debug PDF for: {edf_path}")
 
-    # --- Read PAT
     try:
         pat_signal, fs = io_edf.read_edf_channel(edf_path, config.VIEW_PAT_CHANNEL_NAME)
     except Exception as e:
@@ -925,14 +863,12 @@ def create_peaks_debug_pdf_for_edf(edf_path: Path) -> Path | None:
         print("  WARNING: PAT signal empty or invalid fs, skipping debug PDF.")
         return None
 
-    # --- Detect peaks
     try:
         pat_filt, peaks = _detect_pat_peaks(pat_signal, fs)
     except Exception as e:
         print(f"  WARNING: peak detection failed for {edf_path.name}: {e}")
         return None
 
-    # --- Read + preprocess ACTIGRAPH (optional)
     act_to_plot = None
     act_fs = None
     act_label = getattr(config, "ACTIGRAPH_CHANNEL_NAME", "ACTIGRAPH")
@@ -965,7 +901,6 @@ def create_peaks_debug_pdf_for_edf(edf_path: Path) -> Path | None:
         print(f"  WARNING: could not read/process ACTIGRAPH: {e}")
         act_to_plot, act_fs = None, None
 
-    # --- Output
     out_folder = paths.get_output_folder()
     edf_base = edf_path.stem
     pdf_name = f"{edf_base}__PAT_Peaks_{config.PAT_PEAK_DEBUG_SEGMENT_MINUTES}min.pdf"
@@ -987,133 +922,3 @@ def create_peaks_debug_pdf_for_edf(edf_path: Path) -> Path | None:
 
     print(f"  Saved PAT peaks debug PDF to: {pdf_path}")
     return pdf_path
-
-
-# ---------------------------------------------------------------------
-# HR correlation vs EDF
-# ---------------------------------------------------------------------
-
-from scipy.signal import butter, filtfilt
-
-
-def _butter_highpass(
-    x: np.ndarray,
-    fs: float,
-    cutoff_hz: float = 0.25,
-    order: int = 4,
-) -> np.ndarray:
-    """
-    High-pass to remove slow drift (and quasi-gravity component if present).
-    """
-    if fs <= 0 or x.size == 0:
-        return x.astype(float)
-
-    nyq = 0.5 * fs
-    wn = cutoff_hz / nyq
-    wn = min(max(wn, 1e-6), 0.999999)
-
-    b, a = butter(order, wn, btype="highpass")
-    return filtfilt(b, a, x.astype(float)).astype(float)
-
-
-def _moving_average(x: np.ndarray, win_samples: int) -> np.ndarray:
-    if win_samples <= 1:
-        return x
-    win_samples = int(max(1, win_samples))
-    kernel = np.ones(win_samples, dtype=float) / float(win_samples)
-    return np.convolve(x, kernel, mode="same")
-
-
-def _motion_amplitude_envelope(act: np.ndarray, fs: float) -> np.ndarray:
-    """
-    "Amplitude of filtered motion":
-      1) high-pass (remove drift)
-      2) rectify (abs)
-      3) smooth -> envelope (easy to compare visually)
-    """
-    act_hp = _butter_highpass(act, fs, cutoff_hz=0.25, order=4)
-    amp = np.abs(act_hp)
-
-    smooth_sec = 0.5
-    win = int(round(smooth_sec * fs))
-    return _moving_average(amp, win_samples=win)
-
-
-def _robust_ylim(
-    y: np.ndarray,
-    lo_pct: float = 1.0,
-    hi_pct: float = 99.0,
-) -> tuple[float, float]:
-    """
-    Robust y-limits from percentiles (stable across pages within one file).
-    """
-    y = y[np.isfinite(y)]
-    if y.size == 0:
-        return (0.0, 1.0)
-
-    lo = float(np.percentile(y, lo_pct))
-    hi = float(np.percentile(y, hi_pct))
-
-    if not np.isfinite(lo) or not np.isfinite(hi) or hi <= lo:
-        lo = float(np.nanmin(y))
-        hi = float(np.nanmax(y))
-        if not np.isfinite(lo) or not np.isfinite(hi) or hi <= lo:
-            return (0.0, 1.0)
-
-    margin = 0.10 * (hi - lo + 1e-12)
-    lo2 = max(0.0, lo - margin)
-    hi2 = hi + margin
-    return (lo2, hi2)
-
-
-
-
-
-
-def compute_hr_correlation(
-    t_hr_edf: np.ndarray,
-    hr_edf: np.ndarray,
-    t_hr_calc: np.ndarray,
-    hr_calc: np.ndarray,
-    common_fs: float = 1.0,
-) -> Tuple[Optional[float], Optional[float], Optional[float]]:
-    """
-    Compute correlation between EDF HR and PAT-derived HR.
-    """
-    if (
-        t_hr_edf is None
-        or hr_edf is None
-        or t_hr_calc is None
-        or hr_calc is None
-        or len(hr_edf) == 0
-        or len(hr_calc) == 0
-    ):
-        return None, None, None
-
-    t_start = max(t_hr_edf[0], t_hr_calc[0])
-    t_end = min(t_hr_edf[-1], t_hr_calc[-1])
-    if t_end <= t_start:
-        return None, None, None
-
-    t_grid = np.arange(t_start, t_end, 1.0 / common_fs)
-
-    edf_interp = np.interp(t_grid, t_hr_edf, hr_edf, left=np.nan, right=np.nan)
-    calc_interp = np.interp(t_grid, t_hr_calc, hr_calc, left=np.nan, right=np.nan)
-
-    mask = ~np.isnan(edf_interp) & ~np.isnan(calc_interp)
-    if not np.any(mask):
-        return None, None, None
-
-    x = edf_interp[mask]
-    y = calc_interp[mask]
-    if len(x) < 2:
-        return None, None, None
-
-    pearson_r = np.corrcoef(x, y)[0, 1]
-    spear_rho = np.corrcoef(
-        np.argsort(np.argsort(x)),
-        np.argsort(np.argsort(y)),
-    )[0, 1]
-    rmse = np.sqrt(np.mean((x - y) ** 2))
-
-    return float(pearson_r), float(spear_rho), float(rmse)

@@ -11,49 +11,12 @@ from .utils import _fmt, _count_flags
 if TYPE_CHECKING:
     import pandas as pd
 
+
 # ============================================================================
 # Small formatting / stats helpers
 # ============================================================================
-def _finite_stats(y: Optional[np.ndarray]) -> Dict[str, Optional[float]]:
-    out = {
-        "n_total": None,
-        "n_used": None,
-        "min": None,
-        "max": None,
-        "mean": None,
-        "median": None,
-        "std": None,
-        "nan_pct": None,
-    }
-    if y is None:
-        return out
-    y = np.asarray(y, dtype=float)
-    if y.size == 0:
-        out["n_total"] = 0.0
-        out["n_used"] = 0.0
-        out["nan_pct"] = 100.0
-        return out
-
-    out["n_total"] = float(y.size)
-    out["nan_pct"] = float(100.0 * np.mean(~np.isfinite(y)))
-
-    ok = np.isfinite(y)
-    out["n_used"] = float(np.count_nonzero(ok))
-    if np.count_nonzero(ok) == 0:
-        return out
-
-    yy = y[ok]
-    out["min"] = float(np.min(yy))
-    out["max"] = float(np.max(yy))
-    out["mean"] = float(np.mean(yy))
-    out["median"] = float(np.median(yy))
-    out["std"] = float(np.std(yy))
-    return out
-
-
 
 def _nan_pct(x: Optional[np.ndarray]) -> Optional[float]:
-    """Percent of non-finite values in x."""
     if x is None:
         return None
     x = np.asarray(x)
@@ -86,6 +49,44 @@ def _fmt_int(x: Optional[float]) -> str:
     return f"{int(x)}"
 
 
+def _finite_stats(y: Optional[np.ndarray]) -> Dict[str, Optional[float]]:
+    out = {
+        "n_total": None,
+        "n_used": None,
+        "min": None,
+        "max": None,
+        "mean": None,
+        "median": None,
+        "std": None,
+        "nan_pct": None,
+    }
+    if y is None:
+        return out
+
+    y = np.asarray(y, dtype=float)
+    if y.size == 0:
+        out["n_total"] = 0.0
+        out["n_used"] = 0.0
+        out["nan_pct"] = 100.0
+        return out
+
+    out["n_total"] = float(y.size)
+    out["nan_pct"] = float(100.0 * np.mean(~np.isfinite(y)))
+
+    ok = np.isfinite(y)
+    out["n_used"] = float(np.count_nonzero(ok))
+    if np.count_nonzero(ok) == 0:
+        return out
+
+    yy = y[ok]
+    out["min"] = float(np.min(yy))
+    out["max"] = float(np.max(yy))
+    out["mean"] = float(np.mean(yy))
+    out["median"] = float(np.median(yy))
+    out["std"] = float(np.std(yy))
+    return out
+
+
 def _mask_keep_nonexcluded(
     t_sec: np.ndarray,
     exclusion_zones: Optional[List[Tuple[float, float, str]]],
@@ -94,7 +95,7 @@ def _mask_keep_nonexcluded(
     True where sample is OUTSIDE exclusion zones.
 
     Convention:
-      - exclusion_zones are in HOURS-from-start (like _add_exclusion_spans)
+      - exclusion_zones are in HOURS-from-start
       - t_sec is SECONDS-from-start
     """
     keep = np.ones_like(t_sec, dtype=bool)
@@ -116,12 +117,7 @@ def _masked_stats(
     exclusion_zones: Optional[List[Tuple[float, float, str]]],
 ) -> Dict[str, Optional[float]]:
     """
-    Stats computed ONLY on samples that are:
-      - defined by (t_sec, y) aligned arrays,
-      - OUTSIDE exclusion_zones,
-      - finite.
-
-    Also reports NaN% on the *kept* region (post-exclusion quality).
+    Stats computed only on samples that are outside exclusion_zones and finite.
     """
     out: Dict[str, Optional[float]] = {
         "n_total": None,
@@ -152,8 +148,6 @@ def _masked_stats(
 
     ok = np.isfinite(y_keep)
     out["n_used"] = float(np.count_nonzero(ok))
-
-    # NaN% AFTER exclusion masking (so quality is based on kept region)
     out["nan_pct_used"] = float(100.0 * np.mean(~np.isfinite(y_keep)))
 
     if np.count_nonzero(ok) == 0:
@@ -165,147 +159,12 @@ def _masked_stats(
     out["mean"] = float(np.mean(yy))
     out["median"] = float(np.median(yy))
     out["std"] = float(np.std(yy))
-
     return out
 
 
 # ============================================================================
-# Sleep-stage masking rows for summary table
+# Sleep-stage rows for summary tables
 # ============================================================================
-
-def _sleep_stage_stats(aux_df: Optional["pd.DataFrame"]) -> Optional[list[list[str]]]:
-    """
-    Returns rows to append into the summary table with sleep-stage masking stats.
-    If stages are not available -> None.
-    """
-    if aux_df is None:
-        return None
-
-    time_col = getattr(config, "AUX_CSV_TIME_SEC_COLUMN", "time_sec")
-    stage_code_col = getattr(config, "AUX_CSV_STAGE_CODE_COLUMN", "stage_code")
-
-    if time_col not in aux_df.columns or stage_code_col not in aux_df.columns:
-        return None
-
-    stage = aux_df[stage_code_col].to_numpy(dtype=float)
-    ok = np.isfinite(stage)
-    if not np.any(ok):
-        return None
-
-    stage_i = np.round(stage[ok]).astype(int)
-
-    total = stage_i.size
-    if total <= 0:
-        return None
-
-    # Included stages from policy
-    try:
-        include_set = set(config.sleep_include_numeric())
-        policy = str(getattr(config, "SLEEP_STAGE_POLICY", "all_sleep"))
-        enabled = bool(getattr(config, "ENABLE_SLEEP_STAGE_MASKING", False))
-    except Exception:
-        include_set = {1, 2, 3}
-        policy = "all_sleep"
-        enabled = False
-
-    included = np.array([s in include_set for s in stage_i], dtype=bool)
-    inc_n = int(np.sum(included))
-    exc_n = int(total - inc_n)
-
-    def pct(n: int) -> str:
-        return f"{(100.0 * n / total):.1f}%"
-
-    counts = {k: int(np.sum(stage_i == k)) for k in [0, 1, 2, 3]}
-    names = {0: "Wake", 1: "Light", 2: "Deep", 3: "REM"}
-
-    rows: list[list[str]] = []
-    rows.append(["", ""])
-    rows.append(["Sleep-stage masking", ""])
-    rows.append(["  Enabled", "Yes" if enabled else "No"])
-    rows.append(["  Policy", policy])
-    rows.append(["  Included (by policy)", f"{inc_n} ({pct(inc_n)})"])
-    rows.append(["  Excluded (by policy)", f"{exc_n} ({pct(exc_n)})"])
-
-    rows.append(["  Stage breakdown", ""])
-    for k in [0, 1, 2, 3]:
-        rows.append([f"    {names[k]}", f"{counts[k]} ({pct(counts[k])})"])
-
-    return rows
-
-
-# -----------------------------------------------------------------------------
-# Small formatting helpers
-# -----------------------------------------------------------------------------
-
-def _nan_pct(x: Optional[np.ndarray]) -> Optional[float]:
-    if x is None:
-        return None
-    x = np.asarray(x)
-    if x.size == 0:
-        return None
-    return float(100.0 * np.mean(~np.isfinite(x)))
-
-def _fmt_pct(x: Optional[float], ndigits: int = 1) -> str:
-    if x is None or (isinstance(x, float) and np.isnan(x)):
-        return "NA"
-    return f"{x:.{ndigits}f}%"
-
-def _fmt_sci(x: Optional[float]) -> str:
-    if x is None or (isinstance(x, float) and np.isnan(x)):
-        return "NA"
-    return f"{x:.2e}"
-
-def _fmt_num(x: Optional[float], nd: int = 2) -> str:
-    if x is None or (isinstance(x, float) and np.isnan(x)):
-        return "NA"
-    return f"{x:.{nd}f}"
-
-def _fmt_int(x: Optional[float]) -> str:
-    if x is None or (isinstance(x, float) and np.isnan(x)):
-        return "NA"
-    return f"{int(x)}"
-
-
-def _finite_stats(y: Optional[np.ndarray]) -> Dict[str, Optional[float]]:
-    """
-    Stats on the full array, using only finite samples.
-    """
-    out = {
-        "n_total": None,
-        "n_used": None,
-        "min": None,
-        "max": None,
-        "mean": None,
-        "median": None,
-        "std": None,
-        "nan_pct": None,
-    }
-    if y is None:
-        return out
-    y = np.asarray(y, dtype=float)
-    if y.size == 0:
-        return out
-
-    out["n_total"] = float(y.size)
-    out["nan_pct"] = float(100.0 * np.mean(~np.isfinite(y)))
-
-    ok = np.isfinite(y)
-    out["n_used"] = float(np.count_nonzero(ok))
-    if np.count_nonzero(ok) == 0:
-        return out
-
-    yy = y[ok]
-    out["min"] = float(np.min(yy))
-    out["max"] = float(np.max(yy))
-    out["mean"] = float(np.mean(yy))
-    out["median"] = float(np.median(yy))
-    out["std"] = float(np.std(yy))
-    return out
-
-
-# -----------------------------------------------------------------------------
-# Sleep-stage table rows (same as you already have, safe to reuse)
-# -----------------------------------------------------------------------------
 
 def _sleep_stage_rows(aux_df: Optional["pd.DataFrame"]) -> List[List[str]]:
     rows: List[List[str]] = []
@@ -355,9 +214,9 @@ def _sleep_stage_rows(aux_df: Optional["pd.DataFrame"]) -> List[List[str]]:
     return rows
 
 
-# -----------------------------------------------------------------------------
+# ============================================================================
 # Rendering helper: a single clean page with a table
-# -----------------------------------------------------------------------------
+# ============================================================================
 
 def _render_table_page(
     title: str,
@@ -379,7 +238,7 @@ def _render_table_page(
     table.auto_set_font_size(False)
     table.set_fontsize(font_size)
 
-    n_rows = len(rows) + 1  # +1 for header row
+    n_rows = len(rows) + 1
     if n_rows > 36:
         scale_y_eff = min(scale_y, 1.05)
     elif n_rows > 30:
@@ -390,15 +249,13 @@ def _render_table_page(
     table.scale(1.15, scale_y_eff)
 
     ax.set_title(f"{edf_base} – {title}", fontsize=16, pad=18)
-
-    # leave more room on the right for long labels; slight bottom room too
     fig.tight_layout(rect=[0, 0.02, 0.82, 1])
     return fig
 
 
-# -----------------------------------------------------------------------------
-# Public: build 4 summary pages
-# -----------------------------------------------------------------------------
+# ============================================================================
+# Public: build 4 summary pages (PAT-only plotting)
+# ============================================================================
 
 def build_summary_pages(
     edf_base: str,
@@ -419,10 +276,8 @@ def build_summary_pages(
     hrv_raw: Optional[np.ndarray] = None,
     hrv_tv: Optional[Dict[str, np.ndarray]] = None,
     psd_features: Optional[Dict[str, float]] = None,
-    # ΔHR series:
     delta_hr_calc: Optional[np.ndarray] = None,
     delta_hr_edf: Optional[np.ndarray] = None,
-    # event-only ΔHR:
     delta_hr_calc_evt: Optional[np.ndarray] = None,
     delta_hr_edf_evt: Optional[np.ndarray] = None,
     pat_burden: Optional[float] = None,
@@ -430,31 +285,50 @@ def build_summary_pages(
 ) -> List[plt.Figure]:
     """
     Returns exactly 4 figures (pages) in a logical, readable layout.
+
+    Plotting-only mode:
+      - proprietary/device HR comparison is hidden
+      - only PAT-derived HR / ΔHR / HRV quality and summary remain
     """
 
+    # Enforce PAT-only summary display even if caller still passes EDF/reference values
+    pearson_r = None
+    spear_rho = None
+    rmse = None
+    t_hr_edf = None
+    hr_edf = None
+    delta_hr_edf = None
+    delta_hr_edf_evt = None
+
     # -------------------------
-    # Page 1: Agreement + headline quality
+    # Page 1: PAT quality headline
     # -------------------------
     hr_pat_nan = _nan_pct(hr_calc)
-    hr_ref_nan = _nan_pct(hr_edf)
     hrv_clean_nan = _nan_pct(hrv_clean)
     hrv_raw_nan = _nan_pct(hrv_raw)
 
+    hr_pat_stats = _finite_stats(hr_calc)
+
     rows_p1: List[List[str]] = [
-        ["HR Agreement (Reference vs Jindrich PAT-derived)", ""],
-        ["  Pearson r", _fmt(pearson_r, 3)],
-        ["  Spearman ρ", _fmt(spear_rho, 3)],
-        ["  RMSE [bpm]", _fmt(rmse, 2)],
+        ["PAT-derived HR summary", ""],
+        ["  HR n used", _fmt_int(hr_pat_stats["n_used"])],
+        ["  HR min / max [bpm]", f"{_fmt_num(hr_pat_stats['min'], 2)} / {_fmt_num(hr_pat_stats['max'], 2)}"],
+        ["  HR mean / median [bpm]", f"{_fmt_num(hr_pat_stats['mean'], 2)} / {_fmt_num(hr_pat_stats['median'], 2)}"],
+        ["  HR std [bpm]", _fmt_num(hr_pat_stats["std"], 2)],
         ["", ""],
         ["Signal quality (NaN %)", ""],
         ["  HR (PAT-derived) NaN %", _fmt_pct(hr_pat_nan, 1)],
-        ["  HR (Reference / EDF) NaN %", _fmt_pct(hr_ref_nan, 1)],
         ["  HRV RMSSD clean NaN %", _fmt_pct(hrv_clean_nan, 1)],
         ["  HRV RMSSD raw NaN %", _fmt_pct(hrv_raw_nan, 1)],
     ]
 
+    if isinstance(hrv_tv, dict) and len(hrv_tv) > 0:
+        rows_p1 += [["", ""], ["Time-varying HRV quality", ""]]
+        for k, v in sorted(hrv_tv.items()):
+            rows_p1.append([f"  {k} NaN %", _fmt_pct(_nan_pct(v), 1)])
+
     fig1 = _render_table_page(
-        "Summary (Agreement & Quality)",
+        "Summary (PAT HR & Quality)",
         rows_p1,
         edf_base=edf_base,
         font_size=12,
@@ -472,13 +346,27 @@ def build_summary_pages(
     lf_hf = hrv_summary.get("lf_hf") if hrv_summary else None
 
     rows_p2: List[List[str]] = [
-        ["HRV summary (Clean RR) after sleep masking and R-R rejection etc.", ""],
+        ["HRV summary (clean RR, after masking/rejection)", ""],
         ["  RMSSD mean [ms]", _fmt(rmssd_mean, 2)],
         ["  RMSSD median [ms]", _fmt(rmssd_median, 2)],
         ["  SDNN [ms]", _fmt(sdnn, 2)],
         ["  LF", _fmt(lf, 4)],
         ["  HF", _fmt(hf, 4)],
         ["  LF/HF", _fmt(lf_hf, 2)],
+    ]
+
+    if hrv_summary:
+        rows_p2 += [
+            ["  LF segments used", _fmt_int(hrv_summary.get("lf_n_segments_used"))],
+            ["  Fixed LF/HF median", _fmt(hrv_summary.get("lf_hf_fixed_median"), 2)],
+            ["  Fixed LF/HF mean", _fmt(hrv_summary.get("lf_hf_fixed_mean"), 2)],
+            ["  Fixed LF/HF valid windows", _fmt_int(hrv_summary.get("lf_hf_fixed_n_windows_valid"))],
+            ["  Fixed LF/HF total windows", _fmt_int(hrv_summary.get("lf_hf_fixed_n_windows_total"))],
+            ["  Fixed window [s]", _fmt(hrv_summary.get("lf_hf_fixed_window_sec"), 0)],
+            ["  Fixed hop [s]", _fmt(hrv_summary.get("lf_hf_fixed_hop_sec"), 0)],
+        ]
+
+    rows_p2 += [
         ["", ""],
         ["Spectral analysis (PAT volume)", ""],
         ["  Mayer peak [Hz]", _fmt(mayer_peak_freq, 3)],
@@ -500,52 +388,37 @@ def build_summary_pages(
         rows_p2,
         edf_base=edf_base,
         font_size=12,
-        scale_y=1.45,
+        scale_y=1.35,
     )
 
     # -------------------------
-    # Page 3: ΔHR baseline + event-only
+    # Page 3: PAT ΔHR only
     # -------------------------
-    d_ref_all = _finite_stats(delta_hr_edf)
     d_pat_all = _finite_stats(delta_hr_calc)
-
-    d_ref_evt = _finite_stats(delta_hr_edf_evt)
     d_pat_evt = _finite_stats(delta_hr_calc_evt)
 
     rows_p3: List[List[str]] = [
         ["ΔHR baseline (all finite samples)", ""],
-        ["  Reference ΔHR n used", _fmt_int(d_ref_all["n_used"])],
-        ["  Reference ΔHR min / max [bpm]", f"{_fmt_num(d_ref_all['min'],2)} / {_fmt_num(d_ref_all['max'],2)}"],
-        ["  Reference ΔHR mean / median [bpm]", f"{_fmt_num(d_ref_all['mean'],2)} / {_fmt_num(d_ref_all['median'],2)}"],
-        ["  Reference ΔHR std [bpm]", _fmt_num(d_ref_all["std"], 2)],
-        ["  Reference ΔHR NaN %", _fmt_pct(d_ref_all["nan_pct"], 1)],
-        ["", ""],
-        ["  Jin-PAT ΔHR n used", _fmt_int(d_pat_all["n_used"])],
-        ["  Jin-PAT ΔHR min / max [bpm]", f"{_fmt_num(d_pat_all['min'],2)} / {_fmt_num(d_pat_all['max'],2)}"],
-        ["  Jin-PAT ΔHR mean / median [bpm]", f"{_fmt_num(d_pat_all['mean'],2)} / {_fmt_num(d_pat_all['median'],2)}"],
-        ["  Jin-PAT ΔHR std [bpm]", _fmt_num(d_pat_all["std"], 2)],
-        ["  Jin-PAT ΔHR NaN %", _fmt_pct(d_pat_all["nan_pct"], 1)],
+        ["  ΔHR n used", _fmt_int(d_pat_all["n_used"])],
+        ["  ΔHR min / max [bpm]", f"{_fmt_num(d_pat_all['min'], 2)} / {_fmt_num(d_pat_all['max'], 2)}"],
+        ["  ΔHR mean / median [bpm]", f"{_fmt_num(d_pat_all['mean'], 2)} / {_fmt_num(d_pat_all['median'], 2)}"],
+        ["  ΔHR std [bpm]", _fmt_num(d_pat_all["std"], 2)],
+        ["  ΔHR NaN %", _fmt_pct(d_pat_all["nan_pct"], 1)],
         ["", ""],
         ["ΔHR event-only (inside event/desat windows only)", ""],
-        ["  Reference ΔHR n used", _fmt_int(d_ref_evt["n_used"])],
-        ["  Reference ΔHR min / max [bpm]", f"{_fmt_num(d_ref_evt['min'],2)} / {_fmt_num(d_ref_evt['max'],2)}"],
-        ["  Reference ΔHR mean / median [bpm]", f"{_fmt_num(d_ref_evt['mean'],2)} / {_fmt_num(d_ref_evt['median'],2)}"],
-        ["  Reference ΔHR std [bpm]", _fmt_num(d_ref_evt["std"], 2)],
-        ["  Reference ΔHR NaN %", _fmt_pct(d_ref_evt["nan_pct"], 1)],
-        ["", ""],
-        ["  Jin-PAT ΔHR n used", _fmt_int(d_pat_evt["n_used"])],
-        ["  Jin-PAT ΔHR min / max [bpm]", f"{_fmt_num(d_pat_evt['min'],2)} / {_fmt_num(d_pat_evt['max'],2)}"],
-        ["  Jin-PAT ΔHR mean / median [bpm]", f"{_fmt_num(d_pat_evt['mean'],2)} / {_fmt_num(d_pat_evt['median'],2)}"],
-        ["  Jin-PAT ΔHR std [bpm]", _fmt_num(d_pat_evt["std"], 2)],
-        ["  Jin-PAT ΔHR NaN %", _fmt_pct(d_pat_evt["nan_pct"], 1)],
+        ["  ΔHR n used", _fmt_int(d_pat_evt["n_used"])],
+        ["  ΔHR min / max [bpm]", f"{_fmt_num(d_pat_evt['min'], 2)} / {_fmt_num(d_pat_evt['max'], 2)}"],
+        ["  ΔHR mean / median [bpm]", f"{_fmt_num(d_pat_evt['mean'], 2)} / {_fmt_num(d_pat_evt['median'], 2)}"],
+        ["  ΔHR std [bpm]", _fmt_num(d_pat_evt["std"], 2)],
+        ["  ΔHR NaN %", _fmt_pct(d_pat_evt["nan_pct"], 1)],
     ]
 
     fig3 = _render_table_page(
         "Summary (ΔHR: baseline vs event-only)",
         rows_p3,
         edf_base=edf_base,
-        font_size=11,
-        scale_y=1.25,
+        font_size=12,
+        scale_y=1.40,
     )
 
     # -------------------------
@@ -568,7 +441,7 @@ def build_summary_pages(
         unc4_n, unc4_pct = _count_flags(aux_df, "evt_unclassified_4")
 
         rows_p4 += [
-            ["Overall Event summary (aux CSV)", ""],
+            ["Overall event summary (aux CSV)", ""],
             ["  Samples (rows)", f"{aux_total:d}"],
             ["  Desaturation flags", f"{desat_n:d} ({desat_pct})"],
             ["  Exclude HR flags", f"{excl_hr_n:d} ({excl_hr_pct})"],
@@ -593,12 +466,10 @@ def build_summary_pages(
     rows_p4 += [["", ""]]
     rows_p4 += [["PAT burden (event+desat within included sleep)", ""]]
 
-    # If compute returned np.nan, show "NA"
     burden_val = None
     if pat_burden is not None and np.isfinite(pat_burden):
         burden_val = float(pat_burden)
 
-    # unit can be relative/min/h if diag says so
     unit = "rel·min/h" if isinstance(pat_burden_diag, dict) and pat_burden_diag.get("relative") else "amp·min/h"
     rows_p4 += [[f"  Burden [{unit}]", _fmt(burden_val, 3)]]
 
@@ -615,10 +486,11 @@ def build_summary_pages(
         rows_p4,
         edf_base=edf_base,
         font_size=12,
-        scale_y=1.35,
+        scale_y=1.25,
     )
 
     return [fig1, fig2, fig3, fig4]
+
 
 # ============================================================================
 # Sleep stagegram (hypnogram) page
@@ -650,22 +522,19 @@ def _build_sleep_stagegram_figure(
     t = t[ok]
     s = np.round(s[ok]).astype(int)
 
-    # Ensure time ordering
     order = np.argsort(t)
     t = t[order]
     s = s[order]
 
-    # De-duplicate equal timestamps
     if t.size >= 2:
         keep = np.ones_like(t, dtype=bool)
-        keep[:-1] = (t[1:] != t[:-1])
+        keep[:-1] = t[1:] != t[:-1]
         t = t[keep]
         s = s[keep]
 
     if t.size == 0:
         return None
 
-    # Detect wraparound (midnight) and unwrap if needed
     dt = np.diff(t)
     wrap_idx = np.where(dt < -12 * 3600)[0]
     if wrap_idx.size > 0:
@@ -674,11 +543,9 @@ def _build_sleep_stagegram_figure(
             t2[i + 1:] += 24 * 3600
         t = t2
 
-    # Shift so stagegram starts at 0
     t0 = float(t[0])
     t = t - t0
 
-    # Map stage codes -> y positions (Wake on top)
     y_map = {0: 3, 3: 2, 1: 1, 2: 0}
     y = np.array([y_map.get(int(x), np.nan) for x in s], dtype=float)
     oky = np.isfinite(y)
@@ -702,7 +569,6 @@ def _build_sleep_stagegram_figure(
 
     xh = t / 3600.0
 
-    # Build edges for step plot
     if xh.size == 1:
         step_h = 1.0 / 3600.0
         edges = np.array([xh[0], xh[0] + step_h], dtype=float)
@@ -717,7 +583,6 @@ def _build_sleep_stagegram_figure(
 
     fig, ax = plt.subplots(figsize=(11.69, 8.27))
 
-    # Background bands
     bands = [
         (3, "Wake", 0.08),
         (2, "REM", 0.06),
@@ -727,12 +592,10 @@ def _build_sleep_stagegram_figure(
     for y0, _name, alpha in bands:
         ax.axhspan(y0 - 0.5, y0 + 0.5, alpha=alpha, zorder=0)
 
-    # Step plot
     x_step = edges
     y_step = np.r_[y, y[-1]]
     ax.step(x_step, y_step, where="post", linewidth=3.0, zorder=3)
 
-    # Shade excluded sleep stages (policy-based)
     if enabled and included.size == xh.size:
         exc = ~included
         if np.any(exc):
