@@ -1,8 +1,7 @@
-# pat_toolbox/plotting/report.py
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional, Tuple, Dict, TYPE_CHECKING, Any
+from typing import Optional, Dict, TYPE_CHECKING
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -13,8 +12,10 @@ from ..metrics.psd import compute_psd_figures_and_peaks
 
 from .utils import _infer_edf_base, _compute_exclusion_zones
 from .figures_summary import build_summary_pages, _build_sleep_stagegram_figure
-
-from .figures_hrv import _build_hrv_overview_figure, _build_hrv_tv_metrics_figure
+from .figures_hrv import (
+    _build_hrv_overview_figure,
+    _build_stagegram_and_hrv_tv_figure,
+)
 from .segments import _add_segment_pages_to_pdf
 
 if TYPE_CHECKING:
@@ -52,8 +53,6 @@ def plot_pat_and_hr_segments_to_pdf(
         hr_calc_raw: Optional[np.ndarray] = None,
         t_hr_edf_raw: Optional[np.ndarray] = None,
         hr_edf_raw: Optional[np.ndarray] = None,
-
-        # PAT burden already present in your signature:
         pat_burden: Optional[float] = None,
         pat_burden_diag: Optional[Dict[str, float]] = None,
 ) -> Dict[str, float]:
@@ -74,7 +73,6 @@ def plot_pat_and_hr_segments_to_pdf(
     edf_base = _infer_edf_base(pdf_path)
 
     use_hrv = t_hrv is not None and hrv_rmssd is not None and np.size(hrv_rmssd) > 0
-
     exclusion_zones = _compute_exclusion_zones(aux_df)
 
     (
@@ -92,10 +90,8 @@ def plot_pat_and_hr_segments_to_pdf(
 
     mayer_peak_freq = psd_features.get("mayer_peak_hz")
     resp_peak_freq = psd_features.get("resp_peak_hz")
-
     duration_sec = n_samples / sfreq
 
-    # ✅ FIX: forward PAT burden into summary pages
     summary_pages = build_summary_pages(
         edf_base=edf_base,
         pearson_r=pearson_r,
@@ -122,10 +118,30 @@ def plot_pat_and_hr_segments_to_pdf(
         pat_burden_diag=pat_burden_diag,
     )
 
-    fig_stage = _build_sleep_stagegram_figure(
-        edf_base=edf_base,
-        aux_df=aux_df,
+    has_tv = (
+        use_hrv
+        and t_hrv is not None
+        and hrv_tv is not None
+        and isinstance(hrv_tv, dict)
+        and len(hrv_tv) > 0
     )
+
+    fig_stage = None
+    fig_stage_tv = None
+
+    if has_tv:
+        fig_stage_tv = _build_stagegram_and_hrv_tv_figure(
+            edf_base=edf_base,
+            aux_df=aux_df,
+            t_hrv=t_hrv,
+            hrv_tv=hrv_tv,
+            exclusion_zones=exclusion_zones,
+        )
+    else:
+        fig_stage = _build_sleep_stagegram_figure(
+            edf_base=edf_base,
+            aux_df=aux_df,
+        )
 
     fig_ov = None
     if use_hrv and t_hrv is not None and hrv_rmssd is not None:
@@ -139,28 +155,15 @@ def plot_pat_and_hr_segments_to_pdf(
             duration_sec_fallback=duration_sec,
         )
 
-    fig_tv = None
-    if (
-            use_hrv
-            and t_hrv is not None
-            and hrv_tv is not None
-            and isinstance(hrv_tv, dict)
-            and len(hrv_tv) > 0
-    ):
-        fig_tv = _build_hrv_tv_metrics_figure(
-            edf_base=edf_base,
-            t_hrv=t_hrv,
-            hrv_tv=hrv_tv,
-            exclusion_zones=exclusion_zones,
-            aux_df=aux_df,
-        )
-
     with PdfPages(str(pdf_path)) as pdf:
         for fig in summary_pages:
             pdf.savefig(fig)
             plt.close(fig)
 
-        if fig_stage is not None:
+        if fig_stage_tv is not None:
+            pdf.savefig(fig_stage_tv)
+            plt.close(fig_stage_tv)
+        elif fig_stage is not None:
             pdf.savefig(fig_stage)
             plt.close(fig_stage)
 
@@ -173,10 +176,6 @@ def plot_pat_and_hr_segments_to_pdf(
         if fig_ov is not None:
             pdf.savefig(fig_ov)
             plt.close(fig_ov)
-
-        if fig_tv is not None:
-            pdf.savefig(fig_tv)
-            plt.close(fig_tv)
 
         _add_segment_pages_to_pdf(
             pdf,
