@@ -134,6 +134,7 @@ def plot_pat_and_hr_segments_to_pdf(
             edf_base=edf_base,
             aux_df=aux_df,
             t_hrv=t_hrv,
+            hrv_rmssd=hrv_rmssd,
             hrv_tv=hrv_tv,
             exclusion_zones=exclusion_zones,
         )
@@ -155,55 +156,63 @@ def plot_pat_and_hr_segments_to_pdf(
             duration_sec_fallback=duration_sec,
         )
 
-    with PdfPages(str(pdf_path)) as pdf:
-        for fig in summary_pages:
-            pdf.savefig(fig)
-            plt.close(fig)
+    try:
+        with PdfPages(str(pdf_path)) as pdf:
+            for fig in summary_pages:
+                pdf.savefig(fig)
+                plt.close(fig)
 
-        if fig_stage_tv is not None:
-            pdf.savefig(fig_stage_tv)
-            plt.close(fig_stage_tv)
-        elif fig_stage is not None:
-            pdf.savefig(fig_stage)
-            plt.close(fig_stage)
+            if fig_stage_tv is not None:
+                pdf.savefig(fig_stage_tv)
+                plt.close(fig_stage_tv)
+            elif fig_stage is not None:
+                pdf.savefig(fig_stage)
+                plt.close(fig_stage)
 
-        pdf.savefig(fig_psd_zoom)
-        plt.close(fig_psd_zoom)
+            pdf.savefig(fig_psd_zoom)
+            plt.close(fig_psd_zoom)
 
-        pdf.savefig(fig_psd_full)
-        plt.close(fig_psd_full)
+            pdf.savefig(fig_psd_full)
+            plt.close(fig_psd_full)
 
-        if fig_ov is not None:
-            pdf.savefig(fig_ov)
-            plt.close(fig_ov)
+            if fig_ov is not None:
+                pdf.savefig(fig_ov)
+                plt.close(fig_ov)
 
-        _add_segment_pages_to_pdf(
-            pdf,
-            signal_raw=signal_raw,
-            signal_filt=signal_filt,
-            sfreq=sfreq,
-            segment_minutes=float(segment_minutes),
-            title_prefix=title_prefix,
-            channel_name=channel_name,
-            t_hr_calc=t_hr_calc,
-            hr_calc=hr_calc,
-            t_hr_edf=t_hr_edf,
-            hr_edf=hr_edf,
-            t_hrv=t_hrv,
-            hrv_clean=hrv_rmssd,
-            hrv_raw=hrv_rmssd_raw,
-            aux_df=aux_df,
-            exclusion_zones=exclusion_zones,
-            t_pat_amp=t_pat_amp,
-            pat_amp=pat_amp,
-            delta_hr_calc=delta_hr_calc,
-            delta_hr_edf=delta_hr_edf,
-            delta_hr_calc_evt=delta_hr_calc_evt,
-            delta_hr_edf_evt=delta_hr_edf_evt,
-            t_hr_calc_raw=t_hr_calc_raw,
-            hr_calc_raw=hr_calc_raw,
-            t_hr_edf_raw=t_hr_edf_raw,
-            hr_edf_raw=hr_edf_raw,
-        )
+            _add_segment_pages_to_pdf(
+                pdf,
+                signal_raw=signal_raw,
+                signal_filt=signal_filt,
+                sfreq=sfreq,
+                segment_minutes=float(segment_minutes),
+                title_prefix=title_prefix,
+                channel_name=channel_name,
+                t_hr_calc=t_hr_calc,
+                hr_calc=hr_calc,
+                t_hr_edf=t_hr_edf,
+                hr_edf=hr_edf,
+                t_hrv=t_hrv,
+                hrv_clean=hrv_rmssd,
+                hrv_raw=hrv_rmssd_raw,
+                aux_df=aux_df,
+                exclusion_zones=exclusion_zones,
+                t_pat_amp=t_pat_amp,
+                pat_amp=pat_amp,
+                delta_hr_calc=delta_hr_calc,
+                delta_hr_edf=delta_hr_edf,
+                delta_hr_calc_evt=delta_hr_calc_evt,
+                delta_hr_edf_evt=delta_hr_edf_evt,
+                t_hr_calc_raw=t_hr_calc_raw,
+                hr_calc_raw=hr_calc_raw,
+                t_hr_edf_raw=t_hr_edf_raw,
+                hr_edf_raw=hr_edf_raw,
+            )
+    except Exception:
+        if pdf_path.exists():
+            try:
+                pdf_path.unlink()
+            except Exception:
+                pass
+        raise
 
     return psd_features

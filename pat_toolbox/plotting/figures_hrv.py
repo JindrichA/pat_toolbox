@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Optional, Tuple, Dict, TYPE_CHECKING, List
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.ticker import MultipleLocator
 
 from .. import config
 from .specs import EventSpec, DEFAULT_EVENT_PLOT_SPEC
@@ -83,11 +84,7 @@ def _plot_sleep_stagegram_on_ax(
 ) -> bool:
     """
     Plot the sleep stagegram directly onto a provided axis.
-
-    Returns
-    -------
-    bool
-        True if something was plotted, False otherwise.
+    Returns True if plotted successfully, otherwise False.
     """
     if aux_df is None or len(aux_df) == 0:
         return False
@@ -209,8 +206,8 @@ def _plot_sleep_stagegram_on_ax(
 
     ax.grid(True, which="major", axis="x", alpha=0.35)
     ax.grid(True, which="minor", axis="x", alpha=0.18)
-    ax.xaxis.set_major_locator(plt.MultipleLocator(1.0))
-    ax.xaxis.set_minor_locator(plt.MultipleLocator(0.5))
+    ax.xaxis.set_major_locator(MultipleLocator(1.0))
+    ax.xaxis.set_minor_locator(MultipleLocator(0.5))
     ax.grid(True, which="major", axis="y", alpha=0.20)
 
     if show_stats_box:
@@ -357,6 +354,7 @@ def _build_hrv_overview_figure(
                 for spec in event_spec:
                     if spec.col not in seg.columns:
                         continue
+
                     m = seg[spec.col] == 1
                     if not m.any():
                         continue
@@ -485,17 +483,25 @@ def _build_stagegram_and_hrv_tv_figure(
     edf_base: str,
     aux_df: Optional["pd.DataFrame"],
     t_hrv: np.ndarray,
+    hrv_rmssd: Optional[np.ndarray],
     hrv_tv: Dict[str, np.ndarray],
     exclusion_zones: List[Tuple[float, float, str]],
 ) -> Optional[plt.Figure]:
     """
     Combined page with:
       - sleep stagegram on top
-      - HRV TV metrics below
+      - overnight RMSSD below
+      - HRV TV metrics below that
+
     All subplots share the same x-axis in hours-from-start.
     """
-    if t_hrv is None or t_hrv.size == 0 or not hrv_tv:
+    if t_hrv is None or t_hrv.size == 0:
         return None
+
+    series: List[tuple[str, str, np.ndarray]] = []
+
+    if hrv_rmssd is not None and np.size(hrv_rmssd) == np.size(t_hrv):
+        series.append(("rmssd", "RMSSD [ms]", np.asarray(hrv_rmssd, dtype=float)))
 
     metrics = [
         ("sdnn_ms", "SDNN [ms]"),
@@ -504,20 +510,19 @@ def _build_stagegram_and_hrv_tv_figure(
         ("lf_hf", "LF/HF [-]"),
     ]
 
-    series: List[tuple[str, str, np.ndarray]] = []
     for key, ylabel in metrics:
-        y = hrv_tv.get(key, None)
+        y = hrv_tv.get(key, None) if hrv_tv is not None else None
         if y is None:
             continue
         if np.size(y) != np.size(t_hrv):
             continue
-        series.append((key, ylabel, y))
+        series.append((key, ylabel, np.asarray(y, dtype=float)))
 
     if not series:
         return None
 
     n_rows = 1 + len(series)
-    height_ratios = [1.4] + [1.0] * len(series)
+    height_ratios = [1.2] + [1.0] * len(series)
 
     fig, axes = plt.subplots(
         n_rows,
@@ -527,13 +532,9 @@ def _build_stagegram_and_hrv_tv_figure(
         gridspec_kw={"height_ratios": height_ratios},
     )
 
-    if n_rows == 1:
-        axes = [axes]
-    else:
-        axes = list(np.atleast_1d(axes))
-
+    axes = list(np.atleast_1d(axes))
     ax_stage = axes[0]
-    tv_axes = axes[1:]
+    data_axes = axes[1:]
 
     plotted_stage = _plot_sleep_stagegram_on_ax(
         ax=ax_stage,
@@ -541,7 +542,7 @@ def _build_stagegram_and_hrv_tv_figure(
         aux_df=aux_df,
         show_title=False,
         show_xlabel=False,
-        show_stats_box=True,
+        show_stats_box=False,
     )
 
     if not plotted_stage:
@@ -560,13 +561,13 @@ def _build_stagegram_and_hrv_tv_figure(
     tv_win = getattr(config, "HRV_TV_WINDOW_SEC", None)
     if tv_win is not None and tv_win > 0:
         fig.suptitle(
-            f"{edf_base} - Sleep stagegram + HRV TV metrics "
+            f"{edf_base} - Sleep stagegram + overnight RMSSD + HRV TV metrics "
             f"(sliding {tv_win/60.0:.1f} min window)",
             fontsize=12,
         )
     else:
         fig.suptitle(
-            f"{edf_base} - Sleep stagegram + HRV TV metrics",
+            f"{edf_base} - Sleep stagegram + overnight RMSSD + HRV TV metrics",
             fontsize=12,
         )
 
@@ -579,12 +580,13 @@ def _build_stagegram_and_hrv_tv_figure(
 
     ax_stage.set_xlim(start_h, end_h)
 
-    for ax, (key, ylabel, y) in zip(tv_axes, series):
+    for ax, (key, ylabel, y) in zip(data_axes, series):
         _add_exclusion_spans(ax, exclusion_zones, start_h, end_h, label_once=False)
 
         ok = np.isfinite(y)
         if np.any(ok):
-            ax.plot(t_h[ok], y[ok], linewidth=0.9, label=key)
+            label = "RMSSD" if key == "rmssd" else key
+            ax.plot(t_h[ok], y[ok], linewidth=0.9, label=label)
 
         ax.relim()
         ax.autoscale_view()
@@ -601,9 +603,9 @@ def _build_stagegram_and_hrv_tv_figure(
         ax.set_ylabel(ylabel)
         ax.grid(True)
 
-    if tv_axes:
-        _maybe_add_legend(tv_axes[0], loc="upper right", fontsize=8)
-        tv_axes[-1].set_xlabel("Time (hours from recording start)")
+    if data_axes:
+        _maybe_add_legend(data_axes[0], loc="upper right", fontsize=8)
+        data_axes[-1].set_xlabel("Time (hours from recording start)")
 
     fig.tight_layout(rect=[0.04, 0.05, 0.98, 0.95])
     return fig
