@@ -61,6 +61,11 @@ def plot_pat_and_hr_segments_to_pdf(
       - keep upstream API compatible
       - hide proprietary/device HR and its comparison from all plots
       - keep PAT-derived HR / HRV / PAT amplitude / PSD plotting active
+
+    Report order:
+      1) full-night pages
+      2) summary tables
+      3) segment pages
     """
 
     if segment_minutes is None:
@@ -98,11 +103,7 @@ def plot_pat_and_hr_segments_to_pdf(
     resp_peak_freq = psd_features.get("resp_peak_hz")
     duration_sec = n_samples / sfreq
 
-    # -------------------------------------------------------------
-    # Plotting-only switch-off for proprietary/device HR
-    # Keep function signature compatible, but hide EDF/device HR
-    # from summary pages and segment plots.
-    # -------------------------------------------------------------
+    # Hide proprietary/device HR from plots
     t_hr_edf_plot = None
     hr_edf_plot = None
     delta_hr_edf_plot = None
@@ -180,10 +181,9 @@ def plot_pat_and_hr_segments_to_pdf(
 
     try:
         with PdfPages(str(pdf_path)) as pdf:
-            for fig in summary_pages:
-                pdf.savefig(fig)
-                plt.close(fig)
-
+            # ---------------------------------------------------------
+            # 1) FULL-NIGHT PAGES FIRST
+            # ---------------------------------------------------------
             if fig_stage_tv is not None:
                 pdf.savefig(fig_stage_tv)
                 plt.close(fig_stage_tv)
@@ -201,6 +201,16 @@ def plot_pat_and_hr_segments_to_pdf(
                 pdf.savefig(fig_ov)
                 plt.close(fig_ov)
 
+            # ---------------------------------------------------------
+            # 2) SUMMARY TABLES
+            # ---------------------------------------------------------
+            for fig in summary_pages:
+                pdf.savefig(fig)
+                plt.close(fig)
+
+            # ---------------------------------------------------------
+            # 3) SEGMENT PAGES LAST
+            # ---------------------------------------------------------
             _add_segment_pages_to_pdf(
                 pdf,
                 signal_raw=signal_raw,
@@ -229,6 +239,7 @@ def plot_pat_and_hr_segments_to_pdf(
                 t_hr_edf_raw=t_hr_edf_raw_plot,
                 hr_edf_raw=hr_edf_raw_plot,
             )
+
     except Exception:
         if pdf_path.exists():
             try:
