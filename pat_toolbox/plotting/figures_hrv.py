@@ -13,6 +13,47 @@ if TYPE_CHECKING:
     import pandas as pd
 
 
+def _add_mean_median_lines(
+    ax: plt.Axes,
+    y: np.ndarray,
+    *,
+    mean_label: str = "Mean",
+    median_label: str = "Median",
+) -> None:
+    """
+    Add dashed horizontal lines for mean and median of finite values in y.
+    """
+    if y is None:
+        return
+
+    y = np.asarray(y, dtype=float)
+    y = y[np.isfinite(y)]
+    if y.size == 0:
+        return
+
+    y_mean = float(np.nanmean(y))
+    y_median = float(np.nanmedian(y))
+
+    ax.axhline(
+        y_mean,
+        linestyle="--",
+        linewidth=1.0,
+        alpha=0.8,
+        color="black",
+        label=f"{mean_label}: {y_mean:.2f}",
+        zorder=2,
+    )
+    ax.axhline(
+        y_median,
+        linestyle="--",
+        linewidth=1.0,
+        alpha=0.8,
+        color="0.35",
+        label=f"{median_label}: {y_median:.2f}",
+        zorder=2,
+    )
+
+
 def _overlay_events_on_single_axis_whole_night(
     ax: plt.Axes,
     aux_df: Optional["pd.DataFrame"],
@@ -456,6 +497,7 @@ def _build_hrv_tv_metrics_figure(
         ok = np.isfinite(y)
         if np.any(ok):
             ax.plot(t_h[ok], y[ok], linewidth=0.9, label=key)
+            _add_mean_median_lines(ax, y)
 
         ax.relim()
         ax.autoscale_view()
@@ -587,6 +629,7 @@ def _build_stagegram_and_hrv_tv_figure(
         if np.any(ok):
             label = "RMSSD" if key == "rmssd" else key
             ax.plot(t_h[ok], y[ok], linewidth=0.9, label=label)
+            _add_mean_median_lines(ax, y)
 
         ax.relim()
         ax.autoscale_view()
