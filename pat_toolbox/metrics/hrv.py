@@ -406,6 +406,8 @@ def _calculate_hrv_windowed_series(
     """
     Compute windowed HRV metrics on a time grid:
       rmssd_ms, sdnn_ms, lf, hf, lf_hf
+
+    Includes debug counters for why spectral windows are rejected.
     """
     out: Dict[str, np.ndarray] = {
         "rmssd_ms": np.full_like(t_grid, np.nan, dtype=float),
@@ -424,7 +426,15 @@ def _calculate_hrv_windowed_series(
     left = 0
     right = 0
 
+    n_total = 0
+    n_fail_min_rr = 0
+    n_fail_span = 0
+    n_fail_gap = 0
+    n_fail_psd = 0
+    n_ok = 0
+
     for i, t in enumerate(t_grid):
+        n_total += 1
         start = t - half
         end = t + half
 
@@ -437,6 +447,7 @@ def _calculate_hrv_windowed_series(
 
         k = right - left
         if k < min_rr:
+            n_fail_min_rr += 1
             continue
 
         rr_win_ms = rr_ms[left:right]
@@ -447,16 +458,32 @@ def _calculate_hrv_windowed_series(
 
         span = float(rr_mid_win[-1] - rr_mid_win[0]) if rr_mid_win.size >= 2 else 0.0
         if span < float(min_span_sec):
+            n_fail_span += 1
             continue
 
         gaps = np.diff(rr_mid_win) if rr_mid_win.size >= 2 else np.array([])
         if gaps.size > 0 and np.any(gaps > float(max_gap_sec)):
+            n_fail_gap += 1
             continue
 
         lf, hf, lf_hf = _lf_hf_from_rr(rr_win_ms, rr_mid_win, fs_resample=float(fs_resample))
+        if not (np.isfinite(lf) and np.isfinite(hf) and np.isfinite(lf_hf)):
+            n_fail_psd += 1
+            continue
+
         out["lf"][i] = lf
         out["hf"][i] = hf
         out["lf_hf"][i] = lf_hf
+        n_ok += 1
+
+    print(
+        "  TV spectral debug: "
+        f"total={n_total}, ok={n_ok}, "
+        f"fail_min_rr={n_fail_min_rr}, "
+        f"fail_span={n_fail_span}, "
+        f"fail_gap={n_fail_gap}, "
+        f"fail_psd={n_fail_psd}"
+    )
 
     return out
 
@@ -632,6 +659,14 @@ def compute_hrv_from_pat_signal_with_tv_metrics(
     fs_resample_tv = float(getattr(config, "HRV_TV_TACHO_RESAMPLE_HZ"))
     min_rr_tv = int(getattr(config, "HRV_TV_MIN_RR_PER_WINDOW"))
 
+    # TV-specific thresholds
+    min_freq_span_sec_tv = float(
+        getattr(config, "HRV_TV_MIN_FREQ_DOMAIN_SEC", getattr(config, "HRV_MIN_FREQ_DOMAIN_SEC"))
+    )
+    max_gap_sec_tv = float(
+        getattr(config, "HRV_TV_MAX_TACHO_GAP_SEC", getattr(config, "HRV_MAX_RR_GAP_SEC"))
+    )
+
     rr_sec_physio_clean, rr_mid_physio_clean, duration_sec = hr_metrics.extract_clean_rr_from_pat(
         pat_signal, fs
     )
@@ -774,8 +809,8 @@ def compute_hrv_from_pat_signal_with_tv_metrics(
         window_sec=float(tv_window_sec),
         fs_resample=float(fs_resample_tv),
         min_rr=int(min_rr_tv),
-        min_span_sec=float(min_freq_span_sec),
-        max_gap_sec=float(max_gap_sec),
+        min_span_sec=float(min_freq_span_sec_tv),
+        max_gap_sec=float(max_gap_sec_tv),
     )
     tv["tv_window_sec"] = np.array([float(tv_window_sec)], dtype=float)
 

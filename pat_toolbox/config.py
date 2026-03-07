@@ -209,6 +209,10 @@ HRV_TV_TACHO_RESAMPLE_HZ = 4.0
 HRV_TV_MIN_RR_PER_WINDOW = 10
 #HRV_TV_MIN_FREQ_DOMAIN_SEC = 300.0    # optional separate knob; fallback uses HRV_MIN_FREQ_DOMAIN_SEC
 HRV_TV_MAX_TACHO_GAP_SEC = 3.0        # optional separate knob; fallback uses HRV_MAX_TACHO_GAP_SEC
+# Separate acceptance criteria for TV spectral metrics
+HRV_TV_MIN_FREQ_DOMAIN_SEC = 60.0
+HRV_TV_MAX_TACHO_GAP_SEC = 6.0
+
 
 # =============================================================================
 # Auxiliary CSV synchronized to EDF
