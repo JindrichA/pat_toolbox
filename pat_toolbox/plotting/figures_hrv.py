@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     import pandas as pd
 
 
-def _add_mean_median_lines(
+def git(
     ax: plt.Axes,
     y: np.ndarray,
     *,
