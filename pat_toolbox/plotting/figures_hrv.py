@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     import pandas as pd
 
 
-def git(
+def _add_mean_median_lines(
     ax: plt.Axes,
     y: np.ndarray,
     *,
@@ -37,20 +37,21 @@ def git(
     ax.axhline(
         y_mean,
         linestyle="--",
-        linewidth=1.0,
-        alpha=0.8,
+        linewidth=1.6,
         color="black",
-        label=f"{mean_label}: {y_mean:.2f}",
-        zorder=2,
+        alpha=0.9,
+        label=f"Mean: {y_mean:.2f}",
+        zorder=1,
     )
+
     ax.axhline(
         y_median,
-        linestyle="--",
-        linewidth=1.0,
-        alpha=0.8,
-        color="0.35",
-        label=f"{median_label}: {y_median:.2f}",
-        zorder=2,
+        linestyle=":",
+        linewidth=1.6,
+        color="black",
+        alpha=0.9,
+        label=f"Median: {y_median:.2f}",
+        zorder=1,
     )
 
 
@@ -107,10 +108,10 @@ def _overlay_events_on_single_axis_whole_night(
                     x,
                     color=spec.color,
                     linestyle="-",
-                    linewidth=1.6,
-                    alpha=0.9,
+                    linewidth=0.9,
+                    alpha=0.35,
                     label=spec.label if first_line else "_nolegend_",
-                    zorder=4,
+                    zorder=0,
                 )
                 first_line = False
 
@@ -496,7 +497,12 @@ def _build_hrv_tv_metrics_figure(
 
         ok = np.isfinite(y)
         if np.any(ok):
-            ax.plot(t_h[ok], y[ok], linewidth=0.9, label=key)
+            # Clip extreme spikes to improve visibility
+            p = np.nanpercentile(y, 99)
+            y_plot = np.clip(y, None, p)
+
+            ax.plot(t_h[ok], y_plot[ok], linewidth=0.9, label=key)
+
             _add_mean_median_lines(ax, y)
 
         ax.relim()
@@ -628,7 +634,13 @@ def _build_stagegram_and_hrv_tv_figure(
         ok = np.isfinite(y)
         if np.any(ok):
             label = "RMSSD" if key == "rmssd" else key
-            ax.plot(t_h[ok], y[ok], linewidth=0.9, label=label)
+
+            # Clip extreme spikes
+            p = np.nanpercentile(y, 99)
+            y_plot = np.clip(y, None, p)
+
+            ax.plot(t_h[ok], y_plot[ok], linewidth=0.9, label=label)
+
             _add_mean_median_lines(ax, y)
 
         ax.relim()
@@ -651,4 +663,5 @@ def _build_stagegram_and_hrv_tv_figure(
         data_axes[-1].set_xlabel("Time (hours from recording start)")
 
     fig.tight_layout(rect=[0.04, 0.05, 0.98, 0.95])
+    fig.subplots_adjust(hspace=0.15)
     return fig
