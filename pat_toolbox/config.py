@@ -46,7 +46,7 @@ ENABLE_SLEEP_STAGE_MASKING = True
 #   "deep_only"       - Include only deep sleep (2)
 #   "nrem_light_only" - Include only NREM light (1)
 #   "custom"          - Use SLEEP_INCLUDE_LABELS / SLEEP_INCLUDE_NUMERIC
-SLEEP_STAGE_POLICY = "nrem_only"
+SLEEP_STAGE_POLICY = "all_sleep"
 
 
 # Used only when SLEEP_STAGE_POLICY == "custom"
@@ -246,12 +246,16 @@ HRV_EXCLUSION_EVENT_COLUMNS = [
     # "desat_flag",
 ]
 
-HRV_EXCLUSION_PRE_SEC = 15.0
-HRV_EXCLUSION_POST_SEC = 30.0
+#TODO: uncoment, just for debuging and ploting the signals.
+
+#HRV_EXCLUSION_PRE_SEC = 15.0
+#HRV_EXCLUSION_POST_SEC = 30.0
+HRV_EXCLUSION_PRE_SEC = 0.0
+HRV_EXCLUSION_POST_SEC = 0.0
 
 # Turn on desat-dependent exclusion windows (instead of fixed pre/post around events)
-HRV_EXCLUSION_USE_DESAT_WINDOWS = True
-
+#HRV_EXCLUSION_USE_DESAT_WINDOWS = True
+HRV_EXCLUSION_USE_DESAT_WINDOWS = False
 # Which aux column indicates desaturation (uses COL_NAMES key by default)
 HRV_EXCLUSION_DESAT_COLUMN_KEY = "desat_flag"   # maps via COL_NAMES
 
@@ -259,7 +263,8 @@ HRV_EXCLUSION_DESAT_COLUMN_KEY = "desat_flag"   # maps via COL_NAMES
 HRV_EXCLUSION_DESAT_START_PAD_SEC = 15
 
 # How far after desat-end to extend exclusion
-HRV_EXCLUSION_DESAT_END_PAD_SEC = 30
+#HRV_EXCLUSION_DESAT_END_PAD_SEC = 30
+HRV_EXCLUSION_DESAT_END_PAD_SEC = 0
 
 # Optional: require desat run length
 HRV_EXCLUSION_DESAT_MIN_RUN_SEC = 5.0

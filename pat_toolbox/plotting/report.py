@@ -191,11 +191,13 @@ def plot_pat_and_hr_segments_to_pdf(
                 pdf.savefig(fig_stage)
                 plt.close(fig_stage)
 
-            pdf.savefig(fig_psd_zoom)
-            plt.close(fig_psd_zoom)
 
-            pdf.savefig(fig_psd_full)
-            plt.close(fig_psd_full)
+# TODO: Uncoment the blok with spectrums
+            #pdf.savefig(fig_psd_zoom)
+            #plt.close(fig_psd_zoom)
+
+            #pdf.savefig(fig_psd_full)
+            #plt.close(fig_psd_full)
 
             if fig_ov is not None:
                 pdf.savefig(fig_ov)

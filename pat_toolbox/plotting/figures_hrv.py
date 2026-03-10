@@ -108,8 +108,8 @@ def _overlay_events_on_single_axis_whole_night(
                     x,
                     color=spec.color,
                     linestyle="-",
-                    linewidth=0.9,
-                    alpha=0.35,
+                    linewidth=0.6,
+                    alpha=0.15,
                     label=spec.label if first_line else "_nolegend_",
                     zorder=0,
                 )
@@ -368,7 +368,7 @@ def _build_hrv_overview_figure(
                     th,
                     np.ma.masked_invalid(yc),
                     label="Clean HRV (Masked)",
-                    linewidth=0.9,
+                    linewidth=1.2,
                     zorder=2,
                 )
             else:
@@ -412,9 +412,9 @@ def _build_hrv_overview_figure(
                             t_evt_h,
                             np.full_like(t_evt_h, y_desat, dtype=float),
                             marker="v",
-                            s=25,
+                            s=18,
                             color=spec.color,
-                            alpha=0.9,
+                            alpha=0.6,
                             label=show_label,
                             zorder=3,
                         )
@@ -503,7 +503,7 @@ def _build_hrv_tv_metrics_figure(
 
             # Keep NaNs as masked values so gaps are NOT connected
             y_masked = np.ma.masked_invalid(y_plot)
-            ax.plot(t_h, y_masked, linewidth=0.9, label=key)
+            ax.plot(t_h, y_masked, linewidth=1.2, label=key)
 
             _add_mean_median_lines(ax, y)
 
@@ -519,6 +519,9 @@ def _build_hrv_tv_metrics_figure(
         )
 
         ax.set_ylabel(ylabel)
+        if key in {"lf", "hf"}:
+            ax.set_yscale("log")
+
         ax.grid(True)
 
         if ax is axes[0]:
@@ -572,7 +575,7 @@ def _build_stagegram_and_hrv_tv_figure(
         return None
 
     n_rows = 1 + len(series)
-    height_ratios = [1.2] + [1.0] * len(series)
+    height_ratios = [0.7] + [1.0] * len(series)
 
     fig, axes = plt.subplots(
         n_rows,
@@ -643,7 +646,7 @@ def _build_stagegram_and_hrv_tv_figure(
 
             # Keep NaNs as masked values so gaps are NOT connected
             y_masked = np.ma.masked_invalid(y_plot)
-            ax.plot(t_h, y_masked, linewidth=0.9, label=label)
+            ax.plot(t_h, y_masked, linewidth=1.2, label=label)
 
             _add_mean_median_lines(ax, y)
 
@@ -660,7 +663,9 @@ def _build_stagegram_and_hrv_tv_figure(
 
         ax.set_xlim(start_h, end_h)
         ax.set_ylabel(ylabel)
-        ax.grid(True)
+        if key in {"lf", "hf"}:
+            ax.set_yscale("log")
+        ax.grid(True, alpha=0.75)
 
     if data_axes:
         _maybe_add_legend(data_axes[0], loc="upper right", fontsize=8)
