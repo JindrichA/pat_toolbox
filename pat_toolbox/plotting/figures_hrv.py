@@ -342,8 +342,8 @@ def _build_hrv_overview_figure(
                 okr = np.isfinite(yr)
                 if np.any(okr):
                     ax.plot(
-                        th[okr],
-                        yr[okr],
+                        th,
+                        np.ma.masked_invalid(yr),
                         label="Raw HRV (Unmasked)",
                         linewidth=0.5,
                         color="tab:gray",
@@ -365,8 +365,8 @@ def _build_hrv_overview_figure(
             okc = np.isfinite(yc)
             if np.any(okc):
                 ax.plot(
-                    th[okc],
-                    yc[okc],
+                    th,
+                    np.ma.masked_invalid(yc),
                     label="Clean HRV (Masked)",
                     linewidth=0.9,
                     zorder=2,
@@ -501,7 +501,9 @@ def _build_hrv_tv_metrics_figure(
             p = np.nanpercentile(y, 99)
             y_plot = np.clip(y, None, p)
 
-            ax.plot(t_h[ok], y_plot[ok], linewidth=0.9, label=key)
+            # Keep NaNs as masked values so gaps are NOT connected
+            y_masked = np.ma.masked_invalid(y_plot)
+            ax.plot(t_h, y_masked, linewidth=0.9, label=key)
 
             _add_mean_median_lines(ax, y)
 
@@ -639,7 +641,9 @@ def _build_stagegram_and_hrv_tv_figure(
             p = np.nanpercentile(y, 99)
             y_plot = np.clip(y, None, p)
 
-            ax.plot(t_h[ok], y_plot[ok], linewidth=0.9, label=label)
+            # Keep NaNs as masked values so gaps are NOT connected
+            y_masked = np.ma.masked_invalid(y_plot)
+            ax.plot(t_h, y_masked, linewidth=0.9, label=label)
 
             _add_mean_median_lines(ax, y)
 
