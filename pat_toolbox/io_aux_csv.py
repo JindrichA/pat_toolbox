@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Optional, Dict, List, Tuple
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -68,7 +69,31 @@ def _parse_time_column_to_seconds(time_series: pd.Series) -> Optional[np.ndarray
         return num - np.nanmin(num)
 
     # 2) datetime parse
-    dt = pd.to_datetime(time_series, errors="coerce")
+    dt = None
+    time_as_str = time_series.astype("string").str.strip()
+
+    for fmt in (
+        "%H:%M:%S.%f",
+        "%H:%M:%S",
+        "%I:%M:%S.%f %p",
+        "%I:%M:%S %p",
+        "%Y-%m-%d %H:%M:%S.%f",
+        "%Y-%m-%d %H:%M:%S",
+    ):
+        parsed = pd.to_datetime(time_as_str, format=fmt, errors="coerce")
+        if parsed.notna().mean() > 0.9:
+            dt = parsed
+            break
+
+    if dt is None:
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message="Could not infer format, so each element will be parsed individually",
+                category=UserWarning,
+            )
+            dt = pd.to_datetime(time_as_str, errors="coerce")
+
     if dt.notna().mean() > 0.9:
         dt_valid = dt.dropna()
 
@@ -515,4 +540,3 @@ def build_event_exclusion_mask(
             keep[(t >= te - pre) & (t <= te + post)] = False
 
     return keep
-
