@@ -453,8 +453,8 @@ def _calculate_hrv_windowed_series(
         rr_win_ms = rr_ms[left:right]
         rr_mid_win = rr_mid[left:right]
 
-        out["rmssd_ms"][i] = _rmssd(rr_win_ms)
-        out["sdnn_ms"][i] = _sdnn(rr_win_ms)
+        rmssd_i = _rmssd(rr_win_ms)
+        sdnn_i = _sdnn(rr_win_ms)
 
         span = float(rr_mid_win[-1] - rr_mid_win[0]) if rr_mid_win.size >= 2 else 0.0
         if span < float(min_span_sec):
@@ -465,6 +465,9 @@ def _calculate_hrv_windowed_series(
         if gaps.size > 0 and np.any(gaps > float(max_gap_sec)):
             n_fail_gap += 1
             continue
+
+        out["rmssd_ms"][i] = rmssd_i
+        out["sdnn_ms"][i] = sdnn_i
 
         lf, hf, lf_hf = _lf_hf_from_rr(rr_win_ms, rr_mid_win, fs_resample=float(fs_resample))
         if not (np.isfinite(lf) and np.isfinite(hf) and np.isfinite(lf_hf)):
