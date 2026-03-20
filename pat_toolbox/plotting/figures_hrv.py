@@ -136,6 +136,7 @@ def _overlay_events_on_single_axis_whole_night(
     start_sec: float,
     end_sec: float,
     event_spec: List[EventSpec] = DEFAULT_EVENT_PLOT_SPEC,
+    show_legend_labels: bool = True,
 ) -> None:
     if aux_df is None:
         return
@@ -160,31 +161,50 @@ def _overlay_events_on_single_axis_whole_night(
             continue
 
         t_evt_h = seg.loc[m, time_col].to_numpy(float) / 3600.0
-        show_label = spec.label if spec.label not in used else "_nolegend_"
-        used.add(spec.label)
+        if show_legend_labels:
+            show_label = spec.label if spec.label not in used else "_nolegend_"
+            used.add(spec.label)
+        else:
+            show_label = "_nolegend_"
 
         if spec.col == "desat_flag":
             y_min, y_max = ax.get_ylim()
-            y_desat = y_min + 0.03 * (y_max - y_min)
+            if ax.get_yscale() == "log" and y_min > 0 and y_max > y_min:
+                log_y_min = np.log10(y_min)
+                log_y_max = np.log10(y_max)
+                y_desat = 10 ** (log_y_min + 0.08 * (log_y_max - log_y_min))
+            else:
+                y_desat = y_min + 0.03 * (y_max - y_min)
             ax.scatter(
                 t_evt_h,
                 np.full_like(t_evt_h, y_desat, dtype=float),
                 marker="v",
-                s=25,
+                s=32,
                 color=spec.color,
-                alpha=0.9,
+                alpha=0.95,
                 label=show_label,
                 zorder=4,
             )
         else:
+            line_color = spec.color
+            line_style = "-"
+            line_width = 1.0
+            line_alpha = 0.35
+
+            if spec.col == "evt_obstructive_3":
+                line_color = "tab:brown"
+                line_style = "--"
+            elif spec.col == "evt_unclassified_3":
+                line_style = ":"
+
             first_line = (show_label != "_nolegend_")
             for x in t_evt_h:
                 ax.axvline(
                     x,
-                    color=spec.color,
-                    linestyle="-",
-                    linewidth=0.6,
-                    alpha=0.15,
+                    color=line_color,
+                    linestyle=line_style,
+                    linewidth=line_width,
+                    alpha=line_alpha,
                     label=spec.label if first_line else "_nolegend_",
                     zorder=0,
                 )
@@ -583,26 +603,52 @@ def _build_hrv_tv_metrics_figure(
     if t_hrv is None or t_hrv.size == 0 or not hrv_tv:
         return None
 
-    metrics = [
-        ("sdnn_ms", "SDNN [ms]"),
-        ("lf", "LF [ms²]"),
-        ("hf", "HF [ms²]"),
-        ("lf_hf", "LF/HF [-]"),
-    ]
+    panels: List[dict] = []
 
-    series: List[tuple[str, str, np.ndarray]] = []
-    for key, ylabel in metrics:
-        y = hrv_tv.get(key, None)
-        if y is None:
-            continue
-        if np.size(y) != np.size(t_hrv):
-            continue
-        series.append((key, ylabel, y))
+    y_sdnn = hrv_tv.get("sdnn_ms", None)
+    if y_sdnn is not None and np.size(y_sdnn) == np.size(t_hrv):
+        panels.append(
+            {
+                "kind": "single",
+                "key": "sdnn_ms",
+                "ylabel": "SDNN [ms]",
+                "series": [("SDNN", np.asarray(y_sdnn, dtype=float), "tab:green")],
+            }
+        )
 
-    if not series:
+    y_lf = hrv_tv.get("lf", None)
+    y_hf = hrv_tv.get("hf", None)
+    lf_hf_series = []
+    if y_lf is not None and np.size(y_lf) == np.size(t_hrv):
+        lf_hf_series.append(("LF", np.asarray(y_lf, dtype=float), "tab:orange"))
+    if y_hf is not None and np.size(y_hf) == np.size(t_hrv):
+        lf_hf_series.append(("HF", np.asarray(y_hf, dtype=float), "tab:blue"))
+    if lf_hf_series:
+        panels.append(
+            {
+                "kind": "multi",
+                "key": "lf_hf_power",
+                "ylabel": "LF / HF [ms²] (log10)",
+                "yscale": "log",
+                "series": lf_hf_series,
+            }
+        )
+
+    y_ratio = hrv_tv.get("lf_hf", None)
+    if y_ratio is not None and np.size(y_ratio) == np.size(t_hrv):
+        panels.append(
+            {
+                "kind": "single",
+                "key": "lf_hf",
+                "ylabel": "LF/HF [-]",
+                "series": [("LF/HF", np.asarray(y_ratio, dtype=float), "tab:purple")],
+            }
+        )
+
+    if not panels:
         return None
 
-    n_rows = len(series)
+    n_rows = len(panels)
     fig, axes = plt.subplots(n_rows, 1, figsize=(11.69, 8.27), sharex=True)
     if n_rows == 1:
         axes = [axes]
@@ -622,16 +668,19 @@ def _build_hrv_tv_metrics_figure(
     start_sec = float(t_hrv[0])
     end_sec = float(t_hrv[-1])
 
-    for ax, (key, ylabel, y) in zip(axes, series):
+    legend_ax = None
+
+    for ax, panel in zip(axes, panels):
         _add_exclusion_spans(ax, exclusion_zones, start_h, end_h, label_once=False)
 
-        ok = np.isfinite(y)
-        if np.any(ok):
-            # Clip extreme spikes to improve visibility
+        plotted_any = False
+        for label, y, color in panel["series"]:
+            ok = np.isfinite(y)
+            if not np.any(ok):
+                continue
+
             p = np.nanpercentile(y, 99)
             y_plot = np.clip(y, None, p)
-
-            # Keep NaNs as masked values so gaps are NOT connected
             t_bin_h, y_bin, y_ci = _bin_series_mean_ci(
                 t_hrv,
                 y_plot,
@@ -639,28 +688,32 @@ def _build_hrv_tv_metrics_figure(
             )
 
             okb = np.isfinite(y_bin)
-            if np.any(okb):
-                ax.plot(
-                    t_bin_h[okb],
-                    y_bin[okb],
-                    linewidth=1.0,
-                    label=key,
-                    zorder=2,
-                )
-                ax.errorbar(
-                    t_bin_h[okb],
-                    y_bin[okb],
-                    yerr=y_ci[okb],
-                    fmt="none",
-                    elinewidth=1.0,
-                    capsize=2,
-                    alpha=0.6,
-                    zorder=2,
-                )
+            if not np.any(okb):
+                continue
 
+            plotted_any = True
+            ax.plot(
+                t_bin_h[okb],
+                y_bin[okb],
+                linewidth=1.3,
+                label=label,
+                color=color,
+                zorder=2,
+            )
+            ax.errorbar(
+                t_bin_h[okb],
+                y_bin[okb],
+                yerr=y_ci[okb],
+                fmt="none",
+                elinewidth=0.9,
+                capsize=2,
+                alpha=0.45,
+                color=color,
+                zorder=2,
+            )
+
+            if panel["kind"] == "single":
                 _add_mean_median_lines(ax, y_bin[okb])
-
-
 
         ax.relim()
         ax.autoscale_view()
@@ -671,19 +724,20 @@ def _build_hrv_tv_metrics_figure(
             start_sec=start_sec,
             end_sec=end_sec,
             event_spec=DEFAULT_EVENT_PLOT_SPEC,
+            show_legend_labels=False,
         )
 
-        if key in {"lf", "hf"}:
-            ax.set_ylabel(f"{ylabel} (log₁₀)")
-        else:
-            ax.set_ylabel(ylabel)
-        if key in {"lf", "hf"}:
+        ax.set_ylabel(panel["ylabel"])
+        if panel.get("yscale") == "log":
             ax.set_yscale("log")
 
         ax.grid(True)
 
-        if ax is axes[0]:
-            _maybe_add_legend(ax, loc="lower right", fontsize=5)
+        if legend_ax is None and plotted_any:
+            legend_ax = ax
+
+    if legend_ax is not None:
+        _maybe_add_legend(legend_ax, loc="lower right", fontsize=5)
 
     axes[-1].set_xlabel("Time (hours from recording start)")
     fig.tight_layout(rect=(0.04, 0.05, 0.98, 0.94))
@@ -710,31 +764,63 @@ def _build_stagegram_and_hrv_tv_figure(
     if t_hrv is None or t_hrv.size == 0:
         return None
 
-    series: List[tuple[str, str, np.ndarray]] = []
+    panels: List[dict] = []
 
     if hrv_rmssd is not None and np.size(hrv_rmssd) == np.size(t_hrv):
-        series.append(("rmssd", "RMSSD [ms]", np.asarray(hrv_rmssd, dtype=float)))
+        panels.append(
+            {
+                "kind": "single",
+                "key": "rmssd",
+                "ylabel": "RMSSD [ms]",
+                "series": [("RMSSD", np.asarray(hrv_rmssd, dtype=float), "tab:green")],
+            }
+        )
 
-    metrics = [
-        ("sdnn_ms", "SDNN [ms]"),
-        ("lf", "LF [ms²]"),
-        ("hf", "HF [ms²]"),
-        ("lf_hf", "LF/HF [-]"),
-    ]
+    y_sdnn = hrv_tv.get("sdnn_ms", None) if hrv_tv is not None else None
+    if y_sdnn is not None and np.size(y_sdnn) == np.size(t_hrv):
+        panels.append(
+            {
+                "kind": "single",
+                "key": "sdnn_ms",
+                "ylabel": "SDNN [ms]",
+                "series": [("SDNN", np.asarray(y_sdnn, dtype=float), "tab:green")],
+            }
+        )
 
-    for key, ylabel in metrics:
-        y = hrv_tv.get(key, None) if hrv_tv is not None else None
-        if y is None:
-            continue
-        if np.size(y) != np.size(t_hrv):
-            continue
-        series.append((key, ylabel, np.asarray(y, dtype=float)))
+    y_lf = hrv_tv.get("lf", None) if hrv_tv is not None else None
+    y_hf = hrv_tv.get("hf", None) if hrv_tv is not None else None
+    lf_hf_series = []
+    if y_lf is not None and np.size(y_lf) == np.size(t_hrv):
+        lf_hf_series.append(("LF", np.asarray(y_lf, dtype=float), "tab:orange"))
+    if y_hf is not None and np.size(y_hf) == np.size(t_hrv):
+        lf_hf_series.append(("HF", np.asarray(y_hf, dtype=float), "tab:blue"))
+    if lf_hf_series:
+        panels.append(
+            {
+                "kind": "multi",
+                "key": "lf_hf_power",
+                "ylabel": "LF / HF [ms²] (log10)",
+                "yscale": "log",
+                "series": lf_hf_series,
+            }
+        )
 
-    if not series:
+    y_ratio = hrv_tv.get("lf_hf", None) if hrv_tv is not None else None
+    if y_ratio is not None and np.size(y_ratio) == np.size(t_hrv):
+        panels.append(
+            {
+                "kind": "single",
+                "key": "lf_hf",
+                "ylabel": "LF/HF [-]",
+                "series": [("LF/HF", np.asarray(y_ratio, dtype=float), "tab:purple")],
+            }
+        )
+
+    if not panels:
         return None
 
-    n_rows = 1 + len(series)
-    height_ratios = [0.7] + [1.0] * len(series)
+    n_rows = 1 + len(panels)
+    height_ratios = [0.7] + [1.0] * len(panels)
 
     fig, axes = plt.subplots(
         n_rows,
@@ -793,16 +879,27 @@ def _build_stagegram_and_hrv_tv_figure(
 
     ax_stage.set_xlim(start_h, end_h)
 
-    for ax, (key, ylabel, y) in zip(data_axes, series):
-        _add_exclusion_spans(ax, exclusion_zones, start_h, end_h, label_once=False)
+    legend_ax = None
+    rmssd_legend_ax = None
 
-        ok = np.isfinite(y)
-        if np.any(ok):
-            label = "RMSSD" if key == "rmssd" else key
+    for ax, panel in zip(data_axes, panels):
+        show_event_legend = panel["key"] == "rmssd"
+        _add_exclusion_spans(
+            ax,
+            exclusion_zones,
+            start_h,
+            end_h,
+            label_once=show_event_legend,
+        )
+
+        plotted_any = False
+        for label, y, color in panel["series"]:
+            ok = np.isfinite(y)
+            if not np.any(ok):
+                continue
 
             p = np.nanpercentile(y, 99)
             y_plot = np.clip(y, None, p)
-
             t_bin_h, y_bin, y_ci = _bin_series_mean_ci(
                 t_hrv,
                 y_plot,
@@ -810,25 +907,35 @@ def _build_stagegram_and_hrv_tv_figure(
             )
 
             okb = np.isfinite(y_bin)
-            if np.any(okb):
-                ax.plot(
-                    t_bin_h[okb],
-                    y_bin[okb],
-                    linewidth=1.0,
-                    label="_nolegend_" if key == "rmssd" else label,
-                    zorder=2,
-                )
-                ax.errorbar(
-                    t_bin_h[okb],
-                    y_bin[okb],
-                    yerr=y_ci[okb],
-                    fmt="none",
-                    elinewidth=1.0,
-                    capsize=2,
-                    alpha=0.6,
-                    zorder=2,
-                )
+            if not np.any(okb):
+                continue
 
+            plotted_any = True
+            show_label = label
+            if panel["key"] == "rmssd":
+                show_label = "_nolegend_"
+
+            ax.plot(
+                t_bin_h[okb],
+                y_bin[okb],
+                linewidth=1.3,
+                label=show_label,
+                color=color,
+                zorder=2,
+            )
+            ax.errorbar(
+                t_bin_h[okb],
+                y_bin[okb],
+                yerr=y_ci[okb],
+                fmt="none",
+                elinewidth=0.9,
+                capsize=2,
+                alpha=0.45,
+                color=color,
+                zorder=2,
+            )
+
+            if panel["kind"] == "single":
                 _add_mean_median_lines(ax, y_bin[okb])
 
         ax.relim()
@@ -840,19 +947,26 @@ def _build_stagegram_and_hrv_tv_figure(
             start_sec=start_sec,
             end_sec=end_sec,
             event_spec=DEFAULT_EVENT_PLOT_SPEC,
+            show_legend_labels=show_event_legend,
         )
 
         ax.set_xlim(start_h, end_h)
-        if key in {"lf", "hf"}:
-            ax.set_ylabel(f"{ylabel} (log₁₀)")
-        else:
-            ax.set_ylabel(ylabel)
-        if key in {"lf", "hf"}:
+        ax.set_ylabel(panel["ylabel"])
+        if panel.get("yscale") == "log":
             ax.set_yscale("log")
         ax.grid(True, alpha=0.75)
 
-    if data_axes:
-        _maybe_add_legend(data_axes[0], loc="lower right", fontsize=5)
+        if show_event_legend and rmssd_legend_ax is None:
+            rmssd_legend_ax = ax
+        if legend_ax is None and panel["key"] == "lf_hf_power" and plotted_any:
+            legend_ax = ax
+
+    if rmssd_legend_ax is not None:
+        _maybe_add_legend(rmssd_legend_ax, loc="lower right", fontsize=5)
+    if legend_ax is not None:
+        _maybe_add_legend(legend_ax, loc="lower right", fontsize=6)
+        data_axes[-1].set_xlabel("Time (hours from recording start)")
+    elif data_axes:
         data_axes[-1].set_xlabel("Time (hours from recording start)")
 
     fig.tight_layout(rect=(0.04, 0.05, 0.98, 0.93))
