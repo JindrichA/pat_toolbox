@@ -171,7 +171,12 @@ def _plot_sleep_stagegram_on_ax(
     t0 = float(t[0])
     t = t - t0
 
-    y_map = {0: 3, 3: 2, 1: 1, 2: 0}
+    y_map = {
+        3: 3,  # REM (top)
+        0: 2,  # Wake
+        1: 1,  # NREM-Light
+        2: 0,  # NREM-Deep (bottom)
+    }
     y = np.array([y_map.get(int(x), np.nan) for x in s], dtype=float)
     oky = np.isfinite(y)
     if not np.any(oky):
@@ -206,17 +211,52 @@ def _plot_sleep_stagegram_on_ax(
         edges[-1] = xh[-1] + step_h
 
     bands = [
-        (3, "Wake", 0.08),
-        (2, "REM", 0.06),
-        (1, "NREM (Light)", 0.05),
-        (0, "NREM (Deep)", 0.05),
+        (3, "REM", 0.08),
+        (2, "Wake", 0.06),
+        (1, "NREM-Light", 0.05),
+        (0, "NREM-Deep", 0.05),
     ]
     for y0, _name, alpha in bands:
         ax.axhspan(y0 - 0.5, y0 + 0.5, alpha=alpha, zorder=0)
 
     x_step = edges
     y_step = np.r_[y, y[-1]]
-    ax.step(x_step, y_step, where="post", linewidth=3.0, zorder=3)
+
+    stage_colors = {
+        3: "#d62728",  # REM (red)
+        0: "#ff7f0e",  # Wake (orange)
+        1: "#1f77b4",  # Light (blue)
+        2: "#e377c2",  # Deep (pink)
+    }
+
+    for i in range(len(y)):
+        x0 = edges[i]
+        x1 = edges[i + 1]
+        yi = y[i]
+        si = s[i]
+
+        color = stage_colors.get(si, "black")
+
+        # horizontal segment
+        ax.hlines(
+            yi,
+            x0,
+            x1,
+            colors=color,
+            linewidth=4.0,
+            zorder=3,
+        )
+
+        # vertical transition (except last)
+        if i < len(y) - 1:
+            ax.vlines(
+                x1,
+                yi,
+                y[i + 1],
+                colors="black",
+                linewidth=2.0,
+                zorder=3,
+            )
 
     if enabled and included.size == xh.size:
         exc = ~included
@@ -235,7 +275,7 @@ def _plot_sleep_stagegram_on_ax(
                     ax.axvspan(x0, x1, color="k", alpha=0.06, zorder=1)
 
     ax.set_yticks([3, 2, 1, 0])
-    ax.set_yticklabels(["Wake", "REM", "NREM-Light", "NREM-Deep"])
+    ax.set_yticklabels(["REM", "Wake", "Light Sleep", "Deep Sleep"])
 
     ax.set_ylim(-0.7, 3.7)
     ax.set_xlim(0.0, edges[-1])
@@ -602,7 +642,7 @@ def _build_stagegram_and_hrv_tv_figure(
         ax_stage.text(
             0.5,
             0.5,
-            "Sleep stagegram unavailable",
+            "Sleep hypnogram unavailable",
             ha="center",
             va="center",
             transform=ax_stage.transAxes,
