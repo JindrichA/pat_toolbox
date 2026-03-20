@@ -41,12 +41,14 @@ ENABLE_SLEEP_STAGE_MASKING = True
 # Sleep stage filtering policy
 # Options:
 #   "all_sleep"       - Include all sleep stages (1,2,3)
+#   "all_sleep_incluidng_wake"       - Include all  stages (1,2,3,4)
 #   "rem_only"        - Include only REM (3)
 #   "nrem_only"       - Include only non-REM (1,2)
 #   "deep_only"       - Include only deep sleep (2)
 #   "nrem_light_only" - Include only NREM light (1)
 #   "custom"          - Use SLEEP_INCLUDE_LABELS / SLEEP_INCLUDE_NUMERIC
-SLEEP_STAGE_POLICY = "all_sleep"
+
+SLEEP_STAGE_POLICY = "all_sleep_incluidng_wake"
 
 
 # Used only when SLEEP_STAGE_POLICY == "custom"
@@ -168,7 +170,7 @@ HR_RR_MIN_GOOD_RUN = 3
 HRV_TARGET_FS_HZ = 1.0
 HRV_WINDOW_SEC = 300.0
 
-HRV_MIN_INTERVALS_PER_WINDOW = 10      # strongly recommended for PAT
+HRV_MIN_INTERVALS_PER_WINDOW = 6      # strongly recommended for PAT
 # RMSSD(t) smoothing (only applied when no NaNs in series; see implementation)
 HRV_SMOOTHING_WINDOW_SEC = 5.0
 
@@ -177,8 +179,8 @@ HRV_HAMPEL_WINDOW_SEC = 30.0
 HRV_HAMPEL_SIGMA = 3.0
 
 # Gap handling for RMSSD windows
-HRV_MAX_RR_GAP_SEC = 4.0              # reject windows spanning gaps > this
-HRV_RMSSD_MIN_SPAN_SEC = 10.0         # reject windows with tiny coverage clusters
+HRV_MAX_RR_GAP_SEC = 8.0              # reject windows spanning gaps > this
+HRV_RMSSD_MIN_SPAN_SEC = 5.0         # reject windows with tiny coverage clusters
 
 # Frequency-domain (LF/HF)
 HRV_TACHO_RESAMPLE_HZ = 4.0
@@ -202,7 +204,7 @@ HRV_RMSSD_BIGDIFF_MAX_FRAC = 0.35
 # Time-varying (TV) HRV metrics (for plotting SDNN/LF/HF/LFHF series)
 # =============================================================================
 
-HRV_TV_WINDOW_SEC = 120.0             # 5 min window
+HRV_TV_WINDOW_SEC = 300.0             # 5 min window
 HRV_TV_STEP_HZ = 1.0                  # evaluate on 1 Hz grid
 
 HRV_TV_TACHO_RESAMPLE_HZ = 4.0
@@ -286,12 +288,12 @@ PSD_RESP_BAND = (0.15, 0.23)
 # RMSSD cleaning / robustness
 # =============================================================================
 
-HRV_RMSSD_DIFF_HARD_CAP_MS = 250.0
-HRV_RMSSD_DIFF_MAD_SIGMAS = 3.0
+HRV_RMSSD_DIFF_HARD_CAP_MS = 400.0
+HRV_RMSSD_DIFF_MAD_SIGMAS = 4.0
 HRV_RMSSD_MIN_DIFFS = 3
 
 HRV_RMSSD_FLOOR_MS = 2.0
-HRV_MIN_WINDOW_COVERAGE = 0.4
+HRV_MIN_WINDOW_COVERAGE = 0.2
 
 # =============================================================================
 # Sleep stage handling / masking
@@ -345,6 +347,10 @@ def sleep_include_numeric() -> set[int]:
 
     if s == "all_sleep":
         return {1, 2, 3}
+
+    if s == "all_sleep_incluidng_wake":
+        return {0, 1, 2, 3}
+
     if s == "rem_only":
         return {3}
     if s == "nrem_only":
