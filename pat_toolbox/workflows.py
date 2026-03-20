@@ -172,29 +172,6 @@ def _compute_hrv(ctx: RecordingContext) -> None:
             tv_window_sec=getattr(config, "HRV_TV_WINDOW_SEC"),
         )
 
-        m_sleep = sleep_mask.build_sleep_include_mask(ctx.t_hrv, ctx.aux_df)
-        m_excl = io_aux_csv.build_time_exclusion_mask(ctx.t_hrv, ctx.aux_df)
-
-        if m_excl is not None:
-            sleep_mask.apply_sleep_mask_inplace(ctx.hrv_rmssd_clean, m_excl)
-            if isinstance(ctx.hrv_tv, dict):
-                for k, v in list(ctx.hrv_tv.items()):
-                    if v is None:
-                        continue
-                    vv = np.asarray(v)
-                    if vv.size == m_excl.size:
-                        ctx.hrv_tv[k] = sleep_mask.apply_sleep_mask_inplace(vv, m_excl)
-
-        if m_sleep is not None:
-            sleep_mask.apply_sleep_mask_inplace(ctx.hrv_rmssd_clean, m_sleep)
-            if isinstance(ctx.hrv_tv, dict):
-                for k, v in list(ctx.hrv_tv.items()):
-                    if v is None:
-                        continue
-                    vv = np.asarray(v)
-                    if vv.size == m_sleep.size:
-                        ctx.hrv_tv[k] = sleep_mask.apply_sleep_mask_inplace(vv, m_sleep)
-
         if ctx.hrv_summary is not None:
             s = ctx.hrv_summary
             nseg = s.get("lf_n_segments_used", None)

@@ -343,89 +343,50 @@ def get_rr_exclusion_mask(
     aux_df: pd.DataFrame,
 ) -> np.ndarray:
     rr_mid_times_sec = np.asarray(rr_mid_times_sec, dtype=float)
-    keep = np.ones_like(rr_mid_times_sec, dtype=bool)
+    keep = build_time_exclusion_mask(rr_mid_times_sec, aux_df)
+    if keep is None:
+        return np.ones_like(rr_mid_times_sec, dtype=bool)
 
-    if aux_df is None or len(aux_df) == 0 or rr_mid_times_sec.size == 0:
-        return keep
-
-    time_col = getattr(config, "AUX_CSV_TIME_SEC_COLUMN", "time_sec")
-
-    # ----------------------------
-    # 1) Event-based exclusion (always applies)
-    # ----------------------------
-    event_cols = getattr(config, "HRV_EXCLUSION_EVENT_COLUMNS", []) or []
-    pre = float(getattr(config, "HRV_EXCLUSION_PRE_SEC", 0.0))
-    post = float(getattr(config, "HRV_EXCLUSION_POST_SEC", 0.0))
-
-    event_times_list = []
-    for col in event_cols:
-        if col in aux_df.columns:
-            t = get_event_times(aux_df, col, time_col=time_col)
-            if t.size > 0:
-                event_times_list.append(t)
-
-    event_times = np.unique(np.concatenate(event_times_list)) if event_times_list else np.array([], dtype=float)
-
-    # Apply event exclusion windows
-    for t in event_times:
-        keep[(rr_mid_times_sec >= t - pre) & (rr_mid_times_sec <= t + post)] = False
-
-    # ----------------------------
-    # 2) Desat windows, but ONLY if there is an event near/inside them
-    # ----------------------------
     if bool(getattr(config, "HRV_EXCLUSION_USE_DESAT_WINDOWS", False)):
-        windows = desat_windows_from_aux(aux_df)
+        windows = desat_windows_from_aux(aux_df) if aux_df is not None and len(aux_df) > 0 else []
+        time_col = getattr(config, "AUX_CSV_TIME_SEC_COLUMN", "time_sec")
+        event_cols = getattr(config, "HRV_EXCLUSION_EVENT_COLUMNS", []) or []
+
+        event_times_list = []
+        if aux_df is not None and len(aux_df) > 0:
+            for col in event_cols:
+                if col in aux_df.columns:
+                    t = get_event_times(aux_df, col, time_col=time_col)
+                    if t.size > 0:
+                        event_times_list.append(t)
+
+        event_times = np.unique(np.concatenate(event_times_list)) if event_times_list else np.array([], dtype=float)
+        n_exc = int(np.sum(~keep))
 
         if windows and event_times.size > 0:
             lookback = float(getattr(config, "HRV_EXCLUSION_DESAT_LOOKBACK_SEC", 120.0))
             lookahead = float(getattr(config, "HRV_EXCLUSION_DESAT_LOOKAHEAD_SEC", 120.0))
-
-            # Keep only desat windows that have at least one event within [start-lookback, end+lookahead]
-            gated = []
             event_times_sorted = np.sort(event_times)
 
+            n_gated = 0
             for a, b in windows:
-                a = float(a); b = float(b)
+                a = float(a)
+                b = float(b)
                 if not (np.isfinite(a) and np.isfinite(b) and b > a):
                     continue
 
                 A = a - lookback
                 B = b + lookahead
-
-                # fast check: any event in [A, B]?
                 i0 = np.searchsorted(event_times_sorted, A, side="left")
                 i1 = np.searchsorted(event_times_sorted, B, side="right")
                 if i1 > i0:
-                    gated.append((a, b))
+                    n_gated += 1
 
-            # Apply ONLY gated desat windows
-            if gated:
-                gated = sorted(gated)
-                starts = np.array([x for x, _ in gated], dtype=float)
-                ends = np.array([y for _, y in gated], dtype=float)
-
-                idx = np.searchsorted(starts, rr_mid_times_sec, side="right") - 1
-                valid = idx >= 0
-                in_win = np.zeros_like(keep)
-                in_win[valid] = rr_mid_times_sec[valid] < ends[idx[valid]]
-                keep[in_win] = False
-
-                # optional debug
-                n_exc = int(np.sum(~keep))
-                print(
-                    f"  HRV RR exclusion (EVENT+DESAT gated): excluded {n_exc}/{keep.size} RR "
-                    f"({100*n_exc/max(1, keep.size):.1f}%) | gated_desat_windows={len(gated)}/{len(windows)}"
-                )
-            else:
-                n_exc = int(np.sum(~keep))
-                print(
-                    f"  HRV RR exclusion (EVENT+DESAT gated): excluded {n_exc}/{keep.size} RR "
-                    f"({100*n_exc/max(1, keep.size):.1f}%) | gated_desat_windows=0/{len(windows)}"
-                )
-
+            print(
+                f"  HRV RR exclusion (EVENT+DESAT gated): excluded {n_exc}/{keep.size} RR "
+                f"({100*n_exc/max(1, keep.size):.1f}%) | gated_desat_windows={n_gated}/{len(windows)}"
+            )
         else:
-            # If there are no events at all, desats do NOT exclude anything (your requested behavior)
-            n_exc = int(np.sum(~keep))
             print(
                 f"  HRV RR exclusion (EVENT+DESAT gated): excluded {n_exc}/{keep.size} RR "
                 f"({100*n_exc/max(1, keep.size):.1f}%) | (no events -> desats ignored)"

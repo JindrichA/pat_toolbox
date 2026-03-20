@@ -34,7 +34,6 @@ def _bin_series_mean_ci(
     if min_count is None:
         min_count = int(getattr(config, "HRV_PLOT_BIN_MIN_COUNT", 3))
 
-    print(bin_sec)
     t_sec = np.asarray(t_sec, dtype=float)
     y = np.asarray(y, dtype=float)
 
