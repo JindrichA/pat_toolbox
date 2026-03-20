@@ -931,6 +931,7 @@ def _add_segment_pages_to_pdf(
         else:
             ax_hr.set_xlabel("Time (hours from recording start)")
 
-        fig.tight_layout()
+        fig.tight_layout(rect=(0.04, 0.05, 0.88, 0.98))
+        fig.subplots_adjust(hspace=0.22)
         pdf.savefig(fig)
         plt.close(fig)

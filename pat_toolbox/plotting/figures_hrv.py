@@ -94,9 +94,6 @@ def _bin_series_mean_ci(
 def _add_mean_median_lines(
     ax: plt.Axes,
     y: np.ndarray,
-    *,
-    mean_label: str = "Mean",
-    median_label: str = "Median",
 ) -> None:
     """
     Add dashed horizontal lines for mean and median of finite values in y.
@@ -118,7 +115,7 @@ def _add_mean_median_lines(
         linewidth=1.6,
         color="black",
         alpha=0.9,
-        label=f"Mean: {y_mean:.2f}",
+        label="_nolegend_",
         zorder=1,
     )
 
@@ -128,7 +125,7 @@ def _add_mean_median_lines(
         linewidth=1.6,
         color="black",
         alpha=0.9,
-        label=f"Median: {y_median:.2f}",
+        label="_nolegend_",
         zorder=1,
     )
 
@@ -431,7 +428,11 @@ def _build_hrv_overview_figure(
     if n_panels == 1:
         axes = [axes]
 
-    fig.suptitle(f"{edf_base} - HRV overview ({overview_hours:.1f} h panels)", fontsize=12)
+    fig.suptitle(
+        f"{edf_base} - HRV Overview",
+        fontsize=11,
+        y=0.985,
+    )
 
     time_col = getattr(config, "AUX_CSV_TIME_SEC_COLUMN", "time_sec") if aux_df is not None else None
     use_raw = hrv_raw is not None and np.size(hrv_raw) == np.size(hrv_clean)
@@ -443,7 +444,17 @@ def _build_hrv_overview_figure(
         start_h = start_sec / 3600.0
         end_h = end_sec / 3600.0
 
-        ax.set_title(f"{start_h:.2f}–{end_h:.2f} h", fontsize=9, loc="left")
+        ax.text(
+            0.01,
+            0.98,
+            f"{start_h:.2f}-{end_h:.2f} h",
+            transform=ax.transAxes,
+            ha="left",
+            va="top",
+            fontsize=8,
+            bbox=dict(boxstyle="round", facecolor="white", alpha=0.75, edgecolor="none", pad=0.2),
+            zorder=5,
+        )
         ax.set_xlim(start_h, end_h)
 
         _add_exclusion_spans(ax, exclusion_zones, start_h, end_h, label_once=True)
@@ -555,9 +566,10 @@ def _build_hrv_overview_figure(
         if p == n_panels - 1:
             ax.set_xlabel("Time (hours from recording start)")
         if p == 0:
-            _maybe_add_legend(ax, loc="upper right", fontsize=4)
+            _maybe_add_legend(ax, loc="lower right", fontsize=5)
 
-    fig.tight_layout(rect=[0.04, 0.05, 0.98, 0.95])
+    fig.tight_layout(rect=(0.04, 0.05, 0.98, 0.94))
+    fig.subplots_adjust(hspace=0.22)
     return fig
 
 
@@ -601,7 +613,7 @@ def _build_hrv_tv_metrics_figure(
     else:
         title = f"{edf_base} - HRV TV metrics (sliding window)"
 
-    fig.suptitle(title, fontsize=12)
+    fig.suptitle(title.replace("HRV TV metrics", "HRV TV"), fontsize=11, y=0.985)
 
     t_h = t_hrv / 3600.0
     start_h = float(t_h[0])
@@ -662,7 +674,7 @@ def _build_hrv_tv_metrics_figure(
         )
 
         if key in {"lf", "hf"}:
-            ax.set_ylabel(f"{ylabel} (log₁₀ scale)")
+            ax.set_ylabel(f"{ylabel} (log₁₀)")
         else:
             ax.set_ylabel(ylabel)
         if key in {"lf", "hf"}:
@@ -671,10 +683,11 @@ def _build_hrv_tv_metrics_figure(
         ax.grid(True)
 
         if ax is axes[0]:
-            _maybe_add_legend(ax, loc="upper right", fontsize=4)
+            _maybe_add_legend(ax, loc="lower right", fontsize=5)
 
     axes[-1].set_xlabel("Time (hours from recording start)")
-    fig.tight_layout(rect=[0.04, 0.05, 0.98, 0.95])
+    fig.tight_layout(rect=(0.04, 0.05, 0.98, 0.94))
+    fig.subplots_adjust(hspace=0.22)
     return fig
 
 
@@ -760,14 +773,15 @@ def _build_stagegram_and_hrv_tv_figure(
     tv_win = getattr(config, "HRV_TV_WINDOW_SEC", None)
     if tv_win is not None and tv_win > 0:
         fig.suptitle(
-            f"{edf_base} - Sleep hypnogram + overnight RMSSD + HRV TV metrics "
-            f"(sliding {tv_win/60.0:.1f} min window)",
-            fontsize=12,
+            f"{edf_base} - Hypnogram + HRV ({tv_win/60.0:.1f} min window)",
+            fontsize=11,
+            y=0.985,
         )
     else:
         fig.suptitle(
-            f"{edf_base} - Sleep hypnogram + overnight RMSSD + HRV TV metrics",
-            fontsize=12,
+            f"{edf_base} - Hypnogram + HRV",
+            fontsize=11,
+            y=0.985,
         )
 
     t_h = t_hrv / 3600.0
@@ -801,7 +815,7 @@ def _build_stagegram_and_hrv_tv_figure(
                     t_bin_h[okb],
                     y_bin[okb],
                     linewidth=1.0,
-                    label=label,
+                    label="_nolegend_" if key == "rmssd" else label,
                     zorder=2,
                 )
                 ax.errorbar(
@@ -830,7 +844,7 @@ def _build_stagegram_and_hrv_tv_figure(
 
         ax.set_xlim(start_h, end_h)
         if key in {"lf", "hf"}:
-            ax.set_ylabel(f"{ylabel} (log₁₀ scale)")
+            ax.set_ylabel(f"{ylabel} (log₁₀)")
         else:
             ax.set_ylabel(ylabel)
         if key in {"lf", "hf"}:
@@ -838,9 +852,9 @@ def _build_stagegram_and_hrv_tv_figure(
         ax.grid(True, alpha=0.75)
 
     if data_axes:
-        _maybe_add_legend(data_axes[0], loc="upper right", fontsize=4)
+        _maybe_add_legend(data_axes[0], loc="lower right", fontsize=5)
         data_axes[-1].set_xlabel("Time (hours from recording start)")
 
-    fig.tight_layout(rect=[0.04, 0.05, 0.98, 0.95])
-    fig.subplots_adjust(hspace=0.15)
+    fig.tight_layout(rect=(0.04, 0.05, 0.98, 0.93))
+    fig.subplots_adjust(hspace=0.22)
     return fig
