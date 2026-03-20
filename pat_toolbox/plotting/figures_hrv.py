@@ -13,6 +13,85 @@ if TYPE_CHECKING:
     import pandas as pd
 
 
+def _bin_series_mean_ci(
+    t_sec: np.ndarray,
+    y: np.ndarray,
+    *,
+    bin_sec: Optional[float] = None,
+    min_count: Optional[int] = None,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Bin a time series into fixed-width bins and return:
+      - bin centers in hours
+      - mean per bin
+      - 95% CI half-width per bin
+
+    NaNs are ignored. Bins with fewer than min_count values are returned as NaN.
+    """
+
+    if bin_sec is None:
+        bin_sec = float(getattr(config, "HRV_PLOT_BIN_SEC", 5.0 * 60.0))
+    if min_count is None:
+        min_count = int(getattr(config, "HRV_PLOT_BIN_MIN_COUNT", 3))
+
+    print(bin_sec)
+    t_sec = np.asarray(t_sec, dtype=float)
+    y = np.asarray(y, dtype=float)
+
+    ok = np.isfinite(t_sec) & np.isfinite(y)
+    if not np.any(ok):
+        return (
+            np.array([], dtype=float),
+            np.array([], dtype=float),
+            np.array([], dtype=float),
+        )
+
+    t_sec = t_sec[ok]
+    y = y[ok]
+
+    order = np.argsort(t_sec)
+    t_sec = t_sec[order]
+    y = y[order]
+
+    start_sec = 0.0
+    end_sec = float(t_sec[-1])
+
+    edges = np.arange(start_sec, end_sec + bin_sec, bin_sec, dtype=float)
+    if edges.size < 2:
+        edges = np.array([start_sec, start_sec + bin_sec], dtype=float)
+
+    centers_h = 0.5 * (edges[:-1] + edges[1:]) / 3600.0
+    means = np.full(edges.size - 1, np.nan, dtype=float)
+    ci95 = np.full(edges.size - 1, np.nan, dtype=float)
+
+    for i in range(edges.size - 1):
+        if i == edges.size - 2:
+            m = (t_sec >= edges[i]) & (t_sec <= edges[i + 1])
+        else:
+            m = (t_sec >= edges[i]) & (t_sec < edges[i + 1])
+
+        vals = y[m]
+        vals = vals[np.isfinite(vals)]
+
+        n = vals.size
+        if n < min_count:
+            continue
+
+        mu = float(np.mean(vals))
+        if n > 1:
+            se = float(np.std(vals, ddof=1) / np.sqrt(n))
+            ci = 1.96 * se
+        else:
+            ci = 0.0
+
+        means[i] = mu
+        ci95[i] = ci
+
+    return centers_h, means, ci95
+
+
+
+
 def _add_mean_median_lines(
     ax: plt.Axes,
     y: np.ndarray,
@@ -477,7 +556,7 @@ def _build_hrv_overview_figure(
         if p == n_panels - 1:
             ax.set_xlabel("Time (hours from recording start)")
         if p == 0:
-            _maybe_add_legend(ax, loc="upper right", fontsize=8)
+            _maybe_add_legend(ax, loc="upper right", fontsize=4)
 
     fig.tight_layout(rect=[0.04, 0.05, 0.98, 0.95])
     return fig
@@ -542,10 +621,35 @@ def _build_hrv_tv_metrics_figure(
             y_plot = np.clip(y, None, p)
 
             # Keep NaNs as masked values so gaps are NOT connected
-            y_masked = np.ma.masked_invalid(y_plot)
-            ax.plot(t_h, y_masked, linewidth=1.2, label=key)
+            t_bin_h, y_bin, y_ci = _bin_series_mean_ci(
+                t_hrv,
+                y_plot,
+                bin_sec=float(getattr(config, "HRV_PLOT_BIN_SEC", 15.0 * 60.0)),
+            )
 
-            _add_mean_median_lines(ax, y)
+            okb = np.isfinite(y_bin)
+            if np.any(okb):
+                ax.plot(
+                    t_bin_h[okb],
+                    y_bin[okb],
+                    linewidth=1.0,
+                    label=key,
+                    zorder=2,
+                )
+                ax.errorbar(
+                    t_bin_h[okb],
+                    y_bin[okb],
+                    yerr=y_ci[okb],
+                    fmt="none",
+                    elinewidth=1.0,
+                    capsize=2,
+                    alpha=0.6,
+                    zorder=2,
+                )
+
+                _add_mean_median_lines(ax, y_bin[okb])
+
+
 
         ax.relim()
         ax.autoscale_view()
@@ -558,14 +662,17 @@ def _build_hrv_tv_metrics_figure(
             event_spec=DEFAULT_EVENT_PLOT_SPEC,
         )
 
-        ax.set_ylabel(ylabel)
+        if key in {"lf", "hf"}:
+            ax.set_ylabel(f"{ylabel} (log₁₀ scale)")
+        else:
+            ax.set_ylabel(ylabel)
         if key in {"lf", "hf"}:
             ax.set_yscale("log")
 
         ax.grid(True)
 
         if ax is axes[0]:
-            _maybe_add_legend(ax, loc="upper right", fontsize=8)
+            _maybe_add_legend(ax, loc="upper right", fontsize=4)
 
     axes[-1].set_xlabel("Time (hours from recording start)")
     fig.tight_layout(rect=[0.04, 0.05, 0.98, 0.95])
@@ -654,13 +761,13 @@ def _build_stagegram_and_hrv_tv_figure(
     tv_win = getattr(config, "HRV_TV_WINDOW_SEC", None)
     if tv_win is not None and tv_win > 0:
         fig.suptitle(
-            f"{edf_base} - Sleep stagegram + overnight RMSSD + HRV TV metrics "
+            f"{edf_base} - Sleep hypnogram + overnight RMSSD + HRV TV metrics "
             f"(sliding {tv_win/60.0:.1f} min window)",
             fontsize=12,
         )
     else:
         fig.suptitle(
-            f"{edf_base} - Sleep stagegram + overnight RMSSD + HRV TV metrics",
+            f"{edf_base} - Sleep hypnogram + overnight RMSSD + HRV TV metrics",
             fontsize=12,
         )
 
@@ -680,15 +787,36 @@ def _build_stagegram_and_hrv_tv_figure(
         if np.any(ok):
             label = "RMSSD" if key == "rmssd" else key
 
-            # Clip extreme spikes
             p = np.nanpercentile(y, 99)
             y_plot = np.clip(y, None, p)
 
-            # Keep NaNs as masked values so gaps are NOT connected
-            y_masked = np.ma.masked_invalid(y_plot)
-            ax.plot(t_h, y_masked, linewidth=1.2, label=label)
+            t_bin_h, y_bin, y_ci = _bin_series_mean_ci(
+                t_hrv,
+                y_plot,
+                bin_sec=float(getattr(config, "HRV_PLOT_BIN_SEC", 15.0 * 60.0)),
+            )
 
-            _add_mean_median_lines(ax, y)
+            okb = np.isfinite(y_bin)
+            if np.any(okb):
+                ax.plot(
+                    t_bin_h[okb],
+                    y_bin[okb],
+                    linewidth=1.0,
+                    label=label,
+                    zorder=2,
+                )
+                ax.errorbar(
+                    t_bin_h[okb],
+                    y_bin[okb],
+                    yerr=y_ci[okb],
+                    fmt="none",
+                    elinewidth=1.0,
+                    capsize=2,
+                    alpha=0.6,
+                    zorder=2,
+                )
+
+                _add_mean_median_lines(ax, y_bin[okb])
 
         ax.relim()
         ax.autoscale_view()
@@ -702,13 +830,16 @@ def _build_stagegram_and_hrv_tv_figure(
         )
 
         ax.set_xlim(start_h, end_h)
-        ax.set_ylabel(ylabel)
+        if key in {"lf", "hf"}:
+            ax.set_ylabel(f"{ylabel} (log₁₀ scale)")
+        else:
+            ax.set_ylabel(ylabel)
         if key in {"lf", "hf"}:
             ax.set_yscale("log")
         ax.grid(True, alpha=0.75)
 
     if data_axes:
-        _maybe_add_legend(data_axes[0], loc="upper right", fontsize=8)
+        _maybe_add_legend(data_axes[0], loc="upper right", fontsize=4)
         data_axes[-1].set_xlabel("Time (hours from recording start)")
 
     fig.tight_layout(rect=[0.04, 0.05, 0.98, 0.95])
