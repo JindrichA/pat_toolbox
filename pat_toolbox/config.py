@@ -215,6 +215,14 @@ HRV_TV_MAX_TACHO_GAP_SEC = 3.0        # optional separate knob; fallback uses HR
 HRV_TV_MIN_FREQ_DOMAIN_SEC = 60.0
 HRV_TV_MAX_TACHO_GAP_SEC = 6.0
 
+# Plot scaling for cross-night comparability
+# When enabled, use the same y-axis ranges across nights instead of per-night autoscaling.
+HRV_PLOT_USE_FIXED_YLIMS = False
+HRV_PLOT_RMSSD_YLIM = (0.0, 80.0)
+HRV_PLOT_SDNN_YLIM = (0.0, 150.0)
+HRV_PLOT_LFHF_POWER_YLIM = (1.0, 10000.0)
+HRV_PLOT_LFHF_RATIO_YLIM = (0.0, 10.0)
+
 
 # =============================================================================
 # Auxiliary CSV synchronized to EDF
