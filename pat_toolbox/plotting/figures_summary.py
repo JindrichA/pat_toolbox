@@ -214,6 +214,39 @@ def _sleep_stage_rows(aux_df: Optional["pd.DataFrame"]) -> List[List[str]]:
     return rows
 
 
+def _sleep_combo_rows(sleep_combo_summaries: Optional[Dict[str, Dict[str, object]]]) -> List[List[str]]:
+    rows: List[List[str]] = []
+    if not sleep_combo_summaries:
+        return rows
+
+    rows.append(["Sleep subset comparison", ""])
+    rows.append(["Subset", "Sleep h | RMSSD | SDNN | LF/HF | PSD win | Burden"])
+
+    for key in ["all_sleep", "wake_sleep", "nrem", "deep", "rem"]:
+        item = sleep_combo_summaries.get(key)
+        if not isinstance(item, dict):
+            continue
+
+        label = str(item.get("label", key))
+        sleep_hours = _fmt_num(item.get("sleep_hours"), 2)
+
+        hrv_summary = item.get("hrv_summary") if isinstance(item.get("hrv_summary"), dict) else {}
+        psd_features = item.get("psd_features") if isinstance(item.get("psd_features"), dict) else {}
+        burden = item.get("pat_burden")
+
+        value = (
+            f"{sleep_hours} h | "
+            f"{_fmt(hrv_summary.get('rmssd_mean'), 1)} ms | "
+            f"{_fmt(hrv_summary.get('sdnn'), 1)} ms | "
+            f"{_fmt(hrv_summary.get('lf_hf'), 2)} | "
+            f"{_fmt_int(psd_features.get('n_windows'))} | "
+            f"{_fmt(burden, 3)}"
+        )
+        rows.append([label, value])
+
+    return rows
+
+
 # ============================================================================
 # Rendering helper: a single clean page with a table
 # ============================================================================
@@ -282,9 +315,10 @@ def build_summary_pages(
     delta_hr_edf_evt: Optional[np.ndarray] = None,
     pat_burden: Optional[float] = None,
     pat_burden_diag: Optional[Dict[str, float]] = None,
+    sleep_combo_summaries: Optional[Dict[str, Dict[str, object]]] = None,
 ) -> List[plt.Figure]:
     """
-    Returns exactly 4 figures (pages) in a logical, readable layout.
+    Returns summary figures in a logical, readable layout.
 
     Plotting-only mode:
       - proprietary/device HR comparison is hidden
@@ -421,6 +455,17 @@ def build_summary_pages(
         scale_y=1.40,
     )
 
+    combo_rows = _sleep_combo_rows(sleep_combo_summaries)
+    fig_combo = None
+    if combo_rows:
+        fig_combo = _render_table_page(
+            "Summary (Fixed Sleep Combinations)",
+            combo_rows,
+            edf_base=edf_base,
+            font_size=12,
+            scale_y=1.35,
+        )
+
     # -------------------------
     # Page 4: Events + sleep + PAT burden
     # -------------------------
@@ -489,7 +534,11 @@ def build_summary_pages(
         scale_y=1.25,
     )
 
-    return [fig1, fig2, fig3, fig4]
+    figs = [fig1, fig2, fig3]
+    if fig_combo is not None:
+        figs.append(fig_combo)
+    figs.append(fig4)
+    return figs
 
 
 # ============================================================================

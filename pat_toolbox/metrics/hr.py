@@ -28,6 +28,7 @@ def append_hr_hrv_summary(
     psd_features: Optional[Dict[str, float]] = None,
     pat_burden: Optional[float] = None,
     pat_burden_diag: Optional[dict] = None,
+    sleep_combo_summaries: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> Path:
     """
     Append one PAT-only summary row with:
@@ -156,11 +157,14 @@ def append_hr_hrv_summary(
 
     summary_folder = paths.get_output_folder(config.HR_OUTPUT_SUBFOLDER)
 
-    sleep_stage_policy = (
-        str(getattr(config, "SLEEP_STAGE_POLICY", "unknown"))
-        .replace(" ", "_")
-        .replace("/", "-")
-    )
+    if isinstance(sleep_combo_summaries, dict) and sleep_combo_summaries:
+        sleep_stage_policy = "multi_sleep_summary"
+    else:
+        sleep_stage_policy = (
+            str(getattr(config, "SLEEP_STAGE_POLICY", "unknown"))
+            .replace(" ", "_")
+            .replace("/", "-")
+        )
     run_id = getattr(config, "RUN_ID", "default")
     summary_filename = f"HR_HRV_summary__{sleep_stage_policy}__{run_id}.csv"
     summary_path = summary_folder / summary_filename
@@ -293,6 +297,32 @@ def append_hr_hrv_summary(
     # Sleep-stage masking stats
     # ----------------------------
     row.update(_sleep_stage_stats(aux_df))
+
+    # ----------------------------
+    # Fixed sleep-combination summaries
+    # ----------------------------
+    if isinstance(sleep_combo_summaries, dict):
+        for key in ["all_sleep", "wake_sleep", "nrem", "deep", "rem"]:
+            item = sleep_combo_summaries.get(key)
+            if not isinstance(item, dict):
+                continue
+
+            prefix = f"combo_{key}"
+            row[f"{prefix}_sleep_hours"] = item.get("sleep_hours", np.nan)
+            row[f"{prefix}_pat_burden"] = item.get("pat_burden", np.nan)
+
+            hrv_item = item.get("hrv_summary") if isinstance(item.get("hrv_summary"), dict) else {}
+            for src, dst in [
+                ("rmssd_mean", "rmssd_mean_ms"),
+                ("sdnn", "sdnn_ms"),
+                ("lf_hf", "lf_hf"),
+                ("lf_n_segments_used", "lf_n_segments_used"),
+                ("lf_hf_fixed_n_windows_valid", "lf_hf_fixed_n_windows_valid"),
+            ]:
+                row[f"{prefix}_{dst}"] = hrv_item.get(src, np.nan)
+
+            psd_item = item.get("psd_features") if isinstance(item.get("psd_features"), dict) else {}
+            row[f"{prefix}_psd_valid_windows"] = psd_item.get("n_windows", np.nan)
 
     # ----------------------------
     # Write CSV (upgrade schema if needed)

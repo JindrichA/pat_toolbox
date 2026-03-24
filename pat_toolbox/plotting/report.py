@@ -22,6 +22,15 @@ if TYPE_CHECKING:
     import pandas as pd
 
 
+def _close_figure(fig) -> None:
+    if fig is None:
+        return
+    try:
+        plt.close(fig)
+    except Exception:
+        pass
+
+
 def plot_pat_and_hr_segments_to_pdf(
     signal_raw: np.ndarray,
     signal_filt: np.ndarray,
@@ -55,6 +64,7 @@ def plot_pat_and_hr_segments_to_pdf(
     hr_edf_raw: Optional[np.ndarray] = None,
     pat_burden: Optional[float] = None,
     pat_burden_diag: Optional[Dict[str, float]] = None,
+    sleep_combo_summaries: Optional[Dict[str, Dict[str, object]]] = None,
 ) -> Dict[str, float]:
     """
     Plotting-only mode:
@@ -139,6 +149,7 @@ def plot_pat_and_hr_segments_to_pdf(
         delta_hr_edf_evt=delta_hr_edf_evt_plot,
         pat_burden=pat_burden,
         pat_burden_diag=pat_burden_diag,
+        sleep_combo_summaries=sleep_combo_summaries,
     )
 
     has_tv = (
@@ -160,6 +171,7 @@ def plot_pat_and_hr_segments_to_pdf(
             hrv_rmssd=hrv_rmssd,
             hrv_tv=hrv_tv,
             exclusion_zones=exclusion_zones,
+            sleep_combo_summaries=sleep_combo_summaries,
         )
     else:
         fig_stage = _build_sleep_stagegram_figure(
@@ -186,29 +198,35 @@ def plot_pat_and_hr_segments_to_pdf(
             # ---------------------------------------------------------
             if fig_stage_tv is not None:
                 pdf.savefig(fig_stage_tv)
-                plt.close(fig_stage_tv)
+                _close_figure(fig_stage_tv)
+                fig_stage_tv = None
             elif fig_stage is not None:
                 pdf.savefig(fig_stage)
-                plt.close(fig_stage)
+                _close_figure(fig_stage)
+                fig_stage = None
 
 
 # TODO: Uncoment the blok with spectrums
             #pdf.savefig(fig_psd_zoom)
-            #plt.close(fig_psd_zoom)
+            _close_figure(fig_psd_zoom)
+            fig_psd_zoom = None
 
             #pdf.savefig(fig_psd_full)
-            #plt.close(fig_psd_full)
+            _close_figure(fig_psd_full)
+            fig_psd_full = None
 
             if fig_ov is not None:
                 pdf.savefig(fig_ov)
-                plt.close(fig_ov)
+                _close_figure(fig_ov)
+                fig_ov = None
 
             # ---------------------------------------------------------
             # 2) SUMMARY TABLES
             # ---------------------------------------------------------
             for fig in summary_pages:
                 pdf.savefig(fig)
-                plt.close(fig)
+                _close_figure(fig)
+            summary_pages = []
 
             # ---------------------------------------------------------
             # 3) SEGMENT PAGES LAST
@@ -249,5 +267,13 @@ def plot_pat_and_hr_segments_to_pdf(
             except Exception:
                 pass
         raise
+    finally:
+        _close_figure(fig_stage_tv)
+        _close_figure(fig_stage)
+        _close_figure(fig_ov)
+        _close_figure(fig_psd_zoom)
+        _close_figure(fig_psd_full)
+        for fig in summary_pages:
+            _close_figure(fig)
 
     return psd_features

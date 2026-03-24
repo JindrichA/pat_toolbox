@@ -3,14 +3,45 @@ from __future__ import annotations
 from typing import Optional, Tuple, Dict, TYPE_CHECKING, List
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 from matplotlib.ticker import MultipleLocator
 
 from .. import config
 from .specs import EventSpec, DEFAULT_EVENT_PLOT_SPEC
-from .utils import _add_exclusion_spans, _shade_masked_regions, _maybe_add_legend
+from .utils import _add_exclusion_spans, _shade_masked_regions
 
 if TYPE_CHECKING:
     import pandas as pd
+
+
+def _format_nrem_legend_label(
+    label: str,
+    metric_key: str,
+    sleep_combo_summaries: Optional[Dict[str, Dict[str, object]]],
+) -> str:
+    if not isinstance(sleep_combo_summaries, dict):
+        return label
+
+    nrem_item = sleep_combo_summaries.get("nrem")
+    if not isinstance(nrem_item, dict):
+        return label
+
+    hrv_summary = nrem_item.get("hrv_summary")
+    if not isinstance(hrv_summary, dict):
+        return label
+
+    value = hrv_summary.get(metric_key)
+    if value is None or not np.isfinite(value):
+        return label
+
+    if metric_key in {"rmssd_mean", "sdnn"}:
+        value_str = f"{float(value):.1f} ms"
+    elif metric_key in {"lf", "hf"}:
+        value_str = f"{float(value):.4f}"
+    else:
+        value_str = f"{float(value):.2f}"
+
+    return f"{label} (NREM mean: {value_str})"
 
 
 def _bin_series_mean_ci(
@@ -94,6 +125,9 @@ def _bin_series_mean_ci(
 def _add_mean_median_lines(
     ax: plt.Axes,
     y: np.ndarray,
+    *,
+    color: str = "black",
+    alpha: float = 0.9,
 ) -> None:
     """
     Add dashed horizontal lines for mean and median of finite values in y.
@@ -113,8 +147,8 @@ def _add_mean_median_lines(
         y_mean,
         linestyle="--",
         linewidth=1.6,
-        color="black",
-        alpha=0.9,
+        color=color,
+        alpha=alpha,
         label="_nolegend_",
         zorder=1,
     )
@@ -123,11 +157,46 @@ def _add_mean_median_lines(
         y_median,
         linestyle=":",
         linewidth=1.6,
-        color="black",
-        alpha=0.9,
+        color=color,
+        alpha=alpha,
         label="_nolegend_",
         zorder=1,
     )
+
+
+def _add_metric_legend(
+    ax: plt.Axes,
+    *,
+    loc: str = "lower right",
+    fontsize: int = 6,
+    include_summary_lines: bool = False,
+    summary_color: str = "black",
+) -> None:
+    handles, labels = ax.get_legend_handles_labels()
+    usable = [
+        (h, lab)
+        for h, lab in zip(handles, labels)
+        if lab and (not str(lab).startswith("_"))
+    ]
+    if include_summary_lines:
+        usable.extend(
+            [
+                (
+                    Line2D([0], [0], color=summary_color, linestyle="--", linewidth=1.6),
+                    "Dashed line = full-night mean",
+                ),
+                (
+                    Line2D([0], [0], color=summary_color, linestyle=":", linewidth=1.6),
+                    "Dotted line = full-night median",
+                ),
+            ]
+        )
+
+    if not usable:
+        return
+
+    legend_handles, legend_labels = zip(*usable)
+    ax.legend(legend_handles, legend_labels, loc=loc, fontsize=fontsize)
 
 
 def _overlay_events_on_single_axis_whole_night(
@@ -586,7 +655,7 @@ def _build_hrv_overview_figure(
         if p == n_panels - 1:
             ax.set_xlabel("Time (hours from recording start)")
         if p == 0:
-            _maybe_add_legend(ax, loc="lower right", fontsize=5)
+            _add_metric_legend(ax, loc="lower right", fontsize=5)
 
     fig.tight_layout(rect=(0.04, 0.05, 0.98, 0.94))
     fig.subplots_adjust(hspace=0.22)
@@ -713,7 +782,9 @@ def _build_hrv_tv_metrics_figure(
             )
 
             if panel["kind"] == "single":
-                _add_mean_median_lines(ax, y_bin[okb])
+                _add_mean_median_lines(ax, y_bin[okb], color=color)
+            elif panel["key"] == "lf_hf_power":
+                _add_mean_median_lines(ax, y_bin[okb], color=color)
 
         ax.relim()
         ax.autoscale_view()
@@ -737,7 +808,13 @@ def _build_hrv_tv_metrics_figure(
             legend_ax = ax
 
     if legend_ax is not None:
-        _maybe_add_legend(legend_ax, loc="lower right", fontsize=5)
+        _add_metric_legend(
+            legend_ax,
+            loc="lower right",
+            fontsize=5,
+            include_summary_lines=True,
+            summary_color=panels[0]["series"][0][2],
+        )
 
     axes[-1].set_xlabel("Time (hours from recording start)")
     fig.tight_layout(rect=(0.04, 0.05, 0.98, 0.94))
@@ -752,6 +829,7 @@ def _build_stagegram_and_hrv_tv_figure(
     hrv_rmssd: Optional[np.ndarray],
     hrv_tv: Dict[str, np.ndarray],
     exclusion_zones: List[Tuple[float, float, str]],
+    sleep_combo_summaries: Optional[Dict[str, Dict[str, object]]] = None,
 ) -> Optional[plt.Figure]:
     """
     Combined page with:
@@ -772,7 +850,11 @@ def _build_stagegram_and_hrv_tv_figure(
                 "kind": "single",
                 "key": "rmssd",
                 "ylabel": "RMSSD [ms]",
-                "series": [("RMSSD", np.asarray(hrv_rmssd, dtype=float), "tab:green")],
+                "series": [(
+                    _format_nrem_legend_label("RMSSD", "rmssd_mean", sleep_combo_summaries),
+                    np.asarray(hrv_rmssd, dtype=float),
+                    "tab:green",
+                )],
             }
         )
 
@@ -783,7 +865,11 @@ def _build_stagegram_and_hrv_tv_figure(
                 "kind": "single",
                 "key": "sdnn_ms",
                 "ylabel": "SDNN [ms]",
-                "series": [("SDNN", np.asarray(y_sdnn, dtype=float), "tab:green")],
+                "series": [(
+                    _format_nrem_legend_label("SDNN", "sdnn", sleep_combo_summaries),
+                    np.asarray(y_sdnn, dtype=float),
+                    "tab:green",
+                )],
             }
         )
 
@@ -791,9 +877,17 @@ def _build_stagegram_and_hrv_tv_figure(
     y_hf = hrv_tv.get("hf", None) if hrv_tv is not None else None
     lf_hf_series = []
     if y_lf is not None and np.size(y_lf) == np.size(t_hrv):
-        lf_hf_series.append(("LF", np.asarray(y_lf, dtype=float), "tab:orange"))
+        lf_hf_series.append((
+            _format_nrem_legend_label("LF", "lf", sleep_combo_summaries),
+            np.asarray(y_lf, dtype=float),
+            "tab:orange",
+        ))
     if y_hf is not None and np.size(y_hf) == np.size(t_hrv):
-        lf_hf_series.append(("HF", np.asarray(y_hf, dtype=float), "tab:blue"))
+        lf_hf_series.append((
+            _format_nrem_legend_label("HF", "hf", sleep_combo_summaries),
+            np.asarray(y_hf, dtype=float),
+            "tab:blue",
+        ))
     if lf_hf_series:
         panels.append(
             {
@@ -812,7 +906,11 @@ def _build_stagegram_and_hrv_tv_figure(
                 "kind": "single",
                 "key": "lf_hf",
                 "ylabel": "LF/HF [-]",
-                "series": [("LF/HF", np.asarray(y_ratio, dtype=float), "tab:purple")],
+                "series": [(
+                    _format_nrem_legend_label("LF/HF", "lf_hf", sleep_combo_summaries),
+                    np.asarray(y_ratio, dtype=float),
+                    "tab:purple",
+                )],
             }
         )
 
@@ -879,9 +977,6 @@ def _build_stagegram_and_hrv_tv_figure(
 
     ax_stage.set_xlim(start_h, end_h)
 
-    legend_ax = None
-    rmssd_legend_ax = None
-
     for ax, panel in zip(data_axes, panels):
         show_event_legend = panel["key"] == "rmssd"
         _add_exclusion_spans(
@@ -912,8 +1007,6 @@ def _build_stagegram_and_hrv_tv_figure(
 
             plotted_any = True
             show_label = label
-            if panel["key"] == "rmssd":
-                show_label = "_nolegend_"
 
             ax.plot(
                 t_bin_h[okb],
@@ -936,7 +1029,9 @@ def _build_stagegram_and_hrv_tv_figure(
             )
 
             if panel["kind"] == "single":
-                _add_mean_median_lines(ax, y_bin[okb])
+                _add_mean_median_lines(ax, y_bin[okb], color=color)
+            elif panel["key"] == "lf_hf_power":
+                _add_mean_median_lines(ax, y_bin[okb], color=color)
 
         ax.relim()
         ax.autoscale_view()
@@ -956,17 +1051,17 @@ def _build_stagegram_and_hrv_tv_figure(
             ax.set_yscale("log")
         ax.grid(True, alpha=0.75)
 
-        if show_event_legend and rmssd_legend_ax is None:
-            rmssd_legend_ax = ax
-        if legend_ax is None and panel["key"] == "lf_hf_power" and plotted_any:
-            legend_ax = ax
+        if plotted_any or show_event_legend:
+            legend_fontsize = 5 if show_event_legend else 6
+            _add_metric_legend(
+                ax,
+                loc="lower right",
+                fontsize=legend_fontsize,
+                include_summary_lines=plotted_any,
+                summary_color=panel["series"][0][2],
+            )
 
-    if rmssd_legend_ax is not None:
-        _maybe_add_legend(rmssd_legend_ax, loc="lower right", fontsize=5)
-    if legend_ax is not None:
-        _maybe_add_legend(legend_ax, loc="lower right", fontsize=6)
-        data_axes[-1].set_xlabel("Time (hours from recording start)")
-    elif data_axes:
+    if data_axes:
         data_axes[-1].set_xlabel("Time (hours from recording start)")
 
     fig.tight_layout(rect=(0.04, 0.05, 0.98, 0.93))

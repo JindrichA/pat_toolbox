@@ -44,6 +44,7 @@ def compute_pat_burden_from_pat_amp(
     t_sec: np.ndarray,
     pat_amp: np.ndarray,
     aux_df,
+    include_set: Optional[set[int]] = None,
 ) -> Tuple[float, Dict[str, Any], List[Dict[str, Any]]]:
     """
     Compute PAT burden within the *excluded* region defined by io_aux_csv.build_time_exclusion_mask
@@ -64,7 +65,12 @@ def compute_pat_burden_from_pat_amp(
         return np.nan, {"reason": "no_aux_df"}, []
 
     # --- masks on this timebase ---
-    m_sleep_keep = sleep_mask.build_sleep_include_mask_for_times(t_sec, aux_df)
+    m_sleep_keep = sleep_mask.build_sleep_include_mask_for_times(
+        t_sec,
+        aux_df,
+        include_set=include_set,
+        ignore_config=True,
+    )
     if m_sleep_keep is None:
         # treat as "all sleep allowed" if masking disabled/unavailable
         m_sleep_keep = np.ones_like(t_sec, dtype=bool)

@@ -180,6 +180,191 @@ def _compute_hrv_matched_psd(
     }
 
 
+def compute_psd_features_from_rr(
+    rr_mid: np.ndarray,
+    rr_ms: np.ndarray,
+    duration_sec: float,
+    aux_df: Optional["pd.DataFrame"],
+    *,
+    include_set: Optional[set[int]] = None,
+) -> Dict[str, float]:
+    rr_mid = np.asarray(rr_mid, dtype=float)
+    rr_ms = np.asarray(rr_ms, dtype=float)
+
+    if rr_mid.size != rr_ms.size or rr_mid.size < 1:
+        return {
+            "mayer_peak_hz": np.nan,
+            "resp_peak_hz": np.nan,
+            "pow_vlf": np.nan,
+            "pow_mayer": np.nan,
+            "pow_resp": np.nan,
+            "norm_mayer": np.nan,
+            "norm_resp": np.nan,
+            "n_windows": 0,
+            "psd_diag_reason": "no_rr",
+        }
+
+    if aux_df is not None:
+        m_sleep = sleep_mask.build_sleep_include_mask_for_times(
+            rr_mid,
+            aux_df,
+            include_set=include_set,
+            ignore_config=True,
+        )
+        if m_sleep is not None:
+            rr_mid = rr_mid[m_sleep]
+            rr_ms = rr_ms[m_sleep]
+
+    if rr_ms.size < 4:
+        return {
+            "mayer_peak_hz": np.nan,
+            "resp_peak_hz": np.nan,
+            "pow_vlf": np.nan,
+            "pow_mayer": np.nan,
+            "pow_resp": np.nan,
+            "norm_mayer": np.nan,
+            "norm_resp": np.nan,
+            "n_windows": 0,
+            "psd_diag_reason": "rr_removed_by_sleep_mask",
+        }
+
+    if aux_df is not None:
+        m_keep = io_aux_csv.get_rr_exclusion_mask(rr_mid, aux_df)
+        if m_keep is not None:
+            rr_mid = rr_mid[m_keep]
+            rr_ms = rr_ms[m_keep]
+
+    if rr_ms.size < 4:
+        return {
+            "mayer_peak_hz": np.nan,
+            "resp_peak_hz": np.nan,
+            "pow_vlf": np.nan,
+            "pow_mayer": np.nan,
+            "pow_resp": np.nan,
+            "norm_mayer": np.nan,
+            "norm_resp": np.nan,
+            "n_windows": 0,
+            "psd_diag_reason": "rr_removed_by_event_mask",
+        }
+
+    window_sec = float(getattr(config, "HRV_LFHF_FIXED_WINDOW_SEC", 300.0))
+    hop_sec = float(getattr(config, "HRV_LFHF_FIXED_HOP_SEC", window_sec))
+    max_gap_sec = float(getattr(config, "HRV_MAX_RR_GAP_SEC", 4.0))
+    min_rr = int(getattr(config, "HRV_LFHF_FIXED_MIN_RR", 0))
+    fs_resample = float(getattr(config, "HRV_TACHO_RESAMPLE_HZ", 4.0))
+
+    half = 0.5 * window_sec
+    centers = np.arange(half, max(half, float(duration_sec) - half) + 1e-9, hop_sec)
+    if centers.size == 0:
+        return {
+            "mayer_peak_hz": np.nan,
+            "resp_peak_hz": np.nan,
+            "pow_vlf": np.nan,
+            "pow_mayer": np.nan,
+            "pow_resp": np.nan,
+            "norm_mayer": np.nan,
+            "norm_resp": np.nan,
+            "n_windows": 0,
+            "psd_diag_reason": "no_windows_defined",
+        }
+
+    n = rr_mid.size
+    left = 0
+    right = 0
+    f_ref = None
+    acc = None
+    n_valid = 0
+
+    for c in centers:
+        start = c - half
+        end = c + half
+        while left < n and rr_mid[left] < start:
+            left += 1
+        if right < left:
+            right = left
+        while right < n and rr_mid[right] < end:
+            right += 1
+
+        k = right - left
+        if k < 4:
+            continue
+        if min_rr and k < int(min_rr):
+            continue
+
+        rr_win_ms = rr_ms[left:right]
+        rr_mid_win = rr_mid[left:right]
+        if rr_mid_win.size < 2:
+            continue
+        if np.any(np.diff(rr_mid_win) > float(max_gap_sec)):
+            continue
+        span = float(rr_mid_win[-1] - rr_mid_win[0])
+        if span < 0.8 * float(window_sec):
+            continue
+
+        f, pxx = _tachogram_psd_from_rr(rr_win_ms, rr_mid_win, fs_resample=fs_resample)
+        if f.size == 0:
+            continue
+        if f_ref is None:
+            f_ref = f
+            acc = np.zeros_like(pxx)
+        if f.shape != f_ref.shape:
+            continue
+        acc += pxx
+        n_valid += 1
+
+    if n_valid == 0 or f_ref is None or acc is None:
+        return {
+            "mayer_peak_hz": np.nan,
+            "resp_peak_hz": np.nan,
+            "pow_vlf": np.nan,
+            "pow_mayer": np.nan,
+            "pow_resp": np.nan,
+            "norm_mayer": np.nan,
+            "norm_resp": np.nan,
+            "n_windows": 0,
+            "psd_diag_reason": "no_valid_windows",
+        }
+
+    pxx = acc / float(n_valid)
+    pxx_db = 10.0 * np.log10(pxx + 1e-20)
+    mayer_band = getattr(config, "PSD_MAYER_BAND", (0.04, 0.15))
+    resp_band = getattr(config, "PSD_RESP_BAND", (0.15, 0.50))
+    vlf_band = (0.0033, 0.04)
+
+    def _find_peak_in_band(f_arr, p_arr_db, band, f_max_limit):
+        low, high = band
+        high = min(high, f_max_limit)
+        mask = (f_arr >= low) & (f_arr <= high)
+        if not np.any(mask):
+            return np.nan
+        f_sub = f_arr[mask]
+        p_sub = p_arr_db[mask]
+        return float(f_sub[np.argmax(p_sub)])
+
+    def _integrate_power(f_arr, p_arr_lin, band):
+        low, high = band
+        mask = (f_arr >= low) & (f_arr <= high)
+        if not np.any(mask):
+            return 0.0
+        return float(np.trapz(p_arr_lin[mask], f_arr[mask]))
+
+    pow_vlf = _integrate_power(f_ref, pxx, vlf_band)
+    pow_mayer = _integrate_power(f_ref, pxx, mayer_band)
+    pow_resp = _integrate_power(f_ref, pxx, resp_band)
+    pow_total = _integrate_power(f_ref, pxx, (0.0033, 0.5))
+    return {
+        "mayer_peak_hz": _find_peak_in_band(f_ref, pxx_db, mayer_band, 0.5),
+        "resp_peak_hz": _find_peak_in_band(f_ref, pxx_db, resp_band, 0.5),
+        "pow_vlf": pow_vlf,
+        "pow_mayer": pow_mayer,
+        "pow_resp": pow_resp,
+        "norm_mayer": (pow_mayer / pow_total * 100.0) if pow_total > 0 else np.nan,
+        "norm_resp": (pow_resp / pow_total * 100.0) if pow_total > 0 else np.nan,
+        "n_windows": int(n_valid),
+        "psd_diag_reason": "",
+    }
+
+
 # ---------------------------------------------------------------------
 # Main Feature Extraction & Plotting (keeps same output logic)
 # ---------------------------------------------------------------------

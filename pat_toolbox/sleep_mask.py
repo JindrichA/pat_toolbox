@@ -1,14 +1,31 @@
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, TYPE_CHECKING, Any
 import numpy as np
 
-try:
+if TYPE_CHECKING:
     import pandas as pd
-except Exception:  # pragma: no cover
-    pd = None
+else:  # pragma: no cover
+    pd = Any
 
 from . import config
+
+
+FIXED_SLEEP_STAGE_SETS = {
+    "all_sleep": {1, 2, 3},
+    "wake_sleep": {0, 1, 2, 3},
+    "nrem": {1, 2},
+    "deep": {2},
+    "rem": {3},
+}
+
+FIXED_SLEEP_STAGE_LABELS = {
+    "all_sleep": "All sleep",
+    "wake_sleep": "Wake+sleep",
+    "nrem": "NREM",
+    "deep": "Deep",
+    "rem": "REM only",
+}
 
 
 # -----------------------------------------------------------------------------
@@ -20,6 +37,50 @@ def _to_float_or_nan(x: str) -> float:
         return float(x)
     except Exception:
         return float("nan")
+
+
+def fixed_sleep_stage_policies() -> list[tuple[str, str, set[int]]]:
+    return [
+        (key, FIXED_SLEEP_STAGE_LABELS[key], set(FIXED_SLEEP_STAGE_SETS[key]))
+        for key in ["all_sleep", "wake_sleep", "nrem", "deep", "rem"]
+    ]
+
+
+def _resolve_include_set(include_set: Optional[set[int]] = None) -> set[int]:
+    if include_set is not None:
+        return {int(x) for x in include_set}
+    return {int(x) for x in config.sleep_include_numeric()}
+
+
+def _build_mask_from_stage_arrays(
+    t_sec: np.ndarray,
+    aux_t: np.ndarray,
+    aux_s: np.ndarray,
+    include_set: set[int],
+) -> Optional[np.ndarray]:
+    tt = np.asarray(t_sec, dtype=float)
+    if tt.size == 0:
+        return None
+
+    ok = np.isfinite(aux_t) & np.isfinite(aux_s)
+    if not np.any(ok):
+        return None
+
+    aux_t = np.asarray(aux_t[ok], dtype=float)
+    aux_s = np.round(np.asarray(aux_s[ok], dtype=float)).astype(int)
+
+    order = np.argsort(aux_t)
+    aux_t = aux_t[order]
+    aux_s = aux_s[order]
+
+    idx = np.searchsorted(aux_t, tt, side="left")
+    idx0 = np.clip(idx - 1, 0, len(aux_t) - 1)
+    idx1 = np.clip(idx, 0, len(aux_t) - 1)
+
+    d0 = np.abs(tt - aux_t[idx0])
+    d1 = np.abs(tt - aux_t[idx1])
+    pick = np.where(d1 < d0, idx1, idx0)
+    return np.isin(aux_s[pick], list(include_set))
 
 
 # -----------------------------------------------------------------------------
@@ -80,6 +141,7 @@ def ensure_stage_code_column(aux_df: "pd.DataFrame") -> "pd.DataFrame":
 def build_sleep_include_mask(
     t_sec: np.ndarray,
     aux_df: Optional["pd.DataFrame"],
+    include_set: Optional[set[int]] = None,
 ) -> Optional[np.ndarray]:
     """
     Build boolean mask on a regular time grid (typically 1 Hz).
@@ -104,41 +166,23 @@ def build_sleep_include_mask(
     if stage_col not in aux_df.columns:
         return None
 
-    tt = np.asarray(t_sec, dtype=float)
-    if tt.size == 0:
-        return None
-
     aux_t = aux_df[time_col].to_numpy(dtype=float)
     aux_s = aux_df[stage_col].to_numpy(dtype=float)
 
-    ok = np.isfinite(aux_t) & np.isfinite(aux_s)
-    if not np.any(ok):
-        return None
-
-    aux_t = aux_t[ok]
-    aux_s = aux_s[ok]
-
-    order = np.argsort(aux_t)
-    aux_t = aux_t[order]
-    aux_s = aux_s[order]
-
-    idx = np.searchsorted(aux_t, tt, side="left")
-    idx0 = np.clip(idx - 1, 0, len(aux_t) - 1)
-    idx1 = np.clip(idx, 0, len(aux_t) - 1)
-
-    d0 = np.abs(tt - aux_t[idx0])
-    d1 = np.abs(tt - aux_t[idx1])
-    pick = np.where(d1 < d0, idx1, idx0)
-
-    stage_at_t = np.round(aux_s[pick]).astype(int)
-    include_set = set(config.sleep_include_numeric())
-
-    return np.isin(stage_at_t, list(include_set))
+    return _build_mask_from_stage_arrays(
+        t_sec,
+        aux_t,
+        aux_s,
+        _resolve_include_set(include_set),
+    )
 
 
 def build_sleep_include_mask_for_times(
     t_sec: np.ndarray,
     aux_df: Optional["pd.DataFrame"],
+    include_set: Optional[set[int]] = None,
+    *,
+    ignore_config: bool = False,
 ) -> Optional[np.ndarray]:
     """
     Same as build_sleep_include_mask(), but for arbitrary times
@@ -151,7 +195,7 @@ def build_sleep_include_mask_for_times(
     if t_sec is None or np.size(t_sec) == 0:
         return None
 
-    enabled = bool(getattr(config, "ENABLE_SLEEP_STAGE_MASKING", False))
+    enabled = bool(getattr(config, "ENABLE_SLEEP_STAGE_MASKING", False)) or bool(ignore_config)
     if not enabled:
         return np.ones_like(np.asarray(t_sec), dtype=bool)
 
@@ -168,32 +212,14 @@ def build_sleep_include_mask_for_times(
     if stage_col not in aux_df.columns:
         return None
 
-    include_set = set(config.sleep_include_numeric())
-
-    t_sec = np.asarray(t_sec, dtype=float)
     t_aux = aux_df[time_col].to_numpy(dtype=float)
     s_aux = aux_df[stage_col].to_numpy(dtype=float)
-
-    ok = np.isfinite(t_aux) & np.isfinite(s_aux)
-    if not np.any(ok):
-        return None
-
-    t_aux = t_aux[ok]
-    s_aux = np.round(s_aux[ok]).astype(int)
-
-    order = np.argsort(t_aux)
-    t_aux = t_aux[order]
-    s_aux = s_aux[order]
-
-    idx = np.searchsorted(t_aux, t_sec, side="left")
-    idx0 = np.clip(idx - 1, 0, len(t_aux) - 1)
-    idx1 = np.clip(idx, 0, len(t_aux) - 1)
-
-    d0 = np.abs(t_sec - t_aux[idx0])
-    d1 = np.abs(t_sec - t_aux[idx1])
-    pick = np.where(d1 < d0, idx1, idx0)
-
-    return np.isin(s_aux[pick], list(include_set))
+    return _build_mask_from_stage_arrays(
+        t_sec,
+        t_aux,
+        s_aux,
+        _resolve_include_set(include_set),
+    )
 
 
 # -----------------------------------------------------------------------------
