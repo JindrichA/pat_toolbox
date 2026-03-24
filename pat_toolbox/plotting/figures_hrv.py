@@ -4,7 +4,9 @@ from typing import Optional, Tuple, Dict, TYPE_CHECKING, List
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
+from matplotlib.offsetbox import AnchoredOffsetbox, HPacker, TextArea, VPacker
 from matplotlib.ticker import MultipleLocator
+from matplotlib.transforms import blended_transform_factory
 
 from .. import config
 from .specs import EventSpec, DEFAULT_EVENT_PLOT_SPEC
@@ -127,7 +129,7 @@ def _add_mean_median_lines(
     y: np.ndarray,
     *,
     color: str = "black",
-    alpha: float = 0.9,
+    alpha: float = 0.5,
 ) -> None:
     """
     Add dashed horizontal lines for mean and median of finite values in y.
@@ -146,7 +148,7 @@ def _add_mean_median_lines(
     ax.axhline(
         y_mean,
         linestyle="--",
-        linewidth=1.6,
+        linewidth=1.0,
         color=color,
         alpha=alpha,
         label="_nolegend_",
@@ -156,7 +158,7 @@ def _add_mean_median_lines(
     ax.axhline(
         y_median,
         linestyle=":",
-        linewidth=1.6,
+        linewidth=1.0,
         color=color,
         alpha=alpha,
         label="_nolegend_",
@@ -199,6 +201,50 @@ def _add_metric_legend(
     ax.legend(legend_handles, legend_labels, loc=loc, fontsize=fontsize)
 
 
+def _add_colored_event_key(fig: plt.Figure) -> None:
+    textprops = {"fontsize": 7.5, "color": "black"}
+
+    line1 = HPacker(
+        children=[
+            TextArea("Event markers: ", textprops=textprops),
+            TextArea("Desaturation", textprops={**textprops, "color": "tab:blue"}),
+            TextArea(" = blue triangle | ", textprops=textprops),
+            TextArea("Central A/H 3%", textprops={**textprops, "color": "tab:red"}),
+            TextArea(" = red | ", textprops=textprops),
+            TextArea("Obstr A/H 3%", textprops={**textprops, "color": "tab:brown"}),
+            TextArea(" = brown dashed", textprops=textprops),
+        ],
+        align="center",
+        pad=0,
+        sep=0,
+    )
+    line2 = HPacker(
+        children=[
+            TextArea("Unclass A/H 3%", textprops={**textprops, "color": "tab:green"}),
+            TextArea(" = green dotted | ", textprops=textprops),
+            TextArea("HR excluded", textprops={**textprops, "color": "tab:purple"}),
+            TextArea(" = purple | ", textprops=textprops),
+            TextArea("PAT excluded", textprops={**textprops, "color": "tab:olive"}),
+            TextArea(" = olive", textprops=textprops),
+        ],
+        align="center",
+        pad=0,
+        sep=0,
+    )
+
+    packed = VPacker(children=[line1, line2], align="center", pad=0, sep=2)
+    anchored = AnchoredOffsetbox(
+        loc="upper center",
+        child=packed,
+        frameon=False,
+        bbox_to_anchor=(0.5, 0.885),
+        bbox_transform=fig.transFigure,
+        borderpad=0.0,
+        pad=0.0,
+    )
+    fig.add_artist(anchored)
+
+
 def _overlay_events_on_single_axis_whole_night(
     ax: plt.Axes,
     aux_df: Optional["pd.DataFrame"],
@@ -206,6 +252,7 @@ def _overlay_events_on_single_axis_whole_night(
     end_sec: float,
     event_spec: List[EventSpec] = DEFAULT_EVENT_PLOT_SPEC,
     show_legend_labels: bool = True,
+    event_style: str = "full",
 ) -> None:
     if aux_df is None:
         return
@@ -220,6 +267,7 @@ def _overlay_events_on_single_axis_whole_night(
 
     seg = aux_df.loc[mask]
     used = set()
+    event_row = 0
 
     for spec in event_spec:
         if spec.col not in seg.columns:
@@ -267,17 +315,37 @@ def _overlay_events_on_single_axis_whole_night(
                 line_style = ":"
 
             first_line = (show_label != "_nolegend_")
-            for x in t_evt_h:
-                ax.axvline(
-                    x,
-                    color=line_color,
-                    linestyle=line_style,
-                    linewidth=line_width,
-                    alpha=line_alpha,
-                    label=spec.label if first_line else "_nolegend_",
-                    zorder=0,
-                )
-                first_line = False
+            if event_style == "short":
+                y1 = 0.98 - 0.06 * event_row
+                y0 = max(0.72, y1 - 0.12)
+                trans = blended_transform_factory(ax.transData, ax.transAxes)
+                for x in t_evt_h:
+                    ax.plot(
+                        [x, x],
+                        [y0, y1],
+                        color=line_color,
+                        linestyle=line_style,
+                        linewidth=1.7,
+                        alpha=0.85,
+                        transform=trans,
+                        label=spec.label if first_line else "_nolegend_",
+                        zorder=4,
+                        solid_capstyle="round",
+                    )
+                    first_line = False
+                event_row += 1
+            else:
+                for x in t_evt_h:
+                    ax.axvline(
+                        x,
+                        color=line_color,
+                        linestyle=line_style,
+                        linewidth=line_width,
+                        alpha=line_alpha,
+                        label=spec.label if first_line else "_nolegend_",
+                        zorder=0,
+                    )
+                    first_line = False
 
 
 def _plot_sleep_stagegram_on_ax(
@@ -955,18 +1023,39 @@ def _build_stagegram_and_hrv_tv_figure(
         ax_stage.grid(True, axis="x", alpha=0.35)
 
     tv_win = getattr(config, "HRV_TV_WINDOW_SEC", None)
+    hrv_window_sec = float(getattr(config, "HRV_WINDOW_SEC", 300.0))
+    hrv_step_hz = float(getattr(config, "HRV_TARGET_FS_HZ", 1.0))
+    plot_bin_sec = float(getattr(config, "HRV_PLOT_BIN_SEC", 10.0 * 60.0))
     if tv_win is not None and tv_win > 0:
         fig.suptitle(
             f"{edf_base} - Hypnogram + HRV ({tv_win/60.0:.1f} min window)",
             fontsize=11,
-            y=0.985,
+            y=0.988,
         )
     else:
         fig.suptitle(
             f"{edf_base} - Hypnogram + HRV",
             fontsize=11,
-            y=0.985,
+            y=0.988,
         )
+
+    step_sec = 1.0 / hrv_step_hz if hrv_step_hz > 0 else np.nan
+    fig.text(
+        0.5,
+        0.948,
+        (
+            f"PAT-derived HRV. Sliding {hrv_window_sec/60.0:.1f} min window, "
+            f"evaluated every {step_sec:.0f} s; displayed as {plot_bin_sec/60.0:.0f} min "
+            f"binned mean +/- 95% CI.\n"
+            f"Dashed/dotted lines show displayed-series mean/median. "
+            f"Legend NREM mean is a post-hoc NREM-only reference.\n"
+            f"Top markers indicate scored events."
+        ),
+        ha="center",
+        va="top",
+        fontsize=8,
+    )
+    _add_colored_event_key(fig)
 
     t_h = t_hrv / 3600.0
     start_h = float(t_h[0])
@@ -978,13 +1067,12 @@ def _build_stagegram_and_hrv_tv_figure(
     ax_stage.set_xlim(start_h, end_h)
 
     for ax, panel in zip(data_axes, panels):
-        show_event_legend = panel["key"] == "rmssd"
         _add_exclusion_spans(
             ax,
             exclusion_zones,
             start_h,
             end_h,
-            label_once=show_event_legend,
+            label_once=False,
         )
 
         plotted_any = False
@@ -1042,7 +1130,8 @@ def _build_stagegram_and_hrv_tv_figure(
             start_sec=start_sec,
             end_sec=end_sec,
             event_spec=DEFAULT_EVENT_PLOT_SPEC,
-            show_legend_labels=show_event_legend,
+            show_legend_labels=False,
+            event_style="short",
         )
 
         ax.set_xlim(start_h, end_h)
@@ -1051,12 +1140,11 @@ def _build_stagegram_and_hrv_tv_figure(
             ax.set_yscale("log")
         ax.grid(True, alpha=0.75)
 
-        if plotted_any or show_event_legend:
-            legend_fontsize = 5 if show_event_legend else 6
+        if plotted_any:
             _add_metric_legend(
                 ax,
                 loc="lower right",
-                fontsize=legend_fontsize,
+                fontsize=6,
                 include_summary_lines=plotted_any,
                 summary_color=panel["series"][0][2],
             )
@@ -1064,6 +1152,6 @@ def _build_stagegram_and_hrv_tv_figure(
     if data_axes:
         data_axes[-1].set_xlabel("Time (hours from recording start)")
 
-    fig.tight_layout(rect=(0.04, 0.05, 0.98, 0.93))
+    fig.tight_layout(rect=(0.04, 0.05, 0.98, 0.86))
     fig.subplots_adjust(hspace=0.22)
     return fig
