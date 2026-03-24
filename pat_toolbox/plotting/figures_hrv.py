@@ -183,11 +183,11 @@ def _add_metric_legend(
             [
                 (
                     Line2D([0], [0], color=summary_color, linestyle="--", linewidth=1.6),
-                    "Dashed line = full-night mean",
+                    "Dashed line = displayed-series mean",
                 ),
                 (
                     Line2D([0], [0], color=summary_color, linestyle=":", linewidth=1.6),
-                    "Dotted line = full-night median",
+                    "Dotted line = displayed-series median",
                 ),
             ]
         )
