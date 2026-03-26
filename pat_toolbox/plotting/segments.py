@@ -776,6 +776,7 @@ def _add_segment_pages_to_pdf(
     hrv_raw: Optional[np.ndarray],
     aux_df: Optional["pd.DataFrame"],
     exclusion_zones: List[Tuple[float, float, str]],
+    event_spec: List[EventSpec],
     t_pat_amp: Optional[np.ndarray],
     pat_amp: Optional[np.ndarray],
     delta_hr_calc: Optional[np.ndarray],
@@ -927,6 +928,7 @@ def _add_segment_pages_to_pdf(
             hrv_ylim=hrv_ylim,
             amp_ylim=None,
             delta_ylim=delta_ylim,
+            event_spec=event_spec,
         )
 
         if ax_hrv is not None:

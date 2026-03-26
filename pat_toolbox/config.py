@@ -242,24 +242,27 @@ COL_NAMES: Dict[str, str] = {
     "stage": "WP Stages",
     "spo2": "SpO2",
     "desat_flag": "Desaturation",
+    "exclude_hr_flag": "Exclude HR",
     "exclude_pat_flag": "Exclude PAT",
     "evt_central_3": "A/H central-3% (Last second)",
     "evt_obstructive_3": "A/H obstructive-3% (Last second)",
     "evt_unclassified_3": "A/H unclassified-3% (Last second)",
 }
 
-# HRV event exclusion (based on canonical keys above)
+# Shared exclusion inputs used by HR/HRV/PSD/PAT burden plotting and calculations
 HRV_EXCLUSION_EVENT_COLUMNS = [
     "evt_central_3",
     "evt_obstructive_3",
     "evt_unclassified_3",
+    "exclude_hr_flag",
+    "exclude_pat_flag",
     # "desat_flag",
 ]
 
 #TODO: uncoment, just for debuging and ploting the signals.
 
-#HRV_EXCLUSION_PRE_SEC = 15.0
-#HRV_EXCLUSION_POST_SEC = 30.0
+# HRV_EXCLUSION_PRE_SEC = 15.0
+# HRV_EXCLUSION_POST_SEC = 30.0
 HRV_EXCLUSION_PRE_SEC = 0.0
 HRV_EXCLUSION_POST_SEC = 0.0
 

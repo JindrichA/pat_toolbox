@@ -5,7 +5,7 @@ from typing import Optional, Dict, Any, List, Tuple
 
 import numpy as np
 
-from .. import config, sleep_mask, io_aux_csv
+from .. import config, masking
 
 
 def _contiguous_true_runs(m: np.ndarray) -> List[Tuple[int, int]]:
@@ -64,20 +64,11 @@ def compute_pat_burden_from_pat_amp(
     if aux_df is None:
         return np.nan, {"reason": "no_aux_df"}, []
 
-    # --- masks on this timebase ---
-    m_sleep_keep = sleep_mask.build_sleep_include_mask_for_times(
-        t_sec,
-        aux_df,
-        include_set=include_set,
-        ignore_config=True,
-    )
-    if m_sleep_keep is None:
-        # treat as "all sleep allowed" if masking disabled/unavailable
-        m_sleep_keep = np.ones_like(t_sec, dtype=bool)
+    policy = masking.policy_from_config(include_stages=include_set, force_sleep=(include_set is not None))
+    bundle = masking.build_mask_bundle(t_sec, aux_df, policy=policy)
 
-    m_evt_keep = io_aux_csv.build_time_exclusion_mask(t_sec, aux_df)  # True = keep (outside excluded region)
-    if m_evt_keep is None:
-        return np.nan, {"reason": "no_event_mask"}, []
+    m_sleep_keep = np.asarray(bundle.sleep_keep, dtype=bool)
+    m_evt_keep = np.asarray(bundle.event_keep & bundle.desat_keep, dtype=bool)
 
     # "Inside event+desat region" = NOT keep
     m_inside = np.asarray(m_sleep_keep, dtype=bool) & (~np.asarray(m_evt_keep, dtype=bool))

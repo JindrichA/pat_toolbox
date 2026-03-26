@@ -7,7 +7,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.signal import welch
 
-from .. import config, paths, sleep_mask, io_aux_csv
+from .. import config, paths, masking
 from . import hr as hr_metrics
 
 if TYPE_CHECKING:
@@ -81,22 +81,17 @@ def _compute_hrv_matched_psd(
 
     rr_ms = rr_sec * 1000.0
 
-    # ---- Sleep masking on RR mid-times (same as HRV) ----
-    if aux_df is not None and bool(getattr(config, "ENABLE_SLEEP_STAGE_MASKING", False)):
-        m_sleep = sleep_mask.build_sleep_include_mask_for_times(rr_mid, aux_df)
-        if m_sleep is not None:
-            rr_mid = rr_mid[m_sleep]
-            rr_ms = rr_ms[m_sleep]
+    bundle = masking.build_rr_mask_bundle(rr_mid, aux_df)
+    rr_mid_all = rr_mid
+    rr_ms_all = rr_ms
+    rr_mid = rr_mid_all[bundle.sleep_keep]
+    rr_ms = rr_ms_all[bundle.sleep_keep]
 
     if rr_ms.size < 4:
         return np.array([]), np.array([]), 0, {"reason": "rr_removed_by_sleep_mask"}
 
-    # ---- Event exclusion on RR mid-times (same as HRV) ----
-    if aux_df is not None and rr_mid.size > 0:
-        m_keep = io_aux_csv.get_rr_exclusion_mask(rr_mid, aux_df)
-        if m_keep is not None:
-            rr_mid = rr_mid[m_keep]
-            rr_ms = rr_ms[m_keep]
+    rr_mid = rr_mid_all[bundle.combined_keep]
+    rr_ms = rr_ms_all[bundle.combined_keep]
 
     if rr_ms.size < 4:
         return np.array([]), np.array([]), 0, {"reason": "rr_removed_by_event_mask"}
@@ -204,16 +199,15 @@ def compute_psd_features_from_rr(
             "psd_diag_reason": "no_rr",
         }
 
-    if aux_df is not None:
-        m_sleep = sleep_mask.build_sleep_include_mask_for_times(
-            rr_mid,
-            aux_df,
-            include_set=include_set,
-            ignore_config=True,
-        )
-        if m_sleep is not None:
-            rr_mid = rr_mid[m_sleep]
-            rr_ms = rr_ms[m_sleep]
+    bundle = masking.build_rr_mask_bundle(
+        rr_mid,
+        aux_df,
+        policy=masking.policy_from_config(include_stages=include_set, force_sleep=(include_set is not None)),
+    )
+    rr_mid_all = rr_mid
+    rr_ms_all = rr_ms
+    rr_mid = rr_mid_all[bundle.sleep_keep]
+    rr_ms = rr_ms_all[bundle.sleep_keep]
 
     if rr_ms.size < 4:
         return {
@@ -228,11 +222,8 @@ def compute_psd_features_from_rr(
             "psd_diag_reason": "rr_removed_by_sleep_mask",
         }
 
-    if aux_df is not None:
-        m_keep = io_aux_csv.get_rr_exclusion_mask(rr_mid, aux_df)
-        if m_keep is not None:
-            rr_mid = rr_mid[m_keep]
-            rr_ms = rr_ms[m_keep]
+    rr_mid = rr_mid_all[bundle.combined_keep]
+    rr_ms = rr_ms_all[bundle.combined_keep]
 
     if rr_ms.size < 4:
         return {
@@ -399,6 +390,7 @@ def compute_psd_figures_and_peaks(
     # --- 1. Compute Spectrum using HRV-matched signal/windows ---
     f, Pxx, n_windows, diag = _compute_hrv_matched_psd(signal_raw, sfreq, aux_df)
 
+    psd_mode = "matched"
     if f.size == 0 or Pxx.size == 0 or n_windows == 0:
         # Fallback: compute PSD on whole tachogram (no fixed-window filtering)
         # so output files still exist
@@ -408,6 +400,7 @@ def compute_psd_figures_and_peaks(
         f, Pxx = _tachogram_psd_from_rr(rr_ms, rr_mid, fs_resample=fs_resample)
         n_windows = 0  # indicates fallback
         diag = {"reason": "fallback_whole_tachogram"}
+        psd_mode = "fallback"
 
     # Convert to dB for peak finding / plotting
     Pxx_dB = 10.0 * np.log10(Pxx + 1e-20)
@@ -456,6 +449,7 @@ def compute_psd_figures_and_peaks(
         "norm_mayer": norm_mayer,
         "norm_resp": norm_resp,
         "n_windows": int(n_windows),
+        "psd_mode": psd_mode,
         # optional diagnostics (won't break CSV if you ignore unknown keys)
         "psd_diag_reason": str(diag.get("reason", "")),
     }
@@ -487,7 +481,10 @@ def compute_psd_figures_and_peaks(
         ax_psd_zoom.text(resp_peak_hz, resp_peak_db, f" {resp_peak_hz:.3f}Hz",
                          fontsize=9, fontweight="bold", va="bottom")
 
-    mask_status = "HRV-matched RR PSD" if aux_df is not None else "RR PSD"
+    if psd_mode == "matched":
+        mask_status = "HRV-matched RR PSD" if aux_df is not None else "RR PSD"
+    else:
+        mask_status = "Fallback whole-tachogram PSD"
     ax_psd_zoom.set_title(
         f"{edf_base} - PSD ({mask_status}, N={n_windows} windows)\n"
         f"Mayer Pwr: {pow_mayer:.2e} ({norm_mayer:.1f}%) | Resp Pwr: {pow_resp:.2e} ({norm_resp:.1f}%)",

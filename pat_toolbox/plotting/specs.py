@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import List
 
+from .. import config, masking
+
 
 @dataclass(frozen=True)
 class EventSpec:
@@ -19,3 +21,11 @@ DEFAULT_EVENT_PLOT_SPEC: List[EventSpec] = [
     EventSpec("exclude_hr_flag", "HR excluded", "tab:purple"),
     EventSpec("exclude_pat_flag", "PAT excluded", "tab:olive"),
 ]
+
+
+def active_event_plot_spec() -> List[EventSpec]:
+    policy = masking.policy_from_config()
+    active_cols = set(policy.exclusion_columns)
+    if policy.use_desat_windows:
+        active_cols.add(str(getattr(config, "HRV_EXCLUSION_DESAT_COLUMN_KEY", "desat_flag")))
+    return [spec for spec in DEFAULT_EVENT_PLOT_SPEC if spec.col in active_cols]

@@ -342,49 +342,19 @@ def get_rr_exclusion_mask(
     rr_mid_times_sec: np.ndarray,
     aux_df: pd.DataFrame,
 ) -> np.ndarray:
+    from . import masking
+
     rr_mid_times_sec = np.asarray(rr_mid_times_sec, dtype=float)
-    keep = build_time_exclusion_mask(rr_mid_times_sec, aux_df)
-    if keep is None:
-        return np.ones_like(rr_mid_times_sec, dtype=bool)
+    bundle = masking.build_rr_mask_bundle(rr_mid_times_sec, aux_df)
+    keep = np.asarray(bundle.combined_keep, dtype=bool)
 
     if bool(getattr(config, "HRV_EXCLUSION_USE_DESAT_WINDOWS", False)):
-        windows = desat_windows_from_aux(aux_df) if aux_df is not None and len(aux_df) > 0 else []
-        time_col = getattr(config, "AUX_CSV_TIME_SEC_COLUMN", "time_sec")
-        event_cols = getattr(config, "HRV_EXCLUSION_EVENT_COLUMNS", []) or []
-
-        event_times_list = []
-        if aux_df is not None and len(aux_df) > 0:
-            for col in event_cols:
-                if col in aux_df.columns:
-                    t = get_event_times(aux_df, col, time_col=time_col)
-                    if t.size > 0:
-                        event_times_list.append(t)
-
-        event_times = np.unique(np.concatenate(event_times_list)) if event_times_list else np.array([], dtype=float)
         n_exc = int(np.sum(~keep))
-
-        if windows and event_times.size > 0:
-            lookback = float(getattr(config, "HRV_EXCLUSION_DESAT_LOOKBACK_SEC", 120.0))
-            lookahead = float(getattr(config, "HRV_EXCLUSION_DESAT_LOOKAHEAD_SEC", 120.0))
-            event_times_sorted = np.sort(event_times)
-
-            n_gated = 0
-            for a, b in windows:
-                a = float(a)
-                b = float(b)
-                if not (np.isfinite(a) and np.isfinite(b) and b > a):
-                    continue
-
-                A = a - lookback
-                B = b + lookahead
-                i0 = np.searchsorted(event_times_sorted, A, side="left")
-                i1 = np.searchsorted(event_times_sorted, B, side="right")
-                if i1 > i0:
-                    n_gated += 1
-
+        if bundle.gated_desat_windows and bundle.active_event_times_sec.size > 0:
             print(
                 f"  HRV RR exclusion (EVENT+DESAT gated): excluded {n_exc}/{keep.size} RR "
-                f"({100*n_exc/max(1, keep.size):.1f}%) | gated_desat_windows={n_gated}/{len(windows)}"
+                f"({100*n_exc/max(1, keep.size):.1f}%) | "
+                f"gated_desat_windows={len(bundle.gated_desat_windows)}"
             )
         else:
             print(
@@ -412,63 +382,10 @@ def build_time_exclusion_mask(
     if aux_df is None or len(aux_df) == 0 or t_grid_sec is None or np.size(t_grid_sec) == 0:
         return None
 
-    t = np.asarray(t_grid_sec, dtype=float)
-    keep = np.ones_like(t, dtype=bool)
+    from . import masking
 
-    time_col = getattr(config, "AUX_CSV_TIME_SEC_COLUMN", "time_sec")
-
-    # ----------------------------
-    # 1) Event-based exclusion (always applies)
-    # ----------------------------
-    event_cols = getattr(config, "HRV_EXCLUSION_EVENT_COLUMNS", []) or []
-    pre = float(getattr(config, "HRV_EXCLUSION_PRE_SEC", 0.0))
-    post = float(getattr(config, "HRV_EXCLUSION_POST_SEC", 0.0))
-
-    event_times_list = []
-    for col in event_cols:
-        if col in aux_df.columns:
-            te = get_event_times(aux_df, col, time_col=time_col)
-            if te.size > 0:
-                event_times_list.append(te)
-
-    event_times = np.unique(np.concatenate(event_times_list)) if event_times_list else np.array([], dtype=float)
-
-    # Apply event exclusion windows
-    for te in event_times:
-        keep[(t >= te - pre) & (t <= te + post)] = False
-
-    # ----------------------------
-    # 2) Desat windows (ONLY if gated by events)
-    # ----------------------------
-    if bool(getattr(config, "HRV_EXCLUSION_USE_DESAT_WINDOWS", False)):
-        windows = desat_windows_from_aux(aux_df)
-
-        # If there are NO events, desats are ignored (same as get_rr_exclusion_mask)
-        if windows and event_times.size > 0:
-            lookback = float(getattr(config, "HRV_EXCLUSION_DESAT_LOOKBACK_SEC", 120.0))
-            lookahead = float(getattr(config, "HRV_EXCLUSION_DESAT_LOOKAHEAD_SEC", 120.0))
-
-            event_times_sorted = np.sort(event_times)
-            gated: List[Tuple[float, float]] = []
-
-            for a, b in windows:
-                a = float(a); b = float(b)
-                if not (np.isfinite(a) and np.isfinite(b) and b > a):
-                    continue
-
-                A = a - lookback
-                B = b + lookahead
-
-                i0 = np.searchsorted(event_times_sorted, A, side="left")
-                i1 = np.searchsorted(event_times_sorted, B, side="right")
-                if i1 > i0:
-                    gated.append((a, b))
-
-            # Apply ONLY gated desat windows
-            for a, b in gated:
-                keep[(t >= float(a)) & (t < float(b))] = False
-
-    return keep
+    bundle = masking.build_mask_bundle(np.asarray(t_grid_sec, dtype=float), aux_df)
+    return np.asarray(bundle.event_keep & bundle.desat_keep, dtype=bool)
 
 
 def build_event_exclusion_mask(
@@ -485,19 +402,7 @@ def build_event_exclusion_mask(
     if aux_df is None or len(aux_df) == 0 or t_grid_sec is None or np.size(t_grid_sec) == 0:
         return None
 
-    t = np.asarray(t_grid_sec, dtype=float)
-    keep = np.ones_like(t, dtype=bool)
+    from . import masking
 
-    time_col = getattr(config, "AUX_CSV_TIME_SEC_COLUMN", "time_sec")
-    pre = float(getattr(config, "HRV_EXCLUSION_PRE_SEC", 0.0))
-    post = float(getattr(config, "HRV_EXCLUSION_POST_SEC", 0.0))
-
-    event_cols = getattr(config, "HRV_EXCLUSION_EVENT_COLUMNS", []) or []
-    for col in event_cols:
-        if col not in aux_df.columns:
-            continue
-        times = get_event_times(aux_df, col, time_col=time_col)
-        for te in times:
-            keep[(t >= te - pre) & (t <= te + post)] = False
-
-    return keep
+    bundle = masking.build_mask_bundle(np.asarray(t_grid_sec, dtype=float), aux_df)
+    return np.asarray(bundle.event_keep, dtype=bool)

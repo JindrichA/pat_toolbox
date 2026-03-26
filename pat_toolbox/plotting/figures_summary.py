@@ -5,7 +5,7 @@ from typing import Optional, Dict, TYPE_CHECKING, List, Tuple
 import numpy as np
 import matplotlib.pyplot as plt
 
-from .. import config
+from .. import config, masking
 from .utils import _fmt, _count_flags
 
 if TYPE_CHECKING:
@@ -409,12 +409,14 @@ def build_summary_pages(
 
     if psd_features:
         rows_p2 += [
+            ["  PSD mode", str(psd_features.get("psd_mode", "matched"))],
             ["  VLF power (0.0033–0.04 Hz)", _fmt_sci(psd_features.get("pow_vlf"))],
             ["  Mayer power (0.04–0.15 Hz)", _fmt_sci(psd_features.get("pow_mayer"))],
             ["  Resp power (0.15–0.50 Hz)", _fmt_sci(psd_features.get("pow_resp"))],
             ["  Mayer power (norm)", _fmt_pct(psd_features.get("norm_mayer"), 1)],
             ["  Resp power (norm)", _fmt_pct(psd_features.get("norm_resp"), 1)],
             ["  Valid PSD windows", _fmt_int(psd_features.get("n_windows"))],
+            ["  PSD diagnostic", str(psd_features.get("psd_diag_reason", "")) or "ok"],
         ]
 
     fig2 = _render_table_page(
@@ -472,6 +474,7 @@ def build_summary_pages(
     rows_p4: List[List[str]] = []
 
     if aux_df is not None:
+        policy = masking.policy_from_config()
         aux_total = len(aux_df)
         desat_n, desat_pct = _count_flags(aux_df, "desat_flag")
         excl_hr_n, excl_hr_pct = _count_flags(aux_df, "exclude_hr_flag")
@@ -488,6 +491,10 @@ def build_summary_pages(
         rows_p4 += [
             ["Overall event summary (aux CSV)", ""],
             ["  Samples (rows)", f"{aux_total:d}"],
+            [
+                "  Active exclusion columns",
+                ", ".join(policy.exclusion_columns) if policy.exclusion_columns else "none",
+            ],
             ["  Desaturation flags", f"{desat_n:d} ({desat_pct})"],
             ["  Exclude HR flags", f"{excl_hr_n:d} ({excl_hr_pct})"],
             ["  Exclude PAT flags", f"{excl_pat_n:d} ({excl_pat_pct})"],

@@ -9,9 +9,8 @@ import numpy as np
 import pandas as pd
 from scipy.signal import welch
 
-from .. import config, paths, io_aux_csv
+from .. import config, paths, masking
 from . import hr as hr_metrics
-from .. import sleep_mask
 
 if TYPE_CHECKING:
     from pandas import DataFrame as pd_DataFrame
@@ -540,14 +539,9 @@ def compute_hrv_from_pat_signal(
 
     rr_ms_physio_clean = rr_sec_physio_clean * 1000.0
 
-    rr_mid_sleep = rr_mid_physio_clean
-    rr_ms_sleep = rr_ms_physio_clean
-
-    if aux_df is not None and bool(getattr(config, "ENABLE_SLEEP_STAGE_MASKING", False)):
-        m_sleep = sleep_mask.build_sleep_include_mask_for_times(rr_mid_sleep, aux_df)
-        if m_sleep is not None:
-            rr_mid_sleep = rr_mid_sleep[m_sleep]
-            rr_ms_sleep = rr_ms_sleep[m_sleep]
+    bundle = masking.build_rr_mask_bundle(rr_mid_physio_clean, aux_df)
+    rr_mid_sleep = rr_mid_physio_clean[bundle.sleep_keep]
+    rr_ms_sleep = rr_ms_physio_clean[bundle.sleep_keep]
 
     rmssd_1hz_raw, _rmssd_windows_list_raw = _calculate_rmssd_series(
         t_hrv,
@@ -562,17 +556,12 @@ def compute_hrv_from_pat_signal(
         nan_array = np.full_like(t_hrv, fill_value=np.nan, dtype=float)
         return t_hrv, rmssd_1hz_raw, nan_array, None
 
-    rr_mid_for_calc = rr_mid_sleep
-    rr_ms_for_calc = rr_ms_sleep
+    rr_mid_for_calc = rr_mid_physio_clean[bundle.combined_keep]
+    rr_ms_for_calc = rr_ms_physio_clean[bundle.combined_keep]
 
-    if aux_df is not None and rr_mid_for_calc.size > 0:
-        keep_mask = io_aux_csv.get_rr_exclusion_mask(rr_mid_for_calc, aux_df)
-        rr_mid_for_calc = rr_mid_for_calc[keep_mask]
-        rr_ms_for_calc = rr_ms_for_calc[keep_mask]
-
-        if rr_ms_for_calc.size < 1:
-            nan_array = np.full_like(t_hrv, fill_value=np.nan, dtype=float)
-            return t_hrv, rmssd_1hz_raw, nan_array, None
+    if rr_ms_for_calc.size < 1:
+        nan_array = np.full_like(t_hrv, fill_value=np.nan, dtype=float)
+        return t_hrv, rmssd_1hz_raw, nan_array, None
 
     rmssd_1hz_clean, rmssd_windows_list_clean = _calculate_rmssd_series(
         t_hrv,
@@ -633,28 +622,14 @@ def _subset_rr_by_sleep_and_events(
     rr_mid_times_sec = np.asarray(rr_mid_times_sec, dtype=float)
     rr_ms = np.asarray(rr_ms, dtype=float)
 
-    m_sleep = np.ones_like(rr_mid_times_sec, dtype=bool)
-    if aux_df is not None:
-        m_sleep_raw = sleep_mask.build_sleep_include_mask_for_times(
-            rr_mid_times_sec,
-            aux_df,
-            include_set=include_set,
-            ignore_config=True,
-        )
-        if m_sleep_raw is not None:
-            m_sleep = np.asarray(m_sleep_raw, dtype=bool)
+    policy = masking.policy_from_config(include_stages=include_set, force_sleep=(include_set is not None))
+    bundle = masking.build_rr_mask_bundle(rr_mid_times_sec, aux_df, policy=policy)
 
-    rr_mid_sleep = rr_mid_times_sec[m_sleep]
-    rr_ms_sleep = rr_ms[m_sleep]
+    rr_mid_sleep = rr_mid_times_sec[bundle.sleep_keep]
+    rr_ms_sleep = rr_ms[bundle.sleep_keep]
 
-    m_event_keep = np.ones_like(rr_mid_sleep, dtype=bool)
-    if aux_df is not None and rr_mid_sleep.size > 0:
-        m_evt = io_aux_csv.get_rr_exclusion_mask(rr_mid_sleep, aux_df)
-        if m_evt is not None:
-            m_event_keep = np.asarray(m_evt, dtype=bool)
-
-    rr_mid_clean = rr_mid_sleep[m_event_keep]
-    rr_ms_clean = rr_ms_sleep[m_event_keep]
+    rr_mid_clean = rr_mid_times_sec[bundle.combined_keep]
+    rr_ms_clean = rr_ms[bundle.combined_keep]
     return rr_mid_sleep, rr_ms_sleep, rr_mid_clean, rr_ms_clean
 
 
@@ -859,15 +834,9 @@ def compute_hrv_from_pat_signal_with_tv_metrics(
 
     rr_ms_physio_clean = rr_sec_physio_clean * 1000.0
 
-    # Sleep masking
-    rr_mid_sleep = rr_mid_physio_clean
-    rr_ms_sleep = rr_ms_physio_clean
-
-    if aux_df is not None and bool(getattr(config, "ENABLE_SLEEP_STAGE_MASKING", False)):
-        m_sleep = sleep_mask.build_sleep_include_mask_for_times(rr_mid_sleep, aux_df)
-        if m_sleep is not None:
-            rr_mid_sleep = rr_mid_sleep[m_sleep]
-            rr_ms_sleep = rr_ms_sleep[m_sleep]
+    bundle = masking.build_rr_mask_bundle(rr_mid_physio_clean, aux_df)
+    rr_mid_sleep = rr_mid_physio_clean[bundle.sleep_keep]
+    rr_ms_sleep = rr_ms_physio_clean[bundle.sleep_keep]
 
     if rr_ms_sleep.size < 1:
         nan_array = np.full_like(t_hrv, fill_value=np.nan, dtype=float)
@@ -884,17 +853,12 @@ def compute_hrv_from_pat_signal_with_tv_metrics(
     )
 
     # CLEAN RR = sleep-masked + event-excluded
-    rr_mid_for_calc = rr_mid_sleep
-    rr_ms_for_calc = rr_ms_sleep
+    rr_mid_for_calc = rr_mid_physio_clean[bundle.combined_keep]
+    rr_ms_for_calc = rr_ms_physio_clean[bundle.combined_keep]
 
-    if aux_df is not None and rr_mid_for_calc.size > 0:
-        keep_mask = io_aux_csv.get_rr_exclusion_mask(rr_mid_for_calc, aux_df)
-        rr_mid_for_calc = rr_mid_for_calc[keep_mask]
-        rr_ms_for_calc = rr_ms_for_calc[keep_mask]
-
-        if rr_ms_for_calc.size < 1:
-            nan_array = np.full_like(t_hrv, fill_value=np.nan, dtype=float)
-            return t_hrv, rmssd_1hz_raw, nan_array, None, None
+    if rr_ms_for_calc.size < 1:
+        nan_array = np.full_like(t_hrv, fill_value=np.nan, dtype=float)
+        return t_hrv, rmssd_1hz_raw, nan_array, None, None
 
     rmssd_1hz_clean, rmssd_windows_list_clean = _calculate_rmssd_series(
         t_hrv,

@@ -16,6 +16,37 @@ if TYPE_CHECKING:
     import pandas as pd
 
 
+def _shade_hrv_mask_layers(
+    ax: plt.Axes,
+    t_sec: np.ndarray,
+    hrv_mask_info: Optional[Dict[str, object]],
+) -> None:
+    if not hrv_mask_info:
+        return
+
+    sleep_keep = hrv_mask_info.get("sleep_keep")
+    if sleep_keep is not None:
+        _shade_masked_regions(
+            ax,
+            t_sec=t_sec,
+            masked=~np.asarray(sleep_keep, dtype=bool),
+            color="#6c757d",
+            alpha=0.10,
+            zorder=0.03,
+        )
+
+    calc_excluded = hrv_mask_info.get("combined_keep")
+    if calc_excluded is not None:
+        _shade_masked_regions(
+            ax,
+            t_sec=t_sec,
+            masked=~np.asarray(calc_excluded, dtype=bool),
+            color="#c1121f",
+            alpha=0.08,
+            zorder=0.04,
+        )
+
+
 def _format_nrem_legend_label(
     label: str,
     metric_key: str,
@@ -201,38 +232,38 @@ def _add_metric_legend(
     ax.legend(legend_handles, legend_labels, loc=loc, fontsize=fontsize)
 
 
-def _add_colored_event_key(fig: plt.Figure) -> None:
+def _add_colored_event_key(fig: plt.Figure, event_spec: List[EventSpec]) -> None:
+    if not event_spec:
+        return
     textprops = {"fontsize": 7.5, "color": "black"}
 
-    line1 = HPacker(
-        children=[
-            TextArea("Event markers: ", textprops=textprops),
-            TextArea("Desaturation", textprops={**textprops, "color": "tab:blue"}),
-            TextArea(" = blue triangle | ", textprops=textprops),
-            TextArea("Central A/H 3%", textprops={**textprops, "color": "tab:red"}),
-            TextArea(" = red | ", textprops=textprops),
-            TextArea("Obstr A/H 3%", textprops={**textprops, "color": "tab:brown"}),
-            TextArea(" = brown dashed", textprops=textprops),
-        ],
-        align="center",
-        pad=0,
-        sep=0,
-    )
-    line2 = HPacker(
-        children=[
-            TextArea("Unclass A/H 3%", textprops={**textprops, "color": "tab:green"}),
-            TextArea(" = green dotted | ", textprops=textprops),
-            TextArea("HR excluded", textprops={**textprops, "color": "tab:purple"}),
-            TextArea(" = purple | ", textprops=textprops),
-            TextArea("PAT excluded", textprops={**textprops, "color": "tab:olive"}),
-            TextArea(" = olive", textprops=textprops),
-        ],
-        align="center",
-        pad=0,
-        sep=0,
-    )
+    style_desc = {
+        "desat_flag": "blue triangle",
+        "evt_central_3": "red",
+        "evt_obstructive_3": "brown dashed",
+        "evt_unclassified_3": "green dotted",
+        "exclude_hr_flag": "purple",
+        "exclude_pat_flag": "olive",
+    }
+    lines: List[HPacker] = []
+    chunk: List[TextArea] = [TextArea("Event markers: ", textprops=textprops)]
+    for idx, spec in enumerate(event_spec):
+        desc = style_desc.get(spec.col, spec.color)
+        chunk.extend(
+            [
+                TextArea(spec.label, textprops={**textprops, "color": spec.color}),
+                TextArea(f" = {desc}", textprops=textprops),
+            ]
+        )
+        if idx != len(event_spec) - 1:
+            chunk.append(TextArea(" | ", textprops=textprops))
+        if (idx + 1) % 3 == 0 and idx != len(event_spec) - 1:
+            lines.append(HPacker(children=chunk, align="center", pad=0, sep=0))
+            chunk = []
+    if chunk:
+        lines.append(HPacker(children=chunk, align="center", pad=0, sep=0))
 
-    packed = VPacker(children=[line1, line2], align="center", pad=0, sep=2)
+    packed = VPacker(children=lines, align="center", pad=0, sep=2)
     anchored = AnchoredOffsetbox(
         loc="upper center",
         child=packed,
@@ -571,6 +602,7 @@ def _build_hrv_overview_figure(
     exclusion_zones: List[Tuple[float, float, str]],
     duration_sec_fallback: float,
     event_spec: List[EventSpec] = DEFAULT_EVENT_PLOT_SPEC,
+    hrv_mask_info: Optional[Dict[str, object]] = None,
 ) -> Optional[plt.Figure]:
     if t_hrv is None or hrv_clean is None or t_hrv.size == 0:
         return None
@@ -591,7 +623,6 @@ def _build_hrv_overview_figure(
         y=0.985,
     )
 
-    time_col = getattr(config, "AUX_CSV_TIME_SEC_COLUMN", "time_sec") if aux_df is not None else None
     use_raw = hrv_raw is not None and np.size(hrv_raw) == np.size(hrv_clean)
 
     for p, ax in enumerate(axes):
@@ -618,6 +649,14 @@ def _build_hrv_overview_figure(
 
         mask = (t_hrv >= start_sec) & (t_hrv <= end_sec)
         if np.any(mask):
+            if hrv_mask_info is not None:
+                mask_slice = {
+                    key: np.asarray(value)[mask]
+                    for key, value in hrv_mask_info.items()
+                    if isinstance(value, np.ndarray) and np.size(value) == np.size(t_hrv)
+                }
+                _shade_hrv_mask_layers(ax, t_hrv[mask], mask_slice)
+
             th = t_hrv[mask] / 3600.0
 
             yr = None
@@ -630,7 +669,7 @@ def _build_hrv_overview_figure(
                     ax.plot(
                         th,
                         np.ma.masked_invalid(yr),
-                        label="Raw HRV (Unmasked)",
+                        label="Sleep-masked HRV",
                         linewidth=0.5,
                         color="tab:gray",
                         alpha=0.6,
@@ -653,7 +692,7 @@ def _build_hrv_overview_figure(
                 ax.plot(
                     th,
                     np.ma.masked_invalid(yc),
-                    label="Clean HRV (Masked)",
+                    label="Clean HRV (sleep+event masked)",
                     linewidth=1.2,
                     zorder=2,
                 )
@@ -673,50 +712,15 @@ def _build_hrv_overview_figure(
                         m = 0.10 * (y1 - y0)
                         ax.set_ylim(y0 - m, y1 + m)
 
-        if aux_df is not None and time_col and time_col in aux_df.columns:
-            aux_mask = (aux_df[time_col] >= start_sec) & (aux_df[time_col] <= end_sec)
-            if aux_mask.any():
-                seg = aux_df.loc[aux_mask]
-                used = set()
-
-                for spec in event_spec:
-                    if spec.col not in seg.columns:
-                        continue
-
-                    m = seg[spec.col] == 1
-                    if not m.any():
-                        continue
-
-                    t_evt_h = seg.loc[m, time_col].to_numpy(float) / 3600.0
-                    show_label = spec.label if spec.label not in used else "_nolegend_"
-                    used.add(spec.label)
-
-                    if spec.col == "desat_flag":
-                        y_min, y_max = ax.get_ylim()
-                        y_desat = y_min + 0.03 * (y_max - y_min)
-                        ax.scatter(
-                            t_evt_h,
-                            np.full_like(t_evt_h, y_desat, dtype=float),
-                            marker="v",
-                            s=18,
-                            color=spec.color,
-                            alpha=0.6,
-                            label=show_label,
-                            zorder=3,
-                        )
-                    else:
-                        first_line = (show_label != "_nolegend_")
-                        for x in t_evt_h:
-                            ax.axvline(
-                                x,
-                                color=spec.color,
-                                linestyle="-",
-                                linewidth=1.6,
-                                alpha=0.9,
-                                label=spec.label if first_line else "_nolegend_",
-                                zorder=3,
-                            )
-                            first_line = False
+        _overlay_events_on_single_axis_whole_night(
+            ax=ax,
+            aux_df=aux_df,
+            start_sec=start_sec,
+            end_sec=end_sec,
+            event_spec=event_spec,
+            show_legend_labels=False,
+            event_style="short",
+        )
 
         ax.grid(True)
         ax.set_ylabel("RMSSD [ms]")
@@ -898,6 +902,8 @@ def _build_stagegram_and_hrv_tv_figure(
     hrv_tv: Dict[str, np.ndarray],
     exclusion_zones: List[Tuple[float, float, str]],
     sleep_combo_summaries: Optional[Dict[str, Dict[str, object]]] = None,
+    event_spec: Optional[List[EventSpec]] = None,
+    hrv_mask_info: Optional[Dict[str, object]] = None,
 ) -> Optional[plt.Figure]:
     """
     Combined page with:
@@ -909,6 +915,8 @@ def _build_stagegram_and_hrv_tv_figure(
     """
     if t_hrv is None or t_hrv.size == 0:
         return None
+    if event_spec is None:
+        event_spec = DEFAULT_EVENT_PLOT_SPEC
 
     panels: List[dict] = []
 
@@ -1049,13 +1057,13 @@ def _build_stagegram_and_hrv_tv_figure(
             f"binned mean +/- 95% CI.\n"
             f"Dashed/dotted lines show displayed-series mean/median. "
             f"Legend NREM mean is a post-hoc NREM-only reference.\n"
-            f"Top markers indicate scored events."
+            f"Top markers indicate active exclusion events."
         ),
         ha="center",
         va="top",
         fontsize=8,
     )
-    _add_colored_event_key(fig)
+    _add_colored_event_key(fig, event_spec)
 
     t_h = t_hrv / 3600.0
     start_h = float(t_h[0])
@@ -1067,14 +1075,6 @@ def _build_stagegram_and_hrv_tv_figure(
     ax_stage.set_xlim(start_h, end_h)
 
     for ax, panel in zip(data_axes, panels):
-        _add_exclusion_spans(
-            ax,
-            exclusion_zones,
-            start_h,
-            end_h,
-            label_once=False,
-        )
-
         plotted_any = False
         for label, y, color in panel["series"]:
             ok = np.isfinite(y)
@@ -1129,7 +1129,7 @@ def _build_stagegram_and_hrv_tv_figure(
             aux_df=aux_df,
             start_sec=start_sec,
             end_sec=end_sec,
-            event_spec=DEFAULT_EVENT_PLOT_SPEC,
+            event_spec=event_spec,
             show_legend_labels=False,
             event_style="short",
         )

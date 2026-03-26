@@ -12,6 +12,7 @@ from ..metrics.psd import compute_psd_figures_and_peaks
 
 from .utils import _infer_edf_base, _compute_exclusion_zones
 from .figures_summary import build_summary_pages, _build_sleep_stagegram_figure
+from .specs import active_event_plot_spec
 from .figures_hrv import (
     _build_hrv_overview_figure,
     _build_stagegram_and_hrv_tv_figure,
@@ -65,6 +66,7 @@ def plot_pat_and_hr_segments_to_pdf(
     pat_burden: Optional[float] = None,
     pat_burden_diag: Optional[Dict[str, float]] = None,
     sleep_combo_summaries: Optional[Dict[str, Dict[str, object]]] = None,
+    hrv_mask_info: Optional[Dict[str, object]] = None,
 ) -> Dict[str, float]:
     """
     Plotting-only mode:
@@ -95,6 +97,7 @@ def plot_pat_and_hr_segments_to_pdf(
 
     use_hrv = t_hrv is not None and hrv_rmssd is not None and np.size(hrv_rmssd) > 0
     exclusion_zones = _compute_exclusion_zones(aux_df)
+    event_spec = active_event_plot_spec()
 
     (
         psd_features,
@@ -172,6 +175,8 @@ def plot_pat_and_hr_segments_to_pdf(
             hrv_tv=hrv_tv,
             exclusion_zones=exclusion_zones,
             sleep_combo_summaries=sleep_combo_summaries,
+            event_spec=event_spec,
+            hrv_mask_info=hrv_mask_info,
         )
     else:
         fig_stage = _build_sleep_stagegram_figure(
@@ -189,6 +194,8 @@ def plot_pat_and_hr_segments_to_pdf(
             aux_df=aux_df,
             exclusion_zones=exclusion_zones,
             duration_sec_fallback=duration_sec,
+            event_spec=event_spec,
+            hrv_mask_info=hrv_mask_info,
         )
 
     try:
@@ -248,6 +255,7 @@ def plot_pat_and_hr_segments_to_pdf(
                 hrv_raw=hrv_rmssd_raw,
                 aux_df=aux_df,
                 exclusion_zones=exclusion_zones,
+                event_spec=event_spec,
                 t_pat_amp=t_pat_amp,
                 pat_amp=pat_amp,
                 delta_hr_calc=delta_hr_calc,

@@ -55,6 +55,7 @@ class RecordingContext:
     hrv_rmssd_clean: Optional[np.ndarray] = None
     hrv_summary: Optional[Dict[str, float]] = None
     hrv_tv: Optional[Dict[str, np.ndarray]] = None
+    hrv_mask_info: Optional[Dict[str, object]] = None
     rr_mid_clean: Optional[np.ndarray] = None
     rr_ms_clean: Optional[np.ndarray] = None
     rr_duration_sec: Optional[float] = None
