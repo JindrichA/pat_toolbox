@@ -2,7 +2,7 @@ import os
 from PyPDF2 import PdfReader, PdfWriter
 
 # Folder containing the PDFs
-PDF_FOLDER = "/Users/jindrich/Projects/PAT_022026_output_data/ViewPatPlotsOverlay__20260310_153001__all_sleep__desat_2min_fd_fixed/"
+PDF_FOLDER = "/Users/jindrich/Projects/PAT_022026_output_data/ViewPatPlotsOverlay__20260325_090038__all_sleep_incluidng_wake__desat_2min_fd_fixed/"
 
 # Output PDF (saved in the same folder)
 OUTPUT_FILE = os.path.join(PDF_FOLDER, "merged_first_pages.pdf")

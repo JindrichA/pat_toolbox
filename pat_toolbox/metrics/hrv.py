@@ -9,9 +9,8 @@ import numpy as np
 import pandas as pd
 from scipy.signal import welch
 
-from .. import config, paths, io_aux_csv
+from .. import config, paths, masking
 from . import hr as hr_metrics
-from .. import sleep_mask
 
 if TYPE_CHECKING:
     from pandas import DataFrame as pd_DataFrame
@@ -453,8 +452,8 @@ def _calculate_hrv_windowed_series(
         rr_win_ms = rr_ms[left:right]
         rr_mid_win = rr_mid[left:right]
 
-        out["rmssd_ms"][i] = _rmssd(rr_win_ms)
-        out["sdnn_ms"][i] = _sdnn(rr_win_ms)
+        rmssd_i = _rmssd(rr_win_ms)
+        sdnn_i = _sdnn(rr_win_ms)
 
         span = float(rr_mid_win[-1] - rr_mid_win[0]) if rr_mid_win.size >= 2 else 0.0
         if span < float(min_span_sec):
@@ -465,6 +464,9 @@ def _calculate_hrv_windowed_series(
         if gaps.size > 0 and np.any(gaps > float(max_gap_sec)):
             n_fail_gap += 1
             continue
+
+        out["rmssd_ms"][i] = rmssd_i
+        out["sdnn_ms"][i] = sdnn_i
 
         lf, hf, lf_hf = _lf_hf_from_rr(rr_win_ms, rr_mid_win, fs_resample=float(fs_resample))
         if not (np.isfinite(lf) and np.isfinite(hf) and np.isfinite(lf_hf)):
@@ -537,14 +539,9 @@ def compute_hrv_from_pat_signal(
 
     rr_ms_physio_clean = rr_sec_physio_clean * 1000.0
 
-    rr_mid_sleep = rr_mid_physio_clean
-    rr_ms_sleep = rr_ms_physio_clean
-
-    if aux_df is not None and bool(getattr(config, "ENABLE_SLEEP_STAGE_MASKING", False)):
-        m_sleep = sleep_mask.build_sleep_include_mask_for_times(rr_mid_sleep, aux_df)
-        if m_sleep is not None:
-            rr_mid_sleep = rr_mid_sleep[m_sleep]
-            rr_ms_sleep = rr_ms_sleep[m_sleep]
+    bundle = masking.build_rr_mask_bundle(rr_mid_physio_clean, aux_df)
+    rr_mid_sleep = rr_mid_physio_clean[bundle.sleep_keep]
+    rr_ms_sleep = rr_ms_physio_clean[bundle.sleep_keep]
 
     rmssd_1hz_raw, _rmssd_windows_list_raw = _calculate_rmssd_series(
         t_hrv,
@@ -559,17 +556,12 @@ def compute_hrv_from_pat_signal(
         nan_array = np.full_like(t_hrv, fill_value=np.nan, dtype=float)
         return t_hrv, rmssd_1hz_raw, nan_array, None
 
-    rr_mid_for_calc = rr_mid_sleep
-    rr_ms_for_calc = rr_ms_sleep
+    rr_mid_for_calc = rr_mid_physio_clean[bundle.combined_keep]
+    rr_ms_for_calc = rr_ms_physio_clean[bundle.combined_keep]
 
-    if aux_df is not None and rr_mid_for_calc.size > 0:
-        keep_mask = io_aux_csv.get_rr_exclusion_mask(rr_mid_for_calc, aux_df)
-        rr_mid_for_calc = rr_mid_for_calc[keep_mask]
-        rr_ms_for_calc = rr_ms_for_calc[keep_mask]
-
-        if rr_ms_for_calc.size < 1:
-            nan_array = np.full_like(t_hrv, fill_value=np.nan, dtype=float)
-            return t_hrv, rmssd_1hz_raw, nan_array, None
+    if rr_ms_for_calc.size < 1:
+        nan_array = np.full_like(t_hrv, fill_value=np.nan, dtype=float)
+        return t_hrv, rmssd_1hz_raw, nan_array, None
 
     rmssd_1hz_clean, rmssd_windows_list_clean = _calculate_rmssd_series(
         t_hrv,
@@ -614,6 +606,170 @@ def compute_hrv_from_pat_signal(
         }
 
     return t_hrv, rmssd_1hz_raw, rmssd_1hz_clean, summary
+
+
+# ---------------------------------------------------------------------
+# Post-hoc sleep-policy summaries from base RR
+# ---------------------------------------------------------------------
+
+def _subset_rr_by_sleep_and_events(
+    rr_mid_times_sec: np.ndarray,
+    rr_ms: np.ndarray,
+    aux_df: Optional[pd.DataFrame],
+    *,
+    include_set: Optional[set[int]] = None,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    rr_mid_times_sec = np.asarray(rr_mid_times_sec, dtype=float)
+    rr_ms = np.asarray(rr_ms, dtype=float)
+
+    policy = masking.policy_from_config(include_stages=include_set, force_sleep=(include_set is not None))
+    bundle = masking.build_rr_mask_bundle(rr_mid_times_sec, aux_df, policy=policy)
+
+    rr_mid_sleep = rr_mid_times_sec[bundle.sleep_keep]
+    rr_ms_sleep = rr_ms[bundle.sleep_keep]
+
+    rr_mid_clean = rr_mid_times_sec[bundle.combined_keep]
+    rr_ms_clean = rr_ms[bundle.combined_keep]
+    return rr_mid_sleep, rr_ms_sleep, rr_mid_clean, rr_ms_clean
+
+
+def summarize_hrv_from_rr(
+    rr_mid_times_sec: np.ndarray,
+    rr_ms: np.ndarray,
+    duration_sec: float,
+    aux_df: Optional[pd.DataFrame],
+    *,
+    include_set: Optional[set[int]] = None,
+    target_fs: Optional[float] = None,
+    window_sec: Optional[float] = None,
+) -> Dict[str, float]:
+    if target_fs is None:
+        target_fs = float(getattr(config, "HRV_TARGET_FS_HZ"))
+    if window_sec is None:
+        window_sec = float(getattr(config, "HRV_WINDOW_SEC"))
+
+    max_gap_sec = float(getattr(config, "HRV_MAX_RR_GAP_SEC"))
+    rmssd_min_span_sec = float(getattr(config, "HRV_RMSSD_MIN_SPAN_SEC"))
+    fs_resample_global = float(getattr(config, "HRV_TACHO_RESAMPLE_HZ"))
+    min_freq_span_sec = float(getattr(config, "HRV_MIN_FREQ_DOMAIN_SEC"))
+    fixed_win_sec = float(getattr(config, "HRV_LFHF_FIXED_WINDOW_SEC", 300.0))
+    fixed_hop_sec = float(getattr(config, "HRV_LFHF_FIXED_HOP_SEC", fixed_win_sec))
+    fixed_min_rr = int(getattr(config, "HRV_LFHF_FIXED_MIN_RR", 0))
+
+    rr_mid_sleep, rr_ms_sleep, rr_mid_clean, rr_ms_clean = _subset_rr_by_sleep_and_events(
+        rr_mid_times_sec,
+        rr_ms,
+        aux_df,
+        include_set=include_set,
+    )
+
+    t_hrv = np.arange(0, float(duration_sec), 1.0 / float(target_fs))
+    rmssd_raw, _ = _calculate_rmssd_series(
+        t_hrv,
+        rr_mid_sleep,
+        rr_ms_sleep,
+        float(window_sec),
+        max_gap_sec=max_gap_sec,
+        min_span_sec=rmssd_min_span_sec,
+    )
+    rmssd_clean, rmssd_windows_list_clean = _calculate_rmssd_series(
+        t_hrv,
+        rr_mid_clean,
+        rr_ms_clean,
+        float(window_sec),
+        max_gap_sec=max_gap_sec,
+        min_span_sec=rmssd_min_span_sec,
+    )
+
+    summary: Dict[str, float] = {
+        "rr_n_sleep": int(rr_ms_sleep.size),
+        "rr_n_clean": int(rr_ms_clean.size),
+        "rmssd_nan_pct_raw": float(100.0 * np.mean(~np.isfinite(rmssd_raw))) if rmssd_raw.size else np.nan,
+        "rmssd_nan_pct_clean": float(100.0 * np.mean(~np.isfinite(rmssd_clean))) if rmssd_clean.size else np.nan,
+    }
+
+    if rr_ms_clean.size < 1:
+        summary.update(
+            {
+                "rmssd_mean": np.nan,
+                "rmssd_median": np.nan,
+                "sdnn": np.nan,
+                "lf": np.nan,
+                "hf": np.nan,
+                "lf_hf": np.nan,
+                "lf_n_segments_used": 0,
+                "lf_hf_fixed_median": np.nan,
+                "lf_hf_fixed_mean": np.nan,
+                "lf_hf_fixed_n_windows_valid": 0,
+                "lf_hf_fixed_n_windows_total": 0,
+                "lf_hf_fixed_window_sec": float(fixed_win_sec),
+                "lf_hf_fixed_hop_sec": float(fixed_hop_sec),
+            }
+        )
+        return summary
+
+    sdnn_ms = _sdnn(rr_ms_clean)
+    lf, hf, lf_hf, lf_info = _lf_hf_from_rr_segmented(
+        rr_ms_clean,
+        rr_mid_clean,
+        fs_resample=fs_resample_global,
+        max_gap_sec=max_gap_sec,
+        min_span_sec=min_freq_span_sec,
+        return_info=True,
+    )
+
+    if len(rmssd_windows_list_clean) > 0:
+        rmssd_arr = np.asarray(rmssd_windows_list_clean, dtype=float)
+        summary.update(
+            {
+                "rmssd_mean": float(np.nanmean(rmssd_arr)),
+                "rmssd_median": float(np.nanmedian(rmssd_arr)),
+            }
+        )
+    else:
+        summary.update(
+            {
+                "rmssd_mean": float(_rmssd(rr_ms_clean)),
+                "rmssd_median": np.nan,
+            }
+        )
+
+    summary.update(
+        {
+            "sdnn": float(sdnn_ms),
+            "lf": float(lf),
+            "hf": float(hf),
+            "lf_hf": float(lf_hf),
+            "lf_n_segments_used": int(lf_info["n_segments_used"]),
+        }
+    )
+
+    lfhf_fixed = _calculate_lfhf_fixed_windows(
+        rr_mid=rr_mid_clean,
+        rr_ms=rr_ms_clean,
+        duration_sec=float(duration_sec),
+        window_sec=fixed_win_sec,
+        hop_sec=fixed_hop_sec,
+        fs_resample=fs_resample_global,
+        max_gap_sec=max_gap_sec,
+        min_rr=fixed_min_rr,
+    )
+    valid = lfhf_fixed.get("valid_mask", np.array([], dtype=bool))
+    n_total = int(valid.size)
+    n_valid = int(np.sum(valid)) if n_total > 0 else 0
+    if n_valid > 0:
+        lfhf_vals = np.asarray(lfhf_fixed["lf_hf"], dtype=float)[valid]
+        summary["lf_hf_fixed_median"] = float(np.nanmedian(lfhf_vals))
+        summary["lf_hf_fixed_mean"] = float(np.nanmean(lfhf_vals))
+    else:
+        summary["lf_hf_fixed_median"] = np.nan
+        summary["lf_hf_fixed_mean"] = np.nan
+
+    summary["lf_hf_fixed_n_windows_valid"] = n_valid
+    summary["lf_hf_fixed_n_windows_total"] = n_total
+    summary["lf_hf_fixed_window_sec"] = float(fixed_win_sec)
+    summary["lf_hf_fixed_hop_sec"] = float(fixed_hop_sec)
+    return summary
 
 
 # ---------------------------------------------------------------------
@@ -678,15 +834,9 @@ def compute_hrv_from_pat_signal_with_tv_metrics(
 
     rr_ms_physio_clean = rr_sec_physio_clean * 1000.0
 
-    # Sleep masking
-    rr_mid_sleep = rr_mid_physio_clean
-    rr_ms_sleep = rr_ms_physio_clean
-
-    if aux_df is not None and bool(getattr(config, "ENABLE_SLEEP_STAGE_MASKING", False)):
-        m_sleep = sleep_mask.build_sleep_include_mask_for_times(rr_mid_sleep, aux_df)
-        if m_sleep is not None:
-            rr_mid_sleep = rr_mid_sleep[m_sleep]
-            rr_ms_sleep = rr_ms_sleep[m_sleep]
+    bundle = masking.build_rr_mask_bundle(rr_mid_physio_clean, aux_df)
+    rr_mid_sleep = rr_mid_physio_clean[bundle.sleep_keep]
+    rr_ms_sleep = rr_ms_physio_clean[bundle.sleep_keep]
 
     if rr_ms_sleep.size < 1:
         nan_array = np.full_like(t_hrv, fill_value=np.nan, dtype=float)
@@ -703,17 +853,12 @@ def compute_hrv_from_pat_signal_with_tv_metrics(
     )
 
     # CLEAN RR = sleep-masked + event-excluded
-    rr_mid_for_calc = rr_mid_sleep
-    rr_ms_for_calc = rr_ms_sleep
+    rr_mid_for_calc = rr_mid_physio_clean[bundle.combined_keep]
+    rr_ms_for_calc = rr_ms_physio_clean[bundle.combined_keep]
 
-    if aux_df is not None and rr_mid_for_calc.size > 0:
-        keep_mask = io_aux_csv.get_rr_exclusion_mask(rr_mid_for_calc, aux_df)
-        rr_mid_for_calc = rr_mid_for_calc[keep_mask]
-        rr_ms_for_calc = rr_ms_for_calc[keep_mask]
-
-        if rr_ms_for_calc.size < 1:
-            nan_array = np.full_like(t_hrv, fill_value=np.nan, dtype=float)
-            return t_hrv, rmssd_1hz_raw, nan_array, None, None
+    if rr_ms_for_calc.size < 1:
+        nan_array = np.full_like(t_hrv, fill_value=np.nan, dtype=float)
+        return t_hrv, rmssd_1hz_raw, nan_array, None, None
 
     rmssd_1hz_clean, rmssd_windows_list_clean = _calculate_rmssd_series(
         t_hrv,

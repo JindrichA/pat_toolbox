@@ -7,12 +7,13 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from . import config, io_edf, filters, paths, plotting, io_aux_csv
+from . import config, io_edf, filters, paths, plotting, io_aux_csv, masking
 from . import sleep_mask
 from .context import RecordingContext
 from .metrics import hr as hr_metrics
 from .metrics import hrv as hrv_metrics
 from .metrics import pat_burden as pat_burden_metrics
+from .metrics import psd as psd_metrics
 from .metrics.hr_delta import compute_delta_hr
 
 if TYPE_CHECKING:
@@ -132,6 +133,62 @@ def _compute_pat_burden(ctx: RecordingContext) -> None:
         ctx.pat_burden_episodes = None
 
 
+def _compute_sleep_combo_summaries(ctx: RecordingContext) -> None:
+    ctx.sleep_combo_summaries = None
+
+    if ctx.view_pat is None or ctx.sfreq is None or ctx.sfreq <= 0:
+        return
+
+    try:
+        rr_sec, rr_mid, duration_sec = hr_metrics.extract_clean_rr_from_pat(ctx.view_pat, ctx.sfreq)
+    except Exception as e:
+        print(f"  WARNING: could not extract base RR for sleep-combo summaries: {e}")
+        return
+
+    ctx.rr_mid_clean = rr_mid
+    ctx.rr_ms_clean = rr_sec * 1000.0
+    ctx.rr_duration_sec = float(duration_sec)
+
+    summaries: dict[str, dict[str, object]] = {}
+    for key, label, include_set in sleep_mask.fixed_sleep_stage_policies():
+        hrv_summary = hrv_metrics.summarize_hrv_from_rr(
+            rr_mid,
+            ctx.rr_ms_clean,
+            duration_sec,
+            ctx.aux_df,
+            include_set=include_set,
+        )
+        psd_features = psd_metrics.compute_psd_features_from_rr(
+            rr_mid,
+            ctx.rr_ms_clean,
+            duration_sec,
+            ctx.aux_df,
+            include_set=include_set,
+        )
+
+        burden = np.nan
+        burden_diag = None
+        if ctx.t_pat_amp is not None and ctx.pat_amp is not None and ctx.aux_df is not None:
+            burden, burden_diag, _episodes = pat_burden_metrics.compute_pat_burden_from_pat_amp(
+                t_sec=ctx.t_pat_amp,
+                pat_amp=ctx.pat_amp,
+                aux_df=ctx.aux_df,
+                include_set=include_set,
+            )
+
+        summaries[key] = {
+            "label": label,
+            "include_set": set(include_set),
+            "sleep_hours": burden_diag.get("sleep_hours") if isinstance(burden_diag, dict) else np.nan,
+            "hrv_summary": hrv_summary,
+            "psd_features": psd_features,
+            "pat_burden": burden,
+            "pat_burden_diag": burden_diag,
+        }
+
+    ctx.sleep_combo_summaries = summaries
+
+
 def _compute_hr_from_pat(ctx: RecordingContext) -> None:
     assert ctx.view_pat is not None and ctx.sfreq is not None
     try:
@@ -139,13 +196,8 @@ def _compute_hr_from_pat(ctx: RecordingContext) -> None:
 
         ctx.hr_calc_raw = None if ctx.hr_calc is None else ctx.hr_calc.copy()
 
-        m_sleep = sleep_mask.build_sleep_include_mask(ctx.t_hr_calc, ctx.aux_df)
-        if m_sleep is not None:
-            sleep_mask.apply_sleep_mask_inplace(ctx.hr_calc, m_sleep)
-
-        m_evt = io_aux_csv.build_time_exclusion_mask(ctx.t_hr_calc, ctx.aux_df)
-        if m_evt is not None:
-            sleep_mask.apply_sleep_mask_inplace(ctx.hr_calc, m_evt)
+        bundle = masking.build_mask_bundle(ctx.t_hr_calc, ctx.aux_df)
+        sleep_mask.apply_sleep_mask_inplace(ctx.hr_calc, bundle.combined_keep)
 
     except Exception as e:
         print(f"  WARNING: could not compute HR from PAT: {e}")
@@ -172,29 +224,6 @@ def _compute_hrv(ctx: RecordingContext) -> None:
             tv_window_sec=getattr(config, "HRV_TV_WINDOW_SEC"),
         )
 
-        m_sleep = sleep_mask.build_sleep_include_mask(ctx.t_hrv, ctx.aux_df)
-        m_excl = io_aux_csv.build_time_exclusion_mask(ctx.t_hrv, ctx.aux_df)
-
-        if m_excl is not None:
-            sleep_mask.apply_sleep_mask_inplace(ctx.hrv_rmssd_clean, m_excl)
-            if isinstance(ctx.hrv_tv, dict):
-                for k, v in list(ctx.hrv_tv.items()):
-                    if v is None:
-                        continue
-                    vv = np.asarray(v)
-                    if vv.size == m_excl.size:
-                        ctx.hrv_tv[k] = sleep_mask.apply_sleep_mask_inplace(vv, m_excl)
-
-        if m_sleep is not None:
-            sleep_mask.apply_sleep_mask_inplace(ctx.hrv_rmssd_clean, m_sleep)
-            if isinstance(ctx.hrv_tv, dict):
-                for k, v in list(ctx.hrv_tv.items()):
-                    if v is None:
-                        continue
-                    vv = np.asarray(v)
-                    if vv.size == m_sleep.size:
-                        ctx.hrv_tv[k] = sleep_mask.apply_sleep_mask_inplace(vv, m_sleep)
-
         if ctx.hrv_summary is not None:
             s = ctx.hrv_summary
             nseg = s.get("lf_n_segments_used", None)
@@ -211,6 +240,17 @@ def _compute_hrv(ctx: RecordingContext) -> None:
                 ctx.edf_path, ctx.t_hrv, ctx.hrv_rmssd_clean
             )
 
+        if ctx.t_hrv is not None:
+            bundle = masking.build_mask_bundle(ctx.t_hrv, ctx.aux_df)
+            ctx.hrv_mask_info = {
+                "sleep_keep": np.asarray(bundle.sleep_keep, dtype=bool),
+                "event_keep": np.asarray(bundle.event_keep, dtype=bool),
+                "desat_keep": np.asarray(bundle.desat_keep, dtype=bool),
+                "combined_keep": np.asarray(bundle.combined_keep, dtype=bool),
+                "active_exclusion_columns": tuple(bundle.active_exclusion_columns),
+                "gated_desat_windows": tuple(bundle.gated_desat_windows),
+            }
+
     except Exception as e:
         print(f"  WARNING: HRV computation failed: {e}")
         ctx.t_hrv = None
@@ -218,13 +258,17 @@ def _compute_hrv(ctx: RecordingContext) -> None:
         ctx.hrv_rmssd_clean = None
         ctx.hrv_summary = None
         ctx.hrv_tv = None
+        ctx.hrv_mask_info = None
 
 
 def _build_pdf(ctx: RecordingContext) -> None:
     assert ctx.view_pat is not None and ctx.view_pat_filt is not None and ctx.sfreq is not None
 
     out_folder = paths.get_output_folder()
-    suffix = config.sleep_stage_suffix() if getattr(config, "ENABLE_SLEEP_STAGE_MASKING", False) else ""
+    if getattr(ctx, "sleep_combo_summaries", None):
+        suffix = "_multi_sleep_summary"
+    else:
+        suffix = config.sleep_stage_suffix() if getattr(config, "ENABLE_SLEEP_STAGE_MASKING", False) else ""
     pdf_name = f"{ctx.edf_base}__VIEW_PAT_HR_HRV_{config.SEGMENT_MINUTES}min_overlay{suffix}.pdf"
     ctx.pdf_path = out_folder / pdf_name
 
@@ -261,6 +305,8 @@ def _build_pdf(ctx: RecordingContext) -> None:
         delta_hr_edf_evt=None,
         pat_burden=getattr(ctx, "pat_burden", None),
         pat_burden_diag=getattr(ctx, "pat_burden_diag", None),
+        sleep_combo_summaries=getattr(ctx, "sleep_combo_summaries", None),
+        hrv_mask_info=getattr(ctx, "hrv_mask_info", None),
     )
 
     ctx.psd_features = psd_results_dict
@@ -297,6 +343,7 @@ def _append_summary(ctx: RecordingContext) -> None:
         psd_features=getattr(ctx, "psd_features", None),
         pat_burden=getattr(ctx, "pat_burden", None),
         pat_burden_diag=getattr(ctx, "pat_burden_diag", None),
+        sleep_combo_summaries=getattr(ctx, "sleep_combo_summaries", None),
     )
 
 
@@ -323,6 +370,7 @@ def process_view_pat_overlay_for_file(edf_path: Path) -> Path | None:
         _filter_pat(ctx)
         _load_pat_amp(ctx)
         _load_aux_csv(ctx)
+        _compute_sleep_combo_summaries(ctx)
         _compute_pat_burden(ctx)
         _compute_hr_from_pat(ctx)
         _compute_delta_hr(ctx)

@@ -6,7 +6,7 @@ from typing import Optional, Tuple, TYPE_CHECKING, List
 import numpy as np
 import matplotlib.pyplot as plt
 
-from .. import config, io_aux_csv
+from .. import config, masking
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -102,49 +102,17 @@ def _compute_exclusion_zones(aux_df: Optional["pd.DataFrame"]) -> List[Tuple[flo
     if aux_df is None:
         return zones
 
-    # Event zones (pre/post)
-    hrv_event_cols = getattr(config, "HRV_EXCLUSION_EVENT_COLUMNS", None) or []
-    pre_sec = float(getattr(config, "HRV_EXCLUSION_PRE_SEC", 0.0))
-    post_sec = float(getattr(config, "HRV_EXCLUSION_POST_SEC", 0.0))
-    time_col = getattr(config, "AUX_CSV_TIME_SEC_COLUMN", "time_sec")
-
-    event_times_set = set()
-    for col in hrv_event_cols:
-        if col in aux_df.columns:
-            times = io_aux_csv.get_event_times(aux_df, col, time_col=time_col)
-            event_times_set.update(times)
-
-    for t_event in sorted(event_times_set):
-        a = float(t_event - pre_sec)
-        b = float(t_event + post_sec)
+    policy = masking.policy_from_config()
+    aux_t = aux_df[getattr(config, "AUX_CSV_TIME_SEC_COLUMN", "time_sec")].to_numpy(dtype=float)
+    bundle_aux = masking.build_mask_bundle(aux_t, aux_df, policy=policy)
+    for t_event in np.asarray(bundle_aux.active_event_times_sec, dtype=float):
+        a = float(t_event - policy.event_pre_sec)
+        b = float(t_event + policy.event_post_sec)
         if b > a:
             zones.append((a, b, "HRV Exclusion (events)"))
 
-    # Desat-run zones — ONLY if associated with an event
-    if bool(getattr(config, "HRV_EXCLUSION_USE_DESAT_WINDOWS", False)):
-        windows = io_aux_csv.desat_windows_from_aux(aux_df)
-
-        # need events to gate desats
-        if windows and event_times_set:
-            event_times = np.array(sorted(event_times_set), dtype=float)
-
-            lookback = float(getattr(config, "HRV_EXCLUSION_DESAT_LOOKBACK_SEC", 120.0))
-            lookahead = float(getattr(config, "HRV_EXCLUSION_DESAT_LOOKAHEAD_SEC", 120.0))
-
-            for a, b in windows:
-                if not (np.isfinite(a) and np.isfinite(b) and b > a):
-                    continue
-
-                # expanded window for association test
-                A = a - lookback
-                B = b + lookahead
-
-                # any event time inside [A, B]?
-                i0 = np.searchsorted(event_times, A, side="left")
-                i1 = np.searchsorted(event_times, B, side="right")
-
-                if i1 > i0:
-                    zones.append((float(a), float(b), "HRV Exclusion (event+desat)"))
+    for a, b in bundle_aux.gated_desat_windows:
+        zones.append((float(a), float(b), "HRV Exclusion (event+desat)"))
 
     zones.sort(key=lambda x: x[0])
     print(f"  Calculated {len(zones)} HRV exclusion zone(s).")

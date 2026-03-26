@@ -41,12 +41,14 @@ ENABLE_SLEEP_STAGE_MASKING = True
 # Sleep stage filtering policy
 # Options:
 #   "all_sleep"       - Include all sleep stages (1,2,3)
+#   "all_sleep_incluidng_wake"       - Include all  stages (1,2,3,4)
 #   "rem_only"        - Include only REM (3)
 #   "nrem_only"       - Include only non-REM (1,2)
 #   "deep_only"       - Include only deep sleep (2)
 #   "nrem_light_only" - Include only NREM light (1)
 #   "custom"          - Use SLEEP_INCLUDE_LABELS / SLEEP_INCLUDE_NUMERIC
-SLEEP_STAGE_POLICY = "all_sleep"
+
+SLEEP_STAGE_POLICY = "all_sleep_incluidng_wake"
 
 
 # Used only when SLEEP_STAGE_POLICY == "custom"
@@ -168,7 +170,7 @@ HR_RR_MIN_GOOD_RUN = 3
 HRV_TARGET_FS_HZ = 1.0
 HRV_WINDOW_SEC = 300.0
 
-HRV_MIN_INTERVALS_PER_WINDOW = 10      # strongly recommended for PAT
+HRV_MIN_INTERVALS_PER_WINDOW = 6      # strongly recommended for PAT
 # RMSSD(t) smoothing (only applied when no NaNs in series; see implementation)
 HRV_SMOOTHING_WINDOW_SEC = 5.0
 
@@ -177,8 +179,8 @@ HRV_HAMPEL_WINDOW_SEC = 30.0
 HRV_HAMPEL_SIGMA = 3.0
 
 # Gap handling for RMSSD windows
-HRV_MAX_RR_GAP_SEC = 4.0              # reject windows spanning gaps > this
-HRV_RMSSD_MIN_SPAN_SEC = 10.0         # reject windows with tiny coverage clusters
+HRV_MAX_RR_GAP_SEC = 8.0              # reject windows spanning gaps > this
+HRV_RMSSD_MIN_SPAN_SEC = 5.0         # reject windows with tiny coverage clusters
 
 # Frequency-domain (LF/HF)
 HRV_TACHO_RESAMPLE_HZ = 4.0
@@ -202,7 +204,7 @@ HRV_RMSSD_BIGDIFF_MAX_FRAC = 0.35
 # Time-varying (TV) HRV metrics (for plotting SDNN/LF/HF/LFHF series)
 # =============================================================================
 
-HRV_TV_WINDOW_SEC = 120.0             # 5 min window
+HRV_TV_WINDOW_SEC = 300.0             # 5 min window
 HRV_TV_STEP_HZ = 1.0                  # evaluate on 1 Hz grid
 
 HRV_TV_TACHO_RESAMPLE_HZ = 4.0
@@ -212,6 +214,14 @@ HRV_TV_MAX_TACHO_GAP_SEC = 3.0        # optional separate knob; fallback uses HR
 # Separate acceptance criteria for TV spectral metrics
 HRV_TV_MIN_FREQ_DOMAIN_SEC = 60.0
 HRV_TV_MAX_TACHO_GAP_SEC = 6.0
+
+# Plot scaling for cross-night comparability
+# When enabled, use the same y-axis ranges across nights instead of per-night autoscaling.
+HRV_PLOT_USE_FIXED_YLIMS = False
+HRV_PLOT_RMSSD_YLIM = (0.0, 80.0)
+HRV_PLOT_SDNN_YLIM = (0.0, 150.0)
+HRV_PLOT_LFHF_POWER_YLIM = (1.0, 10000.0)
+HRV_PLOT_LFHF_RATIO_YLIM = (0.0, 10.0)
 
 
 # =============================================================================
@@ -232,24 +242,27 @@ COL_NAMES: Dict[str, str] = {
     "stage": "WP Stages",
     "spo2": "SpO2",
     "desat_flag": "Desaturation",
+    "exclude_hr_flag": "Exclude HR",
     "exclude_pat_flag": "Exclude PAT",
     "evt_central_3": "A/H central-3% (Last second)",
     "evt_obstructive_3": "A/H obstructive-3% (Last second)",
     "evt_unclassified_3": "A/H unclassified-3% (Last second)",
 }
 
-# HRV event exclusion (based on canonical keys above)
+# Shared exclusion inputs used by HR/HRV/PSD/PAT burden plotting and calculations
 HRV_EXCLUSION_EVENT_COLUMNS = [
     "evt_central_3",
     "evt_obstructive_3",
     "evt_unclassified_3",
+    "exclude_hr_flag",
+    "exclude_pat_flag",
     # "desat_flag",
 ]
 
 #TODO: uncoment, just for debuging and ploting the signals.
 
-#HRV_EXCLUSION_PRE_SEC = 15.0
-#HRV_EXCLUSION_POST_SEC = 30.0
+# HRV_EXCLUSION_PRE_SEC = 15.0
+# HRV_EXCLUSION_POST_SEC = 30.0
 HRV_EXCLUSION_PRE_SEC = 0.0
 HRV_EXCLUSION_POST_SEC = 0.0
 
@@ -286,12 +299,12 @@ PSD_RESP_BAND = (0.15, 0.23)
 # RMSSD cleaning / robustness
 # =============================================================================
 
-HRV_RMSSD_DIFF_HARD_CAP_MS = 250.0
-HRV_RMSSD_DIFF_MAD_SIGMAS = 3.0
+HRV_RMSSD_DIFF_HARD_CAP_MS = 400.0
+HRV_RMSSD_DIFF_MAD_SIGMAS = 4.0
 HRV_RMSSD_MIN_DIFFS = 3
 
 HRV_RMSSD_FLOOR_MS = 2.0
-HRV_MIN_WINDOW_COVERAGE = 0.4
+HRV_MIN_WINDOW_COVERAGE = 0.2
 
 # =============================================================================
 # Sleep stage handling / masking
@@ -345,6 +358,10 @@ def sleep_include_numeric() -> set[int]:
 
     if s == "all_sleep":
         return {1, 2, 3}
+
+    if s == "all_sleep_incluidng_wake":
+        return {0, 1, 2, 3}
+
     if s == "rem_only":
         return {3}
     if s == "nrem_only":
@@ -373,3 +390,8 @@ PAT_BURDEN_BASELINE_MIN_SAMPLES = 5
 PAT_BURDEN_BASELINE_PCTL = 95.0
 PAT_BURDEN_MIN_EPISODE_SEC = 5.0
 PAT_BURDEN_RELATIVE = False
+
+
+
+HRV_PLOT_BIN_SEC = 10.0 * 60.0
+HRV_PLOT_BIN_MIN_COUNT = 3

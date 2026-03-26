@@ -30,10 +30,16 @@ class RecordingContext:
     # HR (PAT derived)
     t_hr_calc: Optional[np.ndarray] = None
     hr_calc: Optional[np.ndarray] = None
+    hr_calc_raw: Optional[np.ndarray] = None
+    delta_hr_calc: Optional[np.ndarray] = None
+    delta_hr_calc_evt: Optional[np.ndarray] = None
 
     # HR (EDF channel)
     t_hr_edf: Optional[np.ndarray] = None
     hr_edf: Optional[np.ndarray] = None
+    hr_edf_raw: Optional[np.ndarray] = None
+    delta_hr_edf: Optional[np.ndarray] = None
+    delta_hr_edf_evt: Optional[np.ndarray] = None
 
     # HR correlation
     pearson_r: Optional[float] = None
@@ -49,6 +55,11 @@ class RecordingContext:
     hrv_rmssd_clean: Optional[np.ndarray] = None
     hrv_summary: Optional[Dict[str, float]] = None
     hrv_tv: Optional[Dict[str, np.ndarray]] = None
+    hrv_mask_info: Optional[Dict[str, object]] = None
+    rr_mid_clean: Optional[np.ndarray] = None
+    rr_ms_clean: Optional[np.ndarray] = None
+    rr_duration_sec: Optional[float] = None
+    sleep_combo_summaries: Optional[Dict[str, Dict[str, object]]] = None
 
     # ACTIGRAPH (motion)
     t_actigraph: Optional[np.ndarray] = None
@@ -62,10 +73,12 @@ class RecordingContext:
     # PSD peaks
     mayer_peak_freq: Optional[float] = None
     resp_peak_freq: Optional[float] = None
+    psd_features: Optional[Dict[str, float]] = None
 
     # Outputs
     pdf_path: Optional[Path] = None
     hrv_csv_path: Optional[Path] = None
+    peaks_pdf_path: Optional[Path] = None
 
     def __post_init__(self) -> None:
         if not self.edf_base:

@@ -5,7 +5,7 @@ from typing import Optional, Dict, TYPE_CHECKING, List, Tuple
 import numpy as np
 import matplotlib.pyplot as plt
 
-from .. import config
+from .. import config, masking
 from .utils import _fmt, _count_flags
 
 if TYPE_CHECKING:
@@ -214,6 +214,39 @@ def _sleep_stage_rows(aux_df: Optional["pd.DataFrame"]) -> List[List[str]]:
     return rows
 
 
+def _sleep_combo_rows(sleep_combo_summaries: Optional[Dict[str, Dict[str, object]]]) -> List[List[str]]:
+    rows: List[List[str]] = []
+    if not sleep_combo_summaries:
+        return rows
+
+    rows.append(["Sleep subset comparison", ""])
+    rows.append(["Subset", "Sleep h | RMSSD | SDNN | LF/HF | PSD win | Burden"])
+
+    for key in ["all_sleep", "wake_sleep", "nrem", "deep", "rem"]:
+        item = sleep_combo_summaries.get(key)
+        if not isinstance(item, dict):
+            continue
+
+        label = str(item.get("label", key))
+        sleep_hours = _fmt_num(item.get("sleep_hours"), 2)
+
+        hrv_summary = item.get("hrv_summary") if isinstance(item.get("hrv_summary"), dict) else {}
+        psd_features = item.get("psd_features") if isinstance(item.get("psd_features"), dict) else {}
+        burden = item.get("pat_burden")
+
+        value = (
+            f"{sleep_hours} h | "
+            f"{_fmt(hrv_summary.get('rmssd_mean'), 1)} ms | "
+            f"{_fmt(hrv_summary.get('sdnn'), 1)} ms | "
+            f"{_fmt(hrv_summary.get('lf_hf'), 2)} | "
+            f"{_fmt_int(psd_features.get('n_windows'))} | "
+            f"{_fmt(burden, 3)}"
+        )
+        rows.append([label, value])
+
+    return rows
+
+
 # ============================================================================
 # Rendering helper: a single clean page with a table
 # ============================================================================
@@ -282,9 +315,10 @@ def build_summary_pages(
     delta_hr_edf_evt: Optional[np.ndarray] = None,
     pat_burden: Optional[float] = None,
     pat_burden_diag: Optional[Dict[str, float]] = None,
+    sleep_combo_summaries: Optional[Dict[str, Dict[str, object]]] = None,
 ) -> List[plt.Figure]:
     """
-    Returns exactly 4 figures (pages) in a logical, readable layout.
+    Returns summary figures in a logical, readable layout.
 
     Plotting-only mode:
       - proprietary/device HR comparison is hidden
@@ -375,12 +409,14 @@ def build_summary_pages(
 
     if psd_features:
         rows_p2 += [
+            ["  PSD mode", str(psd_features.get("psd_mode", "matched"))],
             ["  VLF power (0.0033–0.04 Hz)", _fmt_sci(psd_features.get("pow_vlf"))],
             ["  Mayer power (0.04–0.15 Hz)", _fmt_sci(psd_features.get("pow_mayer"))],
             ["  Resp power (0.15–0.50 Hz)", _fmt_sci(psd_features.get("pow_resp"))],
             ["  Mayer power (norm)", _fmt_pct(psd_features.get("norm_mayer"), 1)],
             ["  Resp power (norm)", _fmt_pct(psd_features.get("norm_resp"), 1)],
             ["  Valid PSD windows", _fmt_int(psd_features.get("n_windows"))],
+            ["  PSD diagnostic", str(psd_features.get("psd_diag_reason", "")) or "ok"],
         ]
 
     fig2 = _render_table_page(
@@ -421,12 +457,24 @@ def build_summary_pages(
         scale_y=1.40,
     )
 
+    combo_rows = _sleep_combo_rows(sleep_combo_summaries)
+    fig_combo = None
+    if combo_rows:
+        fig_combo = _render_table_page(
+            "Summary (Fixed Sleep Combinations)",
+            combo_rows,
+            edf_base=edf_base,
+            font_size=12,
+            scale_y=1.35,
+        )
+
     # -------------------------
     # Page 4: Events + sleep + PAT burden
     # -------------------------
     rows_p4: List[List[str]] = []
 
     if aux_df is not None:
+        policy = masking.policy_from_config()
         aux_total = len(aux_df)
         desat_n, desat_pct = _count_flags(aux_df, "desat_flag")
         excl_hr_n, excl_hr_pct = _count_flags(aux_df, "exclude_hr_flag")
@@ -443,6 +491,10 @@ def build_summary_pages(
         rows_p4 += [
             ["Overall event summary (aux CSV)", ""],
             ["  Samples (rows)", f"{aux_total:d}"],
+            [
+                "  Active exclusion columns",
+                ", ".join(policy.exclusion_columns) if policy.exclusion_columns else "none",
+            ],
             ["  Desaturation flags", f"{desat_n:d} ({desat_pct})"],
             ["  Exclude HR flags", f"{excl_hr_n:d} ({excl_hr_pct})"],
             ["  Exclude PAT flags", f"{excl_pat_n:d} ({excl_pat_pct})"],
@@ -489,7 +541,11 @@ def build_summary_pages(
         scale_y=1.25,
     )
 
-    return [fig1, fig2, fig3, fig4]
+    figs = [fig1, fig2, fig3]
+    if fig_combo is not None:
+        figs.append(fig_combo)
+    figs.append(fig4)
+    return figs
 
 
 # ============================================================================

@@ -651,14 +651,19 @@ def _overlay_events_on_axes(
     delta_ymin, delta_ymax = delta_ylim if delta_ylim is not None else (None, None)
 
     def _scatter_desat(ax: plt.Axes, t_h: np.ndarray, y0: float, y1: float, color: str, label: str) -> None:
-        y_desat = y0 + 0.03 * (y1 - y0)
+        if ax.get_yscale() == "log" and y0 > 0 and y1 > y0:
+            log_y0 = np.log10(y0)
+            log_y1 = np.log10(y1)
+            y_desat = 10 ** (log_y0 + 0.08 * (log_y1 - log_y0))
+        else:
+            y_desat = y0 + 0.03 * (y1 - y0)
         ax.scatter(
             t_h,
             np.full_like(t_h, y_desat, dtype=float),
             marker="v",
-            s=25,
+            s=32,
             color=color,
-            alpha=0.85,
+            alpha=0.95,
             label=label,
             zorder=5,
         )
@@ -771,6 +776,7 @@ def _add_segment_pages_to_pdf(
     hrv_raw: Optional[np.ndarray],
     aux_df: Optional["pd.DataFrame"],
     exclusion_zones: List[Tuple[float, float, str]],
+    event_spec: List[EventSpec],
     t_pat_amp: Optional[np.ndarray],
     pat_amp: Optional[np.ndarray],
     delta_hr_calc: Optional[np.ndarray],
@@ -922,6 +928,7 @@ def _add_segment_pages_to_pdf(
             hrv_ylim=hrv_ylim,
             amp_ylim=None,
             delta_ylim=delta_ylim,
+            event_spec=event_spec,
         )
 
         if ax_hrv is not None:
@@ -931,6 +938,7 @@ def _add_segment_pages_to_pdf(
         else:
             ax_hr.set_xlabel("Time (hours from recording start)")
 
-        fig.tight_layout()
+        fig.tight_layout(rect=(0.04, 0.05, 0.88, 0.98))
+        fig.subplots_adjust(hspace=0.22)
         pdf.savefig(fig)
         plt.close(fig)
