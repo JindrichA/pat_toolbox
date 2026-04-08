@@ -70,6 +70,139 @@ def _apply_global_mask_to_series(
     return y2
 
 
+def _overlay_pat_burden_area(
+    ax,
+    *,
+    t_sec_all: np.ndarray,
+    pat_amp_all: np.ndarray,
+    aux_df: Optional["pd.DataFrame"],
+    seg_start_sec: float,
+    seg_end_sec: float,
+) -> None:
+    if aux_df is None:
+        return
+
+    t = np.asarray(t_sec_all, dtype=float)
+    y = np.asarray(pat_amp_all, dtype=float)
+    if t.size == 0 or y.size == 0 or t.size != y.size:
+        return
+
+    m_sleep_keep = sleep_mask.build_sleep_include_mask_for_times(t, aux_df)
+    if m_sleep_keep is None:
+        m_sleep_keep = np.ones_like(t, dtype=bool)
+
+    m_evt_keep = io_aux_csv.build_time_exclusion_mask(t, aux_df)
+    if m_evt_keep is None:
+        return
+
+    m_inside = np.asarray(m_sleep_keep, bool) & (~np.asarray(m_evt_keep, bool))
+
+    min_ep_sec = float(getattr(config, "PAT_BURDEN_MIN_EPISODE_SEC", 5.0))
+    lookback = float(getattr(config, "PAT_BURDEN_BASELINE_LOOKBACK_SEC", 30.0))
+    pctl = float(getattr(config, "PAT_BURDEN_BASELINE_PCTL", 95.0))
+    min_base_n = int(getattr(config, "PAT_BURDEN_BASELINE_MIN_SAMPLES", 5))
+
+    m_baseline_ok = np.asarray(m_sleep_keep, bool) & np.asarray(m_evt_keep, bool) & np.isfinite(y)
+
+    def _runs(mask: np.ndarray) -> list[tuple[int, int]]:
+        mask = np.asarray(mask, dtype=bool)
+        if mask.size == 0 or not np.any(mask):
+            return []
+        d = np.diff(mask.astype(int))
+        starts = np.where(d == 1)[0] + 1
+        ends = np.where(d == -1)[0] + 1
+        if mask[0]:
+            starts = np.r_[0, starts]
+        if mask[-1]:
+            ends = np.r_[ends, mask.size]
+        return [(int(s), int(e)) for s, e in zip(starts, ends) if e > s]
+
+    for s, e in _runs(m_inside):
+        t0 = float(t[s])
+        t1 = float(t[e - 1])
+        if not (np.isfinite(t0) and np.isfinite(t1)) or (t1 - t0) < min_ep_sec:
+            continue
+        m_pre = (t >= (t0 - lookback)) & (t < t0) & m_baseline_ok
+        if np.count_nonzero(m_pre) < min_base_n:
+            continue
+
+        baseline = float(np.nanpercentile(y[m_pre], pctl))
+        if not np.isfinite(baseline):
+            continue
+
+        tt = t[s:e]
+        yy = y[s:e]
+        good = np.isfinite(tt) & np.isfinite(yy)
+        if np.count_nonzero(good) < 2:
+            continue
+        tt = tt[good]
+        yy = yy[good]
+        m_seg = (tt >= seg_start_sec) & (tt <= seg_end_sec)
+        if np.count_nonzero(m_seg) < 2:
+            continue
+        tt = tt[m_seg]
+        yy = yy[m_seg]
+        below = yy < baseline
+        if not np.any(below):
+            continue
+
+        ax.plot(tt / 3600.0, np.full_like(tt, baseline, dtype=float), linestyle="--", linewidth=1.1, alpha=0.7, color="0.25", label="_nolegend_", zorder=2)
+        ax.fill_between(tt / 3600.0, yy, baseline, where=below, interpolate=True, alpha=0.22, color="tab:red", label="PAT burden area", zorder=1)
+
+
+def _plot_segment_pat_amp(
+    ax,
+    t_pat_amp: np.ndarray,
+    pat_amp: np.ndarray,
+    seg_start_sec: float,
+    seg_end_sec: float,
+    exclusion_zones: List[Tuple[float, float, str]],
+    t_seg_h_start: float,
+    t_seg_h_end: float,
+    aux_df: Optional["pd.DataFrame"],
+) -> tuple[Optional[float], Optional[float]]:
+    _add_exclusion_spans(ax, exclusion_zones, t_seg_h_start, t_seg_h_end, label_once=True)
+    mask = (t_pat_amp >= seg_start_sec) & (t_pat_amp <= seg_end_sec)
+    if not np.any(mask):
+        ax.set_ylabel("PAT AMP")
+        ax.grid(True)
+        return None, None
+
+    t_sec_seg = t_pat_amp[mask].astype(float)
+    y_seg = pat_amp[mask].astype(float)
+
+    if aux_df is not None:
+        m_keep = sleep_mask.build_global_include_mask_for_times(t_sec_seg, aux_df, apply_sleep=True, apply_events=True)
+        if m_keep is not None:
+            _shade_masked_regions(ax, t_sec=t_sec_seg, masked=~m_keep, color="0.6", alpha=0.18)
+
+    if np.any(np.isfinite(y_seg)):
+        _plot_no_bridge(ax, x_sec=t_sec_seg, y=y_seg, label="PAT AMP", linestyle="-", linewidth=1.1, color="tab:orange", alpha=0.9, zorder=3)
+        _overlay_pat_burden_area(ax, t_sec_all=t_pat_amp, pat_amp_all=pat_amp, aux_df=aux_df, seg_start_sec=seg_start_sec, seg_end_sec=seg_end_sec)
+        yy = y_seg[np.isfinite(y_seg)]
+        y0 = float(np.min(yy))
+        y1 = float(np.max(yy))
+        if np.isfinite(y0) and np.isfinite(y1) and y1 > y0:
+            margin = 0.10 * (y1 - y0)
+            ax.set_ylim(y0 - margin, y1 + margin)
+    else:
+        ax.text(0.01, 0.92, "PAT AMP unavailable in this segment", transform=ax.transAxes, fontsize=9, va="top")
+
+    ax.set_ylabel("PAT AMP")
+    ax.grid(True)
+    handles, labels = ax.get_legend_handles_labels()
+    seen = set()
+    h2, l2 = [], []
+    for h, l in zip(handles, labels):
+        if l not in seen and l != "_nolegend_":
+            h2.append(h)
+            l2.append(l)
+            seen.add(l)
+    if h2:
+        ax.legend(h2, l2, loc="center left", bbox_to_anchor=(1.01, 0.5), borderaxespad=0.0, fontsize=9)
+    return ax.get_ylim()
+
+
 def _plot_segment_hr(
     ax,
     t_hr_edf: Optional[np.ndarray],
@@ -169,7 +302,6 @@ def _plot_segment_hrv(
     mask = (t_hrv >= seg_start_sec) & (t_hrv <= seg_end_sec)
     if np.any(mask):
         t_sec_seg = t_hrv[mask].astype(float)
-        hrv_raw_arr = cast(np.ndarray, hrv_raw) if use_raw else None
         legend_patches: List[Patch] = []
         if aux_df is not None and bool(getattr(config, "ENABLE_SLEEP_STAGE_MASKING", False)):
             m_sleep_keep = sleep_mask.build_sleep_include_mask_for_times(t_sec_seg, aux_df)
@@ -182,6 +314,7 @@ def _plot_segment_hrv(
                 _shade_masked_regions(ax, t_sec=t_sec_seg, masked=~m_evt_keep, color="tab:red", alpha=0.12)
                 legend_patches.append(Patch(facecolor="tab:red", alpha=0.12, label="Events excluded"))
         if use_raw:
+            hrv_raw_arr = cast(np.ndarray, hrv_raw)
             yc_seg = hrv_clean[mask]
             yr_seg = hrv_raw_arr[mask]
             rr_only_excluded = np.isfinite(yr_seg) & ~np.isfinite(yc_seg)
@@ -192,6 +325,7 @@ def _plot_segment_hrv(
                 _shade_masked_regions(ax, t_sec=t_sec_seg, masked=raw_missing, color="gold", alpha=0.45)
         yc = hrv_clean[mask].astype(float)
         if use_raw:
+            hrv_raw_arr = cast(np.ndarray, hrv_raw)
             yr = hrv_raw_arr[mask].astype(float)
             if np.any(np.isfinite(yr)):
                 _plot_no_bridge(ax, x_sec=t_sec_seg, y=yr, label="HRV RMSSD (raw)", linestyle="--", linewidth=1.1, color="tab:green", alpha=0.45, zorder=1)
@@ -286,7 +420,7 @@ def _overlay_events_on_axes(
     ax_hrv,
     ax_amp,
     ax_delta,
-    hr_ylim: tuple[float, float],
+    hr_ylim: Optional[tuple[float, float]],
     hrv_ylim,
     amp_ylim,
     delta_ylim,
@@ -302,17 +436,13 @@ def _overlay_events_on_axes(
         return
     seg = aux_df.loc[mask]
     used_hr = set(); used_hrv = set(); used_amp = set(); used_delta = set()
-    hr_ymin, hr_ymax = hr_ylim
+    if hr_ylim is None:
+        hr_ymin, hr_ymax = (0.0, 1.0)
+    else:
+        hr_ymin, hr_ymax = hr_ylim
     hrv_ymin, hrv_ymax = hrv_ylim if hrv_ylim is not None else (None, None)
     amp_ymin, amp_ymax = amp_ylim if amp_ylim is not None else (None, None)
     delta_ymin, delta_ymax = delta_ylim if delta_ylim is not None else (None, None)
-
-    def _scatter_desat(ax, t_h, y0, y1, color, label):
-        if ax.get_yscale() == "log" and y0 > 0 and y1 > y0:
-            log_y0 = np.log10(y0); log_y1 = np.log10(y1); y_desat = 10 ** (log_y0 + 0.08 * (log_y1 - log_y0))
-        else:
-            y_desat = y0 + 0.03 * (y1 - y0)
-        ax.scatter(t_h, np.full_like(t_h, y_desat, dtype=float), marker="v", s=32, color=color, alpha=0.95, label=label, zorder=5)
 
     for spec in event_spec:
         if spec.col not in seg.columns:
@@ -321,34 +451,31 @@ def _overlay_events_on_axes(
         if not m.any():
             continue
         t_evt_h = seg.loc[m, time_col].to_numpy(float) / 3600.0
-        label_hr = spec.label if spec.label not in used_hr else "_nolegend_"; used_hr.add(spec.label)
-        if spec.col == "desat_flag":
-            _scatter_desat(ax_hr, t_evt_h, hr_ymin, hr_ymax, spec.color, label_hr)
-        else:
+        if ax_hr is not None:
+            label_hr = spec.label if spec.label not in used_hr else "_nolegend_"; used_hr.add(spec.label)
             first = label_hr != "_nolegend_"
             for x in t_evt_h:
-                ax_hr.axvline(x, color=spec.color, linestyle="-", linewidth=2.0, alpha=0.9, label=spec.label if first else "_nolegend_", zorder=5); first = False
+                line_alpha = 0.55 if spec.col == "desat_flag" else 0.9
+                line_width = 1.3 if spec.col == "desat_flag" else 2.0
+                ax_hr.axvline(x, color=spec.color, linestyle="-", linewidth=line_width, alpha=line_alpha, label=spec.label if first else "_nolegend_", zorder=5); first = False
         if ax_hrv is not None and hrv_ymin is not None and hrv_ymax is not None:
             label_hrv = spec.label if spec.label not in used_hrv else "_nolegend_"; used_hrv.add(spec.label)
-            if spec.col == "desat_flag":
-                _scatter_desat(ax_hrv, t_evt_h, hrv_ymin, hrv_ymax, spec.color, label_hrv)
-            else:
-                first = label_hrv != "_nolegend_"
-                for x in t_evt_h:
-                    ax_hrv.axvline(x, color=spec.color, linestyle="-", linewidth=1.8, alpha=0.85, label=spec.label if first else "_nolegend_", zorder=5); first = False
+            first = label_hrv != "_nolegend_"
+            for x in t_evt_h:
+                line_alpha = 0.45 if spec.col == "desat_flag" else 0.85
+                line_width = 1.0 if spec.col == "desat_flag" else 1.8
+                ax_hrv.axvline(x, color=spec.color, linestyle="-", linewidth=line_width, alpha=line_alpha, label=spec.label if first else "_nolegend_", zorder=5); first = False
         if ax_amp is not None and amp_ymin is not None and amp_ymax is not None:
             label_amp = spec.label if spec.label not in used_amp else "_nolegend_"; used_amp.add(spec.label)
-            if spec.col == "desat_flag":
-                _scatter_desat(ax_amp, t_evt_h, amp_ymin, amp_ymax, spec.color, label_amp)
-            else:
-                first = label_amp != "_nolegend_"
-                for x in t_evt_h:
-                    ax_amp.axvline(x, color=spec.color, linestyle="-", linewidth=1.8, alpha=0.85, label=spec.label if first else "_nolegend_", zorder=5); first = False
+            first = label_amp != "_nolegend_"
+            for x in t_evt_h:
+                line_alpha = 0.45 if spec.col == "desat_flag" else 0.85
+                line_width = 1.0 if spec.col == "desat_flag" else 1.8
+                ax_amp.axvline(x, color=spec.color, linestyle="-", linewidth=line_width, alpha=line_alpha, label=spec.label if first else "_nolegend_", zorder=5); first = False
         if ax_delta is not None and delta_ymin is not None and delta_ymax is not None:
             label_delta = spec.label if spec.label not in used_delta else "_nolegend_"; used_delta.add(spec.label)
-            if spec.col == "desat_flag":
-                _scatter_desat(ax_delta, t_evt_h, delta_ymin, delta_ymax, spec.color, label_delta)
-            else:
-                first = label_delta != "_nolegend_"
-                for x in t_evt_h:
-                    ax_delta.axvline(x, color=spec.color, linestyle="-", linewidth=1.8, alpha=0.85, label=spec.label if first else "_nolegend_", zorder=5); first = False
+            first = label_delta != "_nolegend_"
+            for x in t_evt_h:
+                line_alpha = 0.45 if spec.col == "desat_flag" else 0.85
+                line_width = 1.0 if spec.col == "desat_flag" else 1.8
+                ax_delta.axvline(x, color=spec.color, linestyle="-", linewidth=line_width, alpha=line_alpha, label=spec.label if first else "_nolegend_", zorder=5); first = False

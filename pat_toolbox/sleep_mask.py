@@ -222,6 +222,50 @@ def build_sleep_include_mask_for_times(
     )
 
 
+def compute_sleep_hours_from_aux(
+    aux_df: Optional["pd.DataFrame"],
+    include_set: Optional[set[int]] = None,
+) -> float:
+    """
+    Estimate included sleep hours directly from the aux stage timeline.
+
+    This is useful for summaries that should report sleep hours even when other
+    features such as PAT burden are disabled.
+    """
+    if aux_df is None:
+        return float("nan")
+
+    time_col = getattr(config, "AUX_CSV_TIME_SEC_COLUMN", "time_sec")
+    stage_col = getattr(config, "AUX_CSV_STAGE_CODE_COLUMN", "stage_code")
+    if time_col not in aux_df.columns:
+        return float("nan")
+
+    aux_df = ensure_stage_code_column(aux_df)
+    if stage_col not in aux_df.columns:
+        return float("nan")
+
+    t_aux = aux_df[time_col].to_numpy(dtype=float)
+    s_aux = aux_df[stage_col].to_numpy(dtype=float)
+    ok = np.isfinite(t_aux) & np.isfinite(s_aux)
+    if np.count_nonzero(ok) < 2:
+        return float("nan")
+
+    t_aux = t_aux[ok]
+    s_aux = np.round(s_aux[ok]).astype(int)
+    order = np.argsort(t_aux)
+    t_aux = t_aux[order]
+    s_aux = s_aux[order]
+
+    include = np.isin(s_aux, list(_resolve_include_set(include_set)))
+    dt = np.diff(t_aux)
+    dt = np.clip(dt, 0.0, None)
+    if dt.size == 0:
+        return float("nan")
+
+    keep_interval = include[:-1] & include[1:]
+    return float(np.sum(dt[keep_interval]) / 3600.0)
+
+
 # -----------------------------------------------------------------------------
 # apply helper
 # -----------------------------------------------------------------------------

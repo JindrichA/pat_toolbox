@@ -4,6 +4,7 @@ from typing import Optional, TYPE_CHECKING
 
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.ticker import MultipleLocator
 
 from .. import config
 
@@ -75,8 +76,6 @@ def _build_sleep_stagegram_figure(
         edges[:-1] = xh
         edges[-1] = xh[-1] + step_h
     fig, ax = plt.subplots(figsize=(11.69, 8.27))
-    for y0, _name, alpha in [(3, "Wake", 0.08), (2, "REM", 0.06), (1, "NREM (Light)", 0.05), (0, "NREM (Deep)", 0.05)]:
-        ax.axhspan(y0 - 0.5, y0 + 0.5, alpha=alpha, zorder=0)
     ax.step(edges, np.r_[y, y[-1]], where="post", linewidth=3.0, zorder=3)
     if enabled and included.size == xh.size:
         exc = ~included
@@ -103,11 +102,8 @@ def _build_sleep_stagegram_figure(
     ax.set_xticklabels([_h_to_clock(h) for h in ax.get_xticks()])
     ax.set_xlabel("Time since recording start [hours]")
     ax.set_title(f"{edf_base} - Hypnogram", fontsize=14, pad=12)
-    ax.grid(True, which="major", axis="x", alpha=0.35)
-    ax.grid(True, which="minor", axis="x", alpha=0.18)
-    ax.xaxis.set_major_locator(plt.MultipleLocator(1.0))
-    ax.xaxis.set_minor_locator(plt.MultipleLocator(0.5))
-    ax.grid(True, which="major", axis="y", alpha=0.20)
+    ax.xaxis.set_major_locator(MultipleLocator(1.0))
+    ax.grid(True, which="major", axis="x", alpha=0.25)
     total = int(len(s))
     if total > 0:
         pct = lambda n: f"{(100.0 * n / total):.1f}%"

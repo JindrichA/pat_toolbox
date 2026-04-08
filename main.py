@@ -8,6 +8,7 @@ from pathlib import Path
 from tqdm import tqdm
 
 from pat_toolbox import config, io_edf, paths, workflows
+from pat_toolbox import features
 from pat_toolbox.metrics import hr
 
 
@@ -51,9 +52,10 @@ def main():
     # ------------------------------------------------------------------
     edf_folder: Path = config.EDF_FOLDER
 
-    enable_plots = config.ENABLE_VIEW_PAT_OVERLAY_PLOTS
-    enable_hr = config.ENABLE_HR
-    enable_peak_debug = getattr(config, "ENABLE_PAT_PEAK_DEBUG_PLOTS")
+    enable_plots = features.is_enabled("report_pdf")
+    enable_hr = features.is_enabled("hr")
+    enable_peak_debug = features.is_enabled("peaks_debug_pdf")
+    run_workflow = features.workflow_requested()
 
     # ------------------------------------------------------------------
     # Prevent sleep (macOS)
@@ -73,6 +75,9 @@ def main():
     )
     print(f"VIEW_PAT plotting    : {enable_plots}")
     print(f"HR from PAT          : {enable_hr} (target fs = {config.HR_TARGET_FS_HZ} Hz)")
+    print(f"HRV enabled          : {features.is_enabled('hrv')}")
+    print(f"PSD enabled          : {features.is_enabled('psd')}")
+    print(f"PAT burden enabled   : {features.is_enabled('pat_burden')}")
     print(f"PAT peaks debug PDF  : {enable_peak_debug}")
     print(f"RUN_ID               : {getattr(config, 'RUN_ID', 'default')}")
     print()
@@ -100,7 +105,7 @@ def main():
     print(f"Found {len(edf_files)} EDF file(s).")
     print()
 
-    if not enable_plots and not enable_hr and not enable_peak_debug:
+    if not run_workflow and not enable_hr and not enable_peak_debug:
         print("Nothing to do (all features disabled).")
         return
 
@@ -113,7 +118,7 @@ def main():
 
             # If we run the workflow, it already computes HR/HRV and (optionally)
             # makes the peaks debug PDF based on config.ENABLE_PAT_PEAK_DEBUG_PLOTS.
-            if enable_plots:
+            if run_workflow:
                 workflows.process_view_pat_overlay_for_file(edf_path)
                 did_workflow = True
 

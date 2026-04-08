@@ -29,6 +29,33 @@ RUN_ID = datetime.now().strftime("%Y%m%d_%H%M%S")
 # Changing it affects output folder names only; it does not change calculations.
 RUN_TAG = "desat_2min_FD_fixed"
 
+# Top-level feature selection. These switches are meant to answer the question
+# "what should this run produce?". If a feature is disabled here, the goal is to
+# keep it out of computation, tables, plots, and file outputs.
+# Recommended workflow:
+#   1. decide which features should be part of the run here
+#   2. only then tune the detailed HR / HRV / PSD / burden knobs below
+#
+# In practice:
+#   - hr                  -> PAT-derived heart-rate series and HR summary outputs
+#   - hrv                 -> RMSSD/SDNN/LF/HF/LF-HF calculations, HRV plots, HRV CSV
+#   - psd                 -> spectral features and PSD report pages
+#   - delta_hr            -> delta-HR computation, segment subplot, delta summary rows
+#   - pat_burden          -> PAT amplitude loading, burden metric, burden subplot/rows
+#   - sleep_combo_summary -> extra fixed sleep-subset comparison summaries
+#   - report_pdf          -> main multi-page PDF report
+#   - peaks_debug_pdf     -> PAT peak-debug PDF
+FEATURES = {
+    "hr": True,
+    "hrv": True,
+    "psd": False,
+    "delta_hr": True,
+    "pat_burden": True,
+    "sleep_combo_summary": True,
+    "report_pdf": True,
+    "peaks_debug_pdf": False,
+}
+
 
 def _slug(s: str) -> str:
     s = (s or "").strip()
@@ -138,6 +165,7 @@ def run_suffix() -> str:
 # Output subfolders inherit the current run id / sleep policy / tag.
 OUTPUT_SUBFOLDER = f"ViewPatPlotsOverlay__{run_suffix()}"
 HR_OUTPUT_SUBFOLDER = f"HR__{run_suffix()}"
+HRV_OUTPUT_SUBFOLDER = f"HRV__{run_suffix()}"
 PSD_OUTPUT_SUBFOLDER = f"PSD__{run_suffix()}"
 
 
@@ -214,9 +242,9 @@ HRV_EXCLUSION_DESAT_LOOKAHEAD_SEC = 0.0
 # physiological calculations. They are safe knobs for users who want different
 # report density or debugging views.
 
-ENABLE_VIEW_PAT_OVERLAY_PLOTS = True
+ENABLE_VIEW_PAT_OVERLAY_PLOTS = FEATURES["report_pdf"]
 ENABLE_PAT_SIGNAL_PLOT = True
-ENABLE_PAT_PEAK_DEBUG_PLOTS = False
+ENABLE_PAT_PEAK_DEBUG_PLOTS = FEATURES["peaks_debug_pdf"]
 
 SEGMENT_MINUTES = 15
 PAT_PEAK_DEBUG_SEGMENT_MINUTES = 1.0
@@ -242,7 +270,7 @@ PAT_BANDPASS_ORDER = 4
 # change smoothing, bpm clamps, or gap settings unless they are validating a new
 # detector on a different signal quality profile.
 
-ENABLE_HR = True
+ENABLE_HR = FEATURES["hr"]
 HR_TARGET_FS_HZ = 1.0
 
 # Physiologic RR limits (seconds).
@@ -380,7 +408,7 @@ PSD_RESP_BAND = (0.15, 0.23)
 # Delta-HR reflects short-term change in HR over a lagged baseline. It mainly
 # affects exploratory plots and summaries rather than the core HR/HRV pipeline.
 
-ENABLE_DELTA_HR = True
+ENABLE_DELTA_HR = FEATURES["delta_hr"]
 DELTA_HR_LAG_SEC = 30.0
 DELTA_HR_PRE_SMOOTH_SEC = 0.0
 DELTA_HR_ABS = False
@@ -397,9 +425,11 @@ DELTA_HR_PLOT_MODE = "subplot"
 # These settings tune how PAT burden episodes are normalized and baseline-corrected.
 # Users interested in the burden metric should mainly experiment here.
 
-ENABLE_PAT_BURDEN = True
+ENABLE_PAT_BURDEN = FEATURES["pat_burden"]
 PAT_BURDEN_BASELINE_LOOKBACK_SEC = 30.0
 PAT_BURDEN_BASELINE_MIN_SAMPLES = 5
 PAT_BURDEN_BASELINE_PCTL = 95.0
 PAT_BURDEN_MIN_EPISODE_SEC = 5.0
 PAT_BURDEN_RELATIVE = False
+
+ENABLE_SLEEP_COMBO_SUMMARY = FEATURES["sleep_combo_summary"]

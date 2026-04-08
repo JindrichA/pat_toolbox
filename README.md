@@ -388,6 +388,50 @@ The main control surface is:
 
 - `pat_toolbox/config.py`
 
+The first place to edit is now the top-level `FEATURES` block in `pat_toolbox/config.py`.
+
+Use it to decide what the run should actually include before touching detailed thresholds.
+
+Example:
+
+```python
+FEATURES = {
+    "hr": True,
+    "hrv": True,
+    "psd": True,
+    "delta_hr": False,
+    "pat_burden": False,
+    "sleep_combo_summary": False,
+    "report_pdf": True,
+    "peaks_debug_pdf": False,
+}
+```
+
+What these top-level switches mean:
+
+- `hr`
+  - enables PAT-derived heart-rate calculation and HR-owned summary outputs
+- `hrv`
+  - enables HRV calculation, HRV report figures, and HRV CSV export
+- `psd`
+  - enables spectral feature calculation and PSD report pages
+- `delta_hr`
+  - enables delta-HR calculation, subplot rendering, and delta-HR summary outputs
+- `pat_burden`
+  - enables PAT amplitude loading, burden calculation, burden plotting, and burden summary outputs
+- `sleep_combo_summary`
+  - enables extra fixed sleep-subset comparison summaries
+- `report_pdf`
+  - enables the main multi-page report PDF
+- `peaks_debug_pdf`
+  - enables the separate PAT peaks debug PDF
+
+Recommended workflow for users:
+
+1. decide which features should be on in `FEATURES`
+2. run the pipeline once
+3. only then tune detailed knobs like `HR_*`, `HRV_*`, `PSD_*`, or `PAT_BURDEN_*`
+
 Common configuration areas include:
 
 - paths and run labeling

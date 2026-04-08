@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.backends.backend_pdf import PdfPages
 
+from .. import features
 from ..metrics.psd import compute_psd_figures_and_peaks
 from .figures_hrv import _build_hrv_overview_figure, _build_stagegram_and_hrv_tv_figure
 from .figures_summary import _build_sleep_stagegram_figure, build_summary_pages
@@ -36,12 +37,16 @@ def _build_report_context(
     edf_base = _infer_edf_base(pdf_path)
     exclusion_zones = _compute_exclusion_zones(aux_df)
     event_spec = active_event_plot_spec()
-    psd_features, fig_psd_zoom, fig_psd_full, _psd_png_zoom, _psd_png_full = compute_psd_figures_and_peaks(
-        signal_raw,
-        sfreq,
-        edf_base=edf_base,
-        aux_df=aux_df,
-    )
+    psd_features = None
+    fig_psd_zoom = None
+    fig_psd_full = None
+    if features.is_enabled("psd"):
+        psd_features, fig_psd_zoom, fig_psd_full, _psd_png_zoom, _psd_png_full = compute_psd_figures_and_peaks(
+            signal_raw,
+            sfreq,
+            edf_base=edf_base,
+            aux_df=aux_df,
+        )
     return {
         "edf_base": edf_base,
         "exclusion_zones": exclusion_zones,
@@ -49,8 +54,120 @@ def _build_report_context(
         "psd_features": psd_features,
         "fig_psd_zoom": fig_psd_zoom,
         "fig_psd_full": fig_psd_full,
-        "mayer_peak_freq": psd_features.get("mayer_peak_hz"),
-        "resp_peak_freq": psd_features.get("resp_peak_hz"),
+        "mayer_peak_freq": None if psd_features is None else psd_features.get("mayer_peak_hz"),
+        "resp_peak_freq": None if psd_features is None else psd_features.get("resp_peak_hz"),
+    }
+
+
+def _build_summary_pages_for_enabled_features(
+    *,
+    edf_base: str,
+    mayer_peak_freq,
+    resp_peak_freq,
+    aux_df,
+    t_hr_calc,
+    hr_calc,
+    t_hrv,
+    hrv_rmssd,
+    hrv_rmssd_raw,
+    hrv_tv,
+    hrv_summary,
+    psd_features,
+    delta_hr_calc,
+    delta_hr_calc_evt,
+    pat_burden,
+    pat_burden_diag,
+    sleep_combo_summaries,
+):
+    return build_summary_pages(
+        edf_base=edf_base,
+        pearson_r=None,
+        spear_rho=None,
+        rmse=None,
+        hrv_summary=hrv_summary,
+        mayer_peak_freq=mayer_peak_freq,
+        resp_peak_freq=resp_peak_freq,
+        aux_df=aux_df,
+        t_hr_calc=t_hr_calc,
+        hr_calc=hr_calc,
+        t_hr_edf=None,
+        hr_edf=None,
+        t_hrv=t_hrv,
+        hrv_clean=hrv_rmssd,
+        hrv_raw=hrv_rmssd_raw,
+        hrv_tv=hrv_tv,
+        psd_features=psd_features,
+        delta_hr_calc=delta_hr_calc,
+        delta_hr_edf=None,
+        delta_hr_calc_evt=delta_hr_calc_evt,
+        delta_hr_edf_evt=None,
+        pat_burden=pat_burden,
+        pat_burden_diag=pat_burden_diag,
+        sleep_combo_summaries=sleep_combo_summaries,
+    )
+
+
+def _build_hrv_report_figures(
+    *,
+    edf_base: str,
+    duration_sec: float,
+    exclusion_zones,
+    event_spec,
+    t_hrv,
+    hrv_rmssd,
+    hrv_rmssd_raw,
+    hrv_tv,
+    aux_df,
+    sleep_combo_summaries,
+    hrv_mask_info,
+) -> Dict[str, Any]:
+    use_hrv = features.is_enabled("hrv") and t_hrv is not None and hrv_rmssd is not None and np.size(hrv_rmssd) > 0
+    has_tv = use_hrv and t_hrv is not None and hrv_tv is not None and isinstance(hrv_tv, dict) and len(hrv_tv) > 0
+
+    fig_stage = None
+    fig_stage_tv = None
+    fig_ov = None
+
+    if has_tv:
+        fig_stage_tv = _build_stagegram_and_hrv_tv_figure(
+            edf_base=edf_base,
+            aux_df=aux_df,
+            t_hrv=cast(np.ndarray, t_hrv),
+            hrv_rmssd=hrv_rmssd,
+            hrv_tv=cast(Dict[str, np.ndarray], hrv_tv),
+            exclusion_zones=exclusion_zones,
+            sleep_combo_summaries=sleep_combo_summaries,
+            event_spec=event_spec,
+            hrv_mask_info=hrv_mask_info,
+        )
+    else:
+        fig_stage = _build_sleep_stagegram_figure(edf_base=edf_base, aux_df=aux_df)
+
+    if use_hrv and t_hrv is not None and hrv_rmssd is not None:
+        fig_ov = _build_hrv_overview_figure(
+            edf_base=edf_base,
+            t_hrv=t_hrv,
+            hrv_clean=hrv_rmssd,
+            hrv_raw=hrv_rmssd_raw,
+            aux_df=aux_df,
+            exclusion_zones=exclusion_zones,
+            duration_sec_fallback=duration_sec,
+            event_spec=event_spec,
+            hrv_mask_info=hrv_mask_info,
+        )
+
+    return {
+        "fig_stage": fig_stage,
+        "fig_stage_tv": fig_stage_tv,
+        "fig_ov": fig_ov,
+    }
+
+
+def _build_non_hrv_report_figures(*, edf_base: str, aux_df) -> Dict[str, Any]:
+    return {
+        "fig_stage": _build_sleep_stagegram_figure(edf_base=edf_base, aux_df=aux_df),
+        "fig_stage_tv": None,
+        "fig_ov": None,
     }
 
 
@@ -78,71 +195,46 @@ def _build_report_figures(
     sleep_combo_summaries,
     hrv_mask_info,
 ):
-    use_hrv = t_hrv is not None and hrv_rmssd is not None and np.size(hrv_rmssd) > 0
-    summary_pages = build_summary_pages(
+    summary_pages = _build_summary_pages_for_enabled_features(
         edf_base=edf_base,
-        pearson_r=None,
-        spear_rho=None,
-        rmse=None,
-        hrv_summary=hrv_summary,
         mayer_peak_freq=mayer_peak_freq,
         resp_peak_freq=resp_peak_freq,
         aux_df=aux_df,
         t_hr_calc=t_hr_calc,
         hr_calc=hr_calc,
-        t_hr_edf=None,
-        hr_edf=None,
         t_hrv=t_hrv,
-        hrv_clean=hrv_rmssd,
-        hrv_raw=hrv_rmssd_raw,
+        hrv_rmssd=hrv_rmssd,
+        hrv_rmssd_raw=hrv_rmssd_raw,
         hrv_tv=hrv_tv,
+        hrv_summary=hrv_summary,
         psd_features=psd_features,
         delta_hr_calc=delta_hr_calc,
-        delta_hr_edf=None,
         delta_hr_calc_evt=delta_hr_calc_evt,
-        delta_hr_edf_evt=None,
         pat_burden=pat_burden,
         pat_burden_diag=pat_burden_diag,
         sleep_combo_summaries=sleep_combo_summaries,
     )
 
-    has_tv = use_hrv and t_hrv is not None and hrv_tv is not None and isinstance(hrv_tv, dict) and len(hrv_tv) > 0
-    fig_stage = None
-    fig_stage_tv = None
-    if has_tv:
-        fig_stage_tv = _build_stagegram_and_hrv_tv_figure(
+    if features.is_enabled("hrv"):
+        figure_bundle = _build_hrv_report_figures(
             edf_base=edf_base,
-            aux_df=aux_df,
-            t_hrv=cast(np.ndarray, t_hrv),
-            hrv_rmssd=hrv_rmssd,
-            hrv_tv=cast(Dict[str, np.ndarray], hrv_tv),
+            duration_sec=duration_sec,
             exclusion_zones=exclusion_zones,
-            sleep_combo_summaries=sleep_combo_summaries,
             event_spec=event_spec,
+            t_hrv=t_hrv,
+            hrv_rmssd=hrv_rmssd,
+            hrv_rmssd_raw=hrv_rmssd_raw,
+            hrv_tv=hrv_tv,
+            aux_df=aux_df,
+            sleep_combo_summaries=sleep_combo_summaries,
             hrv_mask_info=hrv_mask_info,
         )
     else:
-        fig_stage = _build_sleep_stagegram_figure(edf_base=edf_base, aux_df=aux_df)
-
-    fig_ov = None
-    if use_hrv and t_hrv is not None and hrv_rmssd is not None:
-        fig_ov = _build_hrv_overview_figure(
-            edf_base=edf_base,
-            t_hrv=t_hrv,
-            hrv_clean=hrv_rmssd,
-            hrv_raw=hrv_rmssd_raw,
-            aux_df=aux_df,
-            exclusion_zones=exclusion_zones,
-            duration_sec_fallback=duration_sec,
-            event_spec=event_spec,
-            hrv_mask_info=hrv_mask_info,
-        )
+        figure_bundle = _build_non_hrv_report_figures(edf_base=edf_base, aux_df=aux_df)
 
     return {
         "summary_pages": summary_pages,
-        "fig_stage": fig_stage,
-        "fig_stage_tv": fig_stage_tv,
-        "fig_ov": fig_ov,
+        **figure_bundle,
     }
 
 
@@ -168,10 +260,14 @@ def _write_report_pdf(
                 _close_figure(fig_stage)
                 fig_stage = None
 
-            _close_figure(fig_psd_zoom)
-            fig_psd_zoom = None
-            _close_figure(fig_psd_full)
-            fig_psd_full = None
+            if fig_psd_zoom is not None:
+                pdf.savefig(fig_psd_zoom)
+                _close_figure(fig_psd_zoom)
+                fig_psd_zoom = None
+            if fig_psd_full is not None:
+                pdf.savefig(fig_psd_full)
+                _close_figure(fig_psd_full)
+                fig_psd_full = None
 
             if fig_ov is not None:
                 pdf.savefig(fig_ov)

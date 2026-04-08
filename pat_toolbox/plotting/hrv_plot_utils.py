@@ -137,6 +137,7 @@ def _add_mean_median_lines(
     *,
     color: str = "black",
     alpha: float = 0.5,
+    include_median: bool = True,
 ) -> None:
     if y is None:
         return
@@ -146,7 +147,8 @@ def _add_mean_median_lines(
         return
 
     ax.axhline(float(np.nanmean(y)), linestyle="--", linewidth=1.0, color=color, alpha=alpha, label="_nolegend_", zorder=1)
-    ax.axhline(float(np.nanmedian(y)), linestyle=":", linewidth=1.0, color=color, alpha=alpha, label="_nolegend_", zorder=1)
+    if include_median:
+        ax.axhline(float(np.nanmedian(y)), linestyle=":", linewidth=1.0, color=color, alpha=alpha, label="_nolegend_", zorder=1)
 
 
 def _add_metric_legend(
@@ -156,14 +158,14 @@ def _add_metric_legend(
     fontsize: int = 6,
     include_summary_lines: bool = False,
     summary_color: str = "black",
+    include_median_line: bool = True,
 ) -> None:
     handles, labels = ax.get_legend_handles_labels()
     usable = [(h, lab) for h, lab in zip(handles, labels) if lab and (not str(lab).startswith("_"))]
     if include_summary_lines:
-        usable.extend([
-            (Line2D([0], [0], color=summary_color, linestyle="--", linewidth=1.6), "Dashed line = displayed-series mean"),
-            (Line2D([0], [0], color=summary_color, linestyle=":", linewidth=1.6), "Dotted line = displayed-series median"),
-        ])
+        usable.append((Line2D([0], [0], color=summary_color, linestyle="--", linewidth=1.6), "Dashed line = displayed-series mean"))
+        if include_median_line:
+            usable.append((Line2D([0], [0], color=summary_color, linestyle=":", linewidth=1.6), "Dotted line = displayed-series median"))
     if not usable:
         return
     legend_handles, legend_labels = zip(*usable)
@@ -175,7 +177,7 @@ def _add_colored_event_key(fig: Any, event_spec: List[EventSpec]) -> None:
         return
     textprops = {"fontsize": 7.5, "color": "black"}
     style_desc = {
-        "desat_flag": "blue triangle",
+        "desat_flag": "blue line",
         "evt_central_3": "red",
         "evt_obstructive_3": "brown dashed",
         "evt_unclassified_3": "green dotted",
@@ -245,39 +247,34 @@ def _overlay_events_on_single_axis_whole_night(
         else:
             show_label = "_nolegend_"
 
+        line_color = spec.color
+        line_style = "-"
+        line_width = 1.0
+        line_alpha = 0.35
         if spec.col == "desat_flag":
-            y_min, y_max = ax.get_ylim()
-            if ax.get_yscale() == "log" and y_min > 0 and y_max > y_min:
-                log_y_min = np.log10(y_min)
-                log_y_max = np.log10(y_max)
-                y_desat = 10 ** (log_y_min + 0.08 * (log_y_max - log_y_min))
-            else:
-                y_desat = y_min + 0.03 * (y_max - y_min)
-            ax.scatter(t_evt_h, np.full_like(t_evt_h, y_desat, dtype=float), marker="v", s=32, color=spec.color, alpha=0.95, label=show_label, zorder=4)
-        else:
-            line_color = spec.color
-            line_style = "-"
-            line_width = 1.0
-            line_alpha = 0.35
-            if spec.col == "evt_obstructive_3":
-                line_color = "tab:brown"
-                line_style = "--"
-            elif spec.col == "evt_unclassified_3":
-                line_style = ":"
+            line_alpha = 0.22
+            line_width = 0.9
+        if spec.col == "evt_obstructive_3":
+            line_color = "tab:brown"
+            line_style = "--"
+        elif spec.col == "evt_unclassified_3":
+            line_style = ":"
 
-            first_line = show_label != "_nolegend_"
-            if event_style == "short":
-                y1 = 0.98 - 0.06 * event_row
-                y0 = max(0.72, y1 - 0.12)
-                trans = blended_transform_factory(ax.transData, ax.transAxes)
-                for x in t_evt_h:
-                    ax.plot([x, x], [y0, y1], color=line_color, linestyle=line_style, linewidth=1.7, alpha=0.85, transform=trans, label=spec.label if first_line else "_nolegend_", zorder=4, solid_capstyle="round")
-                    first_line = False
-                event_row += 1
-            else:
-                for x in t_evt_h:
-                    ax.axvline(x, color=line_color, linestyle=line_style, linewidth=line_width, alpha=line_alpha, label=spec.label if first_line else "_nolegend_", zorder=0)
-                    first_line = False
+        first_line = show_label != "_nolegend_"
+        if event_style == "short":
+            y1 = 0.98 - 0.06 * event_row
+            y0 = max(0.72, y1 - 0.12)
+            trans = blended_transform_factory(ax.transData, ax.transAxes)
+            for x in t_evt_h:
+                short_width = 1.3 if spec.col == "desat_flag" else 1.7
+                short_alpha = 0.55 if spec.col == "desat_flag" else 0.85
+                ax.plot([x, x], [y0, y1], color=line_color, linestyle=line_style, linewidth=short_width, alpha=short_alpha, transform=trans, label=spec.label if first_line else "_nolegend_", zorder=4, solid_capstyle="round")
+                first_line = False
+            event_row += 1
+        else:
+            for x in t_evt_h:
+                ax.axvline(x, color=line_color, linestyle=line_style, linewidth=line_width, alpha=line_alpha, label=spec.label if first_line else "_nolegend_", zorder=0)
+                first_line = False
 
 
 def _plot_sleep_stagegram_on_ax(
@@ -352,9 +349,6 @@ def _plot_sleep_stagegram_on_ax(
         edges[:-1] = xh
         edges[-1] = xh[-1] + step_h
 
-    for y0, _name, alpha in [(3, "REM", 0.08), (2, "Wake", 0.06), (1, "NREM-Light", 0.05), (0, "NREM-Deep", 0.05)]:
-        ax.axhspan(y0 - 0.5, y0 + 0.5, alpha=alpha, zorder=0)
-
     stage_colors = {3: "#d62728", 0: "#ff7f0e", 1: "#1f77b4", 2: "#e377c2"}
     for i in range(len(y)):
         x0 = edges[i]
@@ -389,11 +383,8 @@ def _plot_sleep_stagegram_on_ax(
         ax.set_xlabel("Time (hours from recording start)")
     if show_title:
         ax.set_title(f"{edf_base} - Hypnogram", fontsize=14, pad=12)
-    ax.grid(True, which="major", axis="x", alpha=0.35)
-    ax.grid(True, which="minor", axis="x", alpha=0.18)
     ax.xaxis.set_major_locator(MultipleLocator(1.0))
-    ax.xaxis.set_minor_locator(MultipleLocator(0.5))
-    ax.grid(True, which="major", axis="y", alpha=0.20)
+    ax.grid(True, which="major", axis="x", alpha=0.25)
 
     if show_stats_box:
         total = int(len(s))

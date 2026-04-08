@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from . import config, filters, io_aux_csv, io_edf, sleep_mask
+from . import config, features, filters, io_aux_csv, io_edf, sleep_mask
 from .context import RecordingContext
 
 
@@ -19,6 +19,10 @@ def filter_pat(ctx: RecordingContext) -> None:
 
 
 def load_pat_amp(ctx: RecordingContext) -> None:
+    if not features.is_enabled("pat_burden"):
+        ctx.t_pat_amp = None
+        ctx.pat_amp = None
+        return
     try:
         pat_amp_signal, pat_amp_fs = io_edf.read_edf_channel(ctx.edf_path, config.PAT_AMP_CHANNEL_NAME)
         if pat_amp_fs <= 0:

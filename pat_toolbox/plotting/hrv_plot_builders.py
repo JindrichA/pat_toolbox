@@ -230,7 +230,7 @@ def _build_stagegram_and_hrv_tv_figure(
     plot_bin_sec = float(getattr(config, "HRV_PLOT_BIN_SEC", 10.0 * 60.0))
     fig.suptitle(f"{edf_base} - Hypnogram + HRV ({tv_win/60.0:.1f} min window)" if tv_win is not None and tv_win > 0 else f"{edf_base} - Hypnogram + HRV", fontsize=11, y=0.988)
     step_sec = 1.0 / hrv_step_hz if hrv_step_hz > 0 else np.nan
-    fig.text(0.5, 0.948, f"PAT-derived HRV. Sliding {hrv_window_sec/60.0:.1f} min window, evaluated every {step_sec:.0f} s; displayed as {plot_bin_sec/60.0:.0f} min binned mean +/- 95% CI.\nDashed/dotted lines show displayed-series mean/median. Legend NREM mean is a post-hoc NREM-only reference.\nTop markers indicate active exclusion events.", ha="center", va="top", fontsize=8)
+    fig.text(0.5, 0.948, f"PAT-derived HRV. Sliding {hrv_window_sec/60.0:.1f} min window, evaluated every {step_sec:.0f} s; displayed as {plot_bin_sec/60.0:.0f} min binned mean +/- 95% CI.\nDashed lines show displayed-series mean. Legend NREM mean is a post-hoc NREM-only reference.\nTop markers indicate active exclusion events.", ha="center", va="top", fontsize=8)
     _add_colored_event_key(fig, event_spec)
 
     t_h = t_hrv / 3600.0
@@ -256,7 +256,7 @@ def _build_stagegram_and_hrv_tv_figure(
             ax.plot(t_bin_h[okb], y_bin[okb], linewidth=1.3, label=label, color=color, zorder=2)
             ax.errorbar(t_bin_h[okb], y_bin[okb], yerr=y_ci[okb], fmt="none", elinewidth=0.9, capsize=2, alpha=0.45, color=color, zorder=2)
             if panel["kind"] == "single" or panel["key"] == "lf_hf_power":
-                _add_mean_median_lines(ax, y_bin[okb], color=color)
+                _add_mean_median_lines(ax, y_bin[okb], color=color, include_median=False)
         ax.relim()
         ax.autoscale_view()
         if hrv_mask_info is not None and panel["key"] == "rmssd":
@@ -268,7 +268,7 @@ def _build_stagegram_and_hrv_tv_figure(
             ax.set_yscale("log")
         ax.grid(True, alpha=0.75)
         if plotted_any:
-            _add_metric_legend(ax, loc="lower right", fontsize=6, include_summary_lines=plotted_any, summary_color=panel["series"][0][2])
+            _add_metric_legend(ax, loc="lower right", fontsize=6, include_summary_lines=plotted_any, summary_color=panel["series"][0][2], include_median_line=False)
 
     if data_axes:
         data_axes[-1].set_xlabel("Time (hours from recording start)")

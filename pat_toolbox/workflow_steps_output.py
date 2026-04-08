@@ -1,15 +1,19 @@
 from __future__ import annotations
 
-from . import config, paths, plotting
+from . import config, features, paths, plotting
 from .context import RecordingContext
 from .metrics import hr as hr_metrics
 
 
 def build_pdf_step(ctx: RecordingContext) -> None:
+    if not features.is_enabled("report_pdf"):
+        ctx.pdf_path = None
+        return
     assert ctx.view_pat is not None and ctx.view_pat_filt is not None and ctx.sfreq is not None
     out_folder = paths.get_output_folder()
     suffix = "_multi_sleep_summary" if getattr(ctx, "sleep_combo_summaries", None) else (config.sleep_stage_suffix() if getattr(config, "ENABLE_SLEEP_STAGE_MASKING", False) else "")
-    pdf_name = f"{ctx.edf_base}__VIEW_PAT_HR_HRV_{config.SEGMENT_MINUTES}min_overlay{suffix}.pdf"
+    feature_parts = ["VIEW_PAT", *features.enabled_feature_parts(("hr", "hrv", "psd", "delta_hr", "pat_burden"))]
+    pdf_name = f"{ctx.edf_base}__{'_'.join(feature_parts)}_{config.SEGMENT_MINUTES}min_overlay{suffix}.pdf"
     ctx.pdf_path = out_folder / pdf_name
     psd_results_dict = plotting.plot_pat_and_hr_segments_to_pdf(
         signal_raw=ctx.view_pat,
@@ -47,14 +51,15 @@ def build_pdf_step(ctx: RecordingContext) -> None:
         sleep_combo_summaries=getattr(ctx, "sleep_combo_summaries", None),
         hrv_mask_info=getattr(ctx, "hrv_mask_info", None),
     )
-    ctx.psd_features = psd_results_dict
-    ctx.mayer_peak_freq = psd_results_dict.get("mayer_peak_hz")
-    ctx.resp_peak_freq = psd_results_dict.get("resp_peak_hz")
-    print(f"  Saved VIEW_PAT + HR + HRV overlay plots to: {ctx.pdf_path}")
+    if features.is_enabled("psd"):
+        ctx.psd_features = psd_results_dict
+        ctx.mayer_peak_freq = psd_results_dict.get("mayer_peak_hz")
+        ctx.resp_peak_freq = psd_results_dict.get("resp_peak_hz")
+    print(f"  Saved feature report to: {ctx.pdf_path}")
 
 
 def build_peaks_debug_pdf_step(ctx: RecordingContext) -> None:
-    if not getattr(config, "ENABLE_PAT_PEAK_DEBUG_PLOTS", False):
+    if not features.is_enabled("peaks_debug_pdf"):
         return
     try:
         pdf_path = hr_metrics.create_peaks_debug_pdf_for_edf(ctx.edf_path)
@@ -67,12 +72,16 @@ def build_peaks_debug_pdf_step(ctx: RecordingContext) -> None:
 
 
 def append_summary_step(ctx: RecordingContext) -> None:
+    if not features.summary_requested():
+        return
     hr_metrics.append_hr_hrv_summary(
         ctx.edf_path,
         ctx.hrv_summary,
         ctx.mayer_peak_freq,
         ctx.resp_peak_freq,
         hr_calc=ctx.hr_calc,
+        delta_hr_calc=getattr(ctx, "delta_hr_calc", None),
+        delta_hr_calc_evt=getattr(ctx, "delta_hr_calc_evt", None),
         hrv_clean=ctx.hrv_rmssd_clean,
         hrv_raw=ctx.hrv_rmssd_raw,
         hrv_tv=ctx.hrv_tv,

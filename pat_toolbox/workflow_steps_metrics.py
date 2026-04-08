@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 from typing import cast
 
-from . import config, io_aux_csv, masking, sleep_mask
+from . import config, features, io_aux_csv, masking, sleep_mask
 from .context import RecordingContext
 from .metrics import hr as hr_metrics
 from .metrics import hrv as hrv_metrics
@@ -13,7 +13,7 @@ from .metrics.hr_delta import compute_delta_hr
 
 
 def compute_delta_hr_step(ctx: RecordingContext) -> None:
-    if not bool(getattr(config, "ENABLE_DELTA_HR", True)):
+    if not features.is_enabled("delta_hr"):
         ctx.delta_hr_calc = None
         ctx.delta_hr_calc_evt = None
         return
@@ -37,7 +37,7 @@ def compute_delta_hr_step(ctx: RecordingContext) -> None:
 
 
 def compute_pat_burden_step(ctx: RecordingContext) -> None:
-    if not bool(getattr(config, "ENABLE_PAT_BURDEN", True)):
+    if not features.is_enabled("pat_burden"):
         ctx.pat_burden = None
         ctx.pat_burden_diag = None
         ctx.pat_burden_episodes = None
@@ -63,6 +63,10 @@ def compute_pat_burden_step(ctx: RecordingContext) -> None:
 
 def compute_sleep_combo_summaries_step(ctx: RecordingContext) -> None:
     ctx.sleep_combo_summaries = None
+    if not features.is_enabled("sleep_combo_summary"):
+        return
+    if not features.any_enabled("hrv", "psd", "pat_burden"):
+        return
     if ctx.view_pat is None or ctx.sfreq is None or ctx.sfreq <= 0:
         return
     try:
@@ -76,16 +80,24 @@ def compute_sleep_combo_summaries_step(ctx: RecordingContext) -> None:
 
     summaries: dict[str, dict[str, object]] = {}
     for key, label, include_set in sleep_mask.fixed_sleep_stage_policies():
-        hrv_summary = hrv_metrics.summarize_hrv_from_rr(rr_mid, ctx.rr_ms_clean, duration_sec, ctx.aux_df, include_set=include_set)
-        psd_features = psd_metrics.compute_psd_features_from_rr(rr_mid, ctx.rr_ms_clean, duration_sec, ctx.aux_df, include_set=include_set)
+        sleep_hours = sleep_mask.compute_sleep_hours_from_aux(ctx.aux_df, include_set=include_set)
+
+        hrv_summary = None
+        if features.is_enabled("hrv"):
+            hrv_summary = hrv_metrics.summarize_hrv_from_rr(rr_mid, ctx.rr_ms_clean, duration_sec, ctx.aux_df, include_set=include_set)
+
+        psd_features = None
+        if features.is_enabled("psd"):
+            psd_features = psd_metrics.compute_psd_features_from_rr(rr_mid, ctx.rr_ms_clean, duration_sec, ctx.aux_df, include_set=include_set)
+
         burden = np.nan
         burden_diag = None
-        if ctx.t_pat_amp is not None and ctx.pat_amp is not None and ctx.aux_df is not None:
+        if features.is_enabled("pat_burden") and ctx.t_pat_amp is not None and ctx.pat_amp is not None and ctx.aux_df is not None:
             burden, burden_diag, _episodes = pat_burden_metrics.compute_pat_burden_from_pat_amp(t_sec=ctx.t_pat_amp, pat_amp=ctx.pat_amp, aux_df=ctx.aux_df, include_set=include_set)
         summaries[key] = {
             "label": label,
             "include_set": set(include_set),
-            "sleep_hours": burden_diag.get("sleep_hours") if isinstance(burden_diag, dict) else np.nan,
+            "sleep_hours": sleep_hours,
             "hrv_summary": hrv_summary,
             "psd_features": psd_features,
             "pat_burden": burden,
@@ -95,6 +107,11 @@ def compute_sleep_combo_summaries_step(ctx: RecordingContext) -> None:
 
 
 def compute_hr_from_pat_step(ctx: RecordingContext) -> None:
+    if not features.is_enabled("hr"):
+        ctx.t_hr_calc = None
+        ctx.hr_calc = None
+        ctx.hr_calc_raw = None
+        return
     assert ctx.view_pat is not None and ctx.sfreq is not None
     try:
         ctx.t_hr_calc, ctx.hr_calc = hr_metrics.compute_hr_from_pat_signal(ctx.view_pat, fs=ctx.sfreq)
@@ -108,6 +125,14 @@ def compute_hr_from_pat_step(ctx: RecordingContext) -> None:
 
 
 def compute_hrv_step(ctx: RecordingContext) -> None:
+    if not features.is_enabled("hrv"):
+        ctx.t_hrv = None
+        ctx.hrv_rmssd_raw = None
+        ctx.hrv_rmssd_clean = None
+        ctx.hrv_summary = None
+        ctx.hrv_tv = None
+        ctx.hrv_mask_info = None
+        return
     assert ctx.view_pat is not None and ctx.sfreq is not None
     try:
         ctx.t_hrv, ctx.hrv_rmssd_raw, ctx.hrv_rmssd_clean, ctx.hrv_summary, ctx.hrv_tv = hrv_metrics.compute_hrv_from_pat_signal_with_tv_metrics(
@@ -143,3 +168,34 @@ def compute_hrv_step(ctx: RecordingContext) -> None:
         ctx.hrv_summary = None
         ctx.hrv_tv = None
         ctx.hrv_mask_info = None
+
+
+def compute_psd_step(ctx: RecordingContext) -> None:
+    if not features.is_enabled("psd"):
+        ctx.psd_features = None
+        ctx.mayer_peak_freq = None
+        ctx.resp_peak_freq = None
+        return
+    if ctx.view_pat is None or ctx.sfreq is None or ctx.sfreq <= 0:
+        ctx.psd_features = None
+        ctx.mayer_peak_freq = None
+        ctx.resp_peak_freq = None
+        return
+
+    try:
+        rr_sec, rr_mid, duration_sec = hr_metrics.extract_clean_rr_from_pat(ctx.view_pat, ctx.sfreq)
+        rr_ms = rr_sec * 1000.0
+        ctx.psd_features = psd_metrics.compute_psd_features_from_rr(
+            rr_mid,
+            rr_ms,
+            float(duration_sec),
+            ctx.aux_df,
+        )
+        if ctx.psd_features is not None:
+            ctx.mayer_peak_freq = ctx.psd_features.get("mayer_peak_hz")
+            ctx.resp_peak_freq = ctx.psd_features.get("resp_peak_hz")
+    except Exception as e:
+        print(f"  WARNING: PSD computation failed: {e}")
+        ctx.psd_features = None
+        ctx.mayer_peak_freq = None
+        ctx.resp_peak_freq = None

@@ -6,7 +6,7 @@ from typing import Any, Dict, Optional, Sequence
 
 import numpy as np
 
-from .. import config, paths
+from .. import config, features, paths
 
 
 def append_hr_hrv_summary(
@@ -16,6 +16,8 @@ def append_hr_hrv_summary(
     resp_peak_freq: Optional[float] = None,
     *,
     hr_calc: Optional[np.ndarray] = None,
+    delta_hr_calc: Optional[np.ndarray] = None,
+    delta_hr_calc_evt: Optional[np.ndarray] = None,
     hrv_clean: Optional[np.ndarray] = None,
     hrv_raw: Optional[np.ndarray] = None,
     hrv_tv: Optional[Dict[str, np.ndarray]] = None,
@@ -91,6 +93,32 @@ def append_hr_hrv_summary(
         except Exception:
             return (None, None)
 
+    def _finite_stats(x: Optional[np.ndarray]) -> Dict[str, float]:
+        out = {
+            "mean": np.nan,
+            "median": np.nan,
+            "std": np.nan,
+            "nan_pct": np.nan,
+            "n_used": np.nan,
+        }
+        if x is None:
+            return out
+        arr = np.asarray(x, dtype=float)
+        if arr.size == 0:
+            out["nan_pct"] = 100.0
+            out["n_used"] = 0.0
+            return out
+        ok = np.isfinite(arr)
+        out["nan_pct"] = float(100.0 * np.mean(~ok))
+        out["n_used"] = float(np.count_nonzero(ok))
+        if not np.any(ok):
+            return out
+        arr_ok = arr[ok]
+        out["mean"] = float(np.mean(arr_ok))
+        out["median"] = float(np.median(arr_ok))
+        out["std"] = float(np.std(arr_ok))
+        return out
+
     def _sleep_stage_stats(df: Any) -> Dict[str, Any]:
         out: Dict[str, Any] = {}
         if df is None or not hasattr(df, "columns"):
@@ -152,6 +180,8 @@ def append_hr_hrv_summary(
 
     summary_folder = paths.get_output_folder(config.HR_OUTPUT_SUBFOLDER)
 
+    summary_parts = ["HR", *features.enabled_feature_parts(("hrv", "psd", "delta_hr", "pat_burden"))]
+
     if isinstance(sleep_combo_summaries, dict) and sleep_combo_summaries:
         sleep_stage_policy = "multi_sleep_summary"
     else:
@@ -161,33 +191,35 @@ def append_hr_hrv_summary(
             .replace("/", "-")
         )
     run_id = getattr(config, "RUN_ID", "default")
-    summary_filename = f"HR_HRV_summary__{sleep_stage_policy}__{run_id}.csv"
+    summary_filename = f"{'_'.join(summary_parts)}_summary__{sleep_stage_policy}__{run_id}.csv"
     summary_path = summary_folder / summary_filename
 
     row: Dict[str, Any] = {
         "edf_file": edf_path.name,
-        "mayer_peak_hz": mayer_peak_freq,
-        "resp_peak_hz": resp_peak_freq,
     }
 
-    row["pat_burden"] = pat_burden
+    if features.is_enabled("psd"):
+        row["mayer_peak_hz"] = mayer_peak_freq
+        row["resp_peak_hz"] = resp_peak_freq
 
-    if isinstance(pat_burden_diag, dict):
-        row["pat_burden_sleep_hours"] = pat_burden_diag.get("sleep_hours")
-        row["pat_burden_total_area_min"] = pat_burden_diag.get("total_area_min")
-        row["pat_burden_n_episodes"] = pat_burden_diag.get("n_episodes")
-        row["pat_burden_n_episodes_used"] = pat_burden_diag.get("n_episodes_used")
-        row["pat_burden_relative"] = int(bool(pat_burden_diag.get("relative", False)))
-        row["pat_burden_nan_pct"] = pat_burden_diag.get("nan_pct_inside")
-    else:
-        row["pat_burden_sleep_hours"] = np.nan
-        row["pat_burden_total_area_min"] = np.nan
-        row["pat_burden_n_episodes"] = np.nan
-        row["pat_burden_n_episodes_used"] = np.nan
-        row["pat_burden_relative"] = np.nan
-        row["pat_burden_nan_pct"] = np.nan
+    if features.is_enabled("pat_burden"):
+        row["pat_burden"] = pat_burden
+        if isinstance(pat_burden_diag, dict):
+            row["pat_burden_sleep_hours"] = pat_burden_diag.get("sleep_hours")
+            row["pat_burden_total_area_min"] = pat_burden_diag.get("total_area_min")
+            row["pat_burden_n_episodes"] = pat_burden_diag.get("n_episodes")
+            row["pat_burden_n_episodes_used"] = pat_burden_diag.get("n_episodes_used")
+            row["pat_burden_relative"] = int(bool(pat_burden_diag.get("relative", False)))
+            row["pat_burden_nan_pct"] = pat_burden_diag.get("nan_pct_inside")
+        else:
+            row["pat_burden_sleep_hours"] = np.nan
+            row["pat_burden_total_area_min"] = np.nan
+            row["pat_burden_n_episodes"] = np.nan
+            row["pat_burden_n_episodes_used"] = np.nan
+            row["pat_burden_relative"] = np.nan
+            row["pat_burden_nan_pct"] = np.nan
 
-    if hrv_summary is not None:
+    if features.is_enabled("hrv") and hrv_summary is not None:
         row.update(
             {
                 "rmssd_mean_ms": hrv_summary.get("rmssd_mean", np.nan),
@@ -205,7 +237,7 @@ def append_hr_hrv_summary(
                 "lf_hf_fixed_hop_sec": hrv_summary.get("lf_hf_fixed_hop_sec", np.nan),
             }
         )
-    else:
+    elif features.is_enabled("hrv"):
         row.update(
             {
                 "rmssd_mean_ms": np.nan,
@@ -224,7 +256,7 @@ def append_hr_hrv_summary(
             }
         )
 
-    if psd_features:
+    if features.is_enabled("psd") and psd_features:
         row.update(
             {
                 "psd_pow_vlf": psd_features.get("pow_vlf"),
@@ -237,10 +269,28 @@ def append_hr_hrv_summary(
         )
 
     row["hr_pat_nan_pct"] = _nan_pct(hr_calc)
-    row["hrv_rmssd_clean_nan_pct"] = _nan_pct(hrv_clean)
-    row["hrv_rmssd_raw_nan_pct"] = _nan_pct(hrv_raw)
+    if features.is_enabled("delta_hr"):
+        delta_all = _finite_stats(delta_hr_calc)
+        delta_evt = _finite_stats(delta_hr_calc_evt)
+        row.update(
+            {
+                "delta_hr_mean": delta_all["mean"],
+                "delta_hr_median": delta_all["median"],
+                "delta_hr_std": delta_all["std"],
+                "delta_hr_nan_pct": delta_all["nan_pct"],
+                "delta_hr_n_used": delta_all["n_used"],
+                "delta_hr_evt_mean": delta_evt["mean"],
+                "delta_hr_evt_median": delta_evt["median"],
+                "delta_hr_evt_std": delta_evt["std"],
+                "delta_hr_evt_nan_pct": delta_evt["nan_pct"],
+                "delta_hr_evt_n_used": delta_evt["n_used"],
+            }
+        )
+    if features.is_enabled("hrv"):
+        row["hrv_rmssd_clean_nan_pct"] = _nan_pct(hrv_clean)
+        row["hrv_rmssd_raw_nan_pct"] = _nan_pct(hrv_raw)
 
-    if isinstance(hrv_tv, dict):
+    if features.is_enabled("hrv") and isinstance(hrv_tv, dict):
         for k, v in hrv_tv.items():
             if v is None:
                 continue
@@ -275,7 +325,7 @@ def append_hr_hrv_summary(
 
     row.update(_sleep_stage_stats(aux_df))
 
-    if isinstance(sleep_combo_summaries, dict):
+    if features.is_enabled("sleep_combo_summary") and isinstance(sleep_combo_summaries, dict):
         for key in ["all_sleep", "wake_sleep", "nrem", "deep", "rem"]:
             item_obj = sleep_combo_summaries.get(key)
             if not isinstance(item_obj, dict):
@@ -308,7 +358,9 @@ def append_hr_hrv_summary(
         "resp_peak_hz", "psd_pow_vlf", "psd_pow_mayer", "psd_pow_resp", "psd_norm_mayer",
         "psd_norm_resp", "psd_valid_windows", "pat_burden", "pat_burden_sleep_hours",
         "pat_burden_total_area_min", "pat_burden_n_episodes", "pat_burden_n_episodes_used",
-        "pat_burden_relative", "pat_burden_nan_pct", "hr_pat_nan_pct", "hrv_rmssd_clean_nan_pct",
+        "pat_burden_relative", "pat_burden_nan_pct", "hr_pat_nan_pct", "delta_hr_mean", "delta_hr_median",
+        "delta_hr_std", "delta_hr_nan_pct", "delta_hr_n_used", "delta_hr_evt_mean", "delta_hr_evt_median",
+        "delta_hr_evt_std", "delta_hr_evt_nan_pct", "delta_hr_evt_n_used", "hrv_rmssd_clean_nan_pct",
         "hrv_rmssd_raw_nan_pct", "aux_rows", "desat_n", "desat_pct", "exclude_hr_n", "exclude_hr_pct",
         "exclude_pat_n", "exclude_pat_pct", "evt_central_3_n", "evt_central_3_pct", "evt_obstructive_3_n",
         "evt_obstructive_3_pct", "evt_unclassified_3_n", "evt_unclassified_3_pct", "evt_central_4_n",
@@ -388,6 +440,8 @@ def append_hr_correlation_to_summary(
     *,
     hr_calc: Optional[np.ndarray] = None,
     hr_edf: Optional[np.ndarray] = None,
+    delta_hr_calc: Optional[np.ndarray] = None,
+    delta_hr_calc_evt: Optional[np.ndarray] = None,
     hrv_clean: Optional[np.ndarray] = None,
     hrv_raw: Optional[np.ndarray] = None,
     hrv_tv: Optional[Dict[str, np.ndarray]] = None,
@@ -406,6 +460,8 @@ def append_hr_correlation_to_summary(
         mayer_peak_freq=mayer_peak_freq,
         resp_peak_freq=resp_peak_freq,
         hr_calc=hr_calc,
+        delta_hr_calc=delta_hr_calc,
+        delta_hr_calc_evt=delta_hr_calc_evt,
         hrv_clean=hrv_clean,
         hrv_raw=hrv_raw,
         hrv_tv=hrv_tv,
