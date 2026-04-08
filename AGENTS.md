@@ -1,30 +1,28 @@
 # AGENTS.md
 
-This file gives coding agents repository-specific guidance for `pat_toolbox`.
-It is based on the current codebase layout, configuration files, and source conventions.
+Repository guidance for coding agents working in `pat_toolbox`.
 
 ## Scope
 
-- Main entry point: `main.py`
-- Core package: `pat_toolbox/`
-- Analysis scripts: `analysis/`
-- Experimental scripts: `experiments/`
-- Dependency source: `requirements.txt`
-- There is currently no existing `AGENTS.md` in this repository.
+- Primary entry point: `main.py`
+- Main package: `pat_toolbox/`
+- Standalone analysis scripts: `analysis/`
+- One-off experiments: `experiments/`
+- Dependencies are pinned in `requirements.txt`
 
-## Rule Files
+## Editor Rule Files
 
 - No `.cursor/rules/` directory was found.
 - No `.cursorrules` file was found.
 - No `.github/copilot-instructions.md` file was found.
-- Do not assume any hidden editor-specific rules beyond this file.
+- Do not assume any hidden Cursor or Copilot rules beyond this file.
 
 ## Environment And Setup
 
-- The repo is Python-based and uses a plain `requirements.txt` workflow.
+- This is a plain Python repository, not a packaged project.
 - There is no `pyproject.toml`, `setup.cfg`, `pytest.ini`, `ruff.toml`, or `mypy.ini`.
-- A local virtual environment at `.venv/` exists in the workspace, but agents should not depend on it being pre-activated.
-- Install dependencies with:
+- Run commands from the repository root so relative paths resolve consistently.
+- Typical setup:
 
 ```bash
 python -m venv .venv
@@ -34,20 +32,16 @@ pip install -r requirements.txt
 
 ## Build, Lint, And Test Commands
 
-The repository does not define a formal build system or automated lint/test tooling yet.
-Use the commands below as the current operational workflow.
-
-### Run The Main Pipeline
+### Main pipeline
 
 ```bash
 python main.py
 ```
 
-- This is the primary way to execute the EDF processing pipeline.
-- It reads paths and runtime toggles from `pat_toolbox/config.py`.
-- It writes outputs under `config.BASE_OUTPUT_DIR`.
+- This is the closest thing to the canonical app run.
+- It uses `pat_toolbox/config.py` for input paths, output folders, toggles, and thresholds.
 
-### Run A Specific Analysis Script
+### Standalone scripts
 
 ```bash
 python analysis/boxplots_AHI.py
@@ -55,256 +49,128 @@ python analysis/boxplots_AHI_groups.py
 python experiments/hypnogram_diego.py
 ```
 
-- These are standalone scripts, not package entry points.
-- Prefer running them from the repository root so relative paths resolve consistently.
+- These are script entry points, not tests.
+- Use them only when your change clearly affects that workflow.
 
-### Linting
+### Lint / smoke check
 
-- No linter is configured in-repo.
-- If you need a one-off syntax/smoke check without introducing new tooling, use:
+- No formatter or linter is configured in-repo.
+- Do not assume `ruff`, `black`, `flake8`, `pylint`, or `mypy` are available.
+- For a safe syntax check, use:
 
 ```bash
 python -m compileall main.py pat_toolbox analysis experiments
 ```
 
-- Do not add or assume `ruff`, `flake8`, `black`, or `pylint` unless the user asks.
-
 ### Tests
 
-- No automated test suite was found.
-- No `tests/` directory or `test_*.py` files are currently present.
-- Do not claim that `pytest` is configured unless you add tests and the user asks for that work.
+- No automated test suite exists today.
+- No `tests/` directory or `test_*.py` files are present.
+- Do not claim `pytest` support as an existing project contract.
 
-### Running A Single Test
+### Running a single test
 
-- There is currently no in-repo single-test command because no automated tests exist.
-- If tests are added later and use `pytest`, the conventional single-test form would be:
+- There is currently no real single-test command because the repository has no tests.
+- If a future change adds `pytest`, the conventional single-test form would be:
 
 ```bash
 python -m pytest path/to/test_file.py::test_name
 ```
 
-- Until such tests exist, prefer targeted function-level smoke checks or script execution.
+- Until then, validate with targeted script runs or `compileall`.
 
 ## High-Level Architecture
 
-- `main.py` orchestrates batch processing over EDF files.
-- `pat_toolbox/config.py` is the control center for paths, toggles, and algorithm parameters.
-- `pat_toolbox/workflows.py` wires together loading, filtering, HR, HRV, burden, plotting, and summary output.
-- `pat_toolbox/context.py` uses a dataclass to hold per-recording state across workflow steps.
-- `pat_toolbox/io_edf.py` and `pat_toolbox/io_aux_csv.py` handle file discovery and normalization.
-- `pat_toolbox/metrics/` contains computational logic.
-- `pat_toolbox/plotting/` contains PDF/report generation.
+- `main.py` enumerates EDF files and drives batch processing.
+- `pat_toolbox/config.py` is the central control surface for paths, feature flags, masking policy, and numeric parameters.
+- `pat_toolbox/workflows.py` orchestrates loading, filtering, HR, HRV, PSD, PAT burden, and report generation.
+- `pat_toolbox/context.py` defines `RecordingContext`, the per-recording state container.
+- `pat_toolbox/io_edf.py` reads EDF channels and lists EDF inputs.
+- `pat_toolbox/io_aux_csv.py` and `pat_toolbox/io/` normalize auxiliary CSV data and event masks.
+- `pat_toolbox/core/` holds shared low-level logic such as RR cleaning and interpolation helpers.
+- `pat_toolbox/metrics/` contains signal-derived computations.
+- `pat_toolbox/plotting/` contains PDF/report rendering.
 
-## Repository-Specific Coding Principles
+## Repository-Specific Design Rules
 
-- Prefer extending the existing config-driven design over adding hard-coded constants.
-- Keep data-processing logic in `metrics/`, orchestration in `workflows.py`, and file/path concerns in `io_*` or `paths.py`.
-- Preserve the current pattern of best-effort batch processing: failures for one EDF should log a warning and not abort the full run.
-- Favor reproducible outputs and deterministic naming through `config.RUN_ID`, `config.RUN_TAG`, and `paths.get_output_folder()`.
-- Be careful with machine-specific absolute paths already present in `config.py`; do not silently normalize or rewrite them unless requested.
+- Prefer config-driven changes over hard-coded constants.
+- Keep orchestration in `workflows.py`, not inside metric helpers.
+- Keep file discovery and path logic in `io_*` modules or `pat_toolbox/paths.py`.
+- Keep plotting concerns in `pat_toolbox/plotting/`, not in metric computation.
+- Preserve current batch behavior: a bad file should log an error and not abort the full run.
+- Be careful with machine-specific absolute paths in `pat_toolbox/config.py`; do not rewrite them unless requested.
+- Preserve current public entry points unless the user asked for a broader refactor.
 
-## Style Guidelines
-
-These conventions are inferred from the existing codebase and should be preserved unless the user requests a broader refactor.
+## Code Style Guidelines
 
 ### Imports
 
-- Use standard library imports first, then third-party imports, then local package imports.
-- Within local imports, prefer explicit package-relative imports inside the package, for example `from . import config` or `from .. import paths`.
-- Prefer one import per logical line instead of compressed star imports.
-- Avoid unused imports; the codebase is mostly explicit.
+- Group imports as standard library, third-party, then local package imports.
+- Within package code, prefer explicit relative imports such as `from . import config` or `from ..metrics import hrv`.
+- Avoid wildcard imports.
+- Remove unused imports when touching a file.
 
 ### Formatting
 
-- Follow PEP 8 style with 4-space indentation.
-- Use readable vertical spacing between helper sections.
-- Keep long calls split across multiple lines with trailing commas.
-- Existing code mixes compact and spaced styles; for touched code, prefer the cleaner multi-line style already used in `workflows.py` and `report.py`.
-- Keep comments practical and section-oriented; do not add commentary for obvious code.
+- Follow PEP 8 with 4-space indentation.
+- Prefer readable multi-line calls with trailing commas.
+- Keep helper blocks separated by a single blank line or short section headers when useful.
+- Keep comments practical; avoid narrating obvious code.
 
 ### Types
 
-- Type hints are used broadly and should be kept when modifying typed code.
-- Prefer builtin generics on modern Python where already used, e.g. `set[int]`, while tolerating older `typing` imports where they already exist.
-- Use `Path` instead of raw strings for filesystem paths.
-- Use `Optional[...]` or `X | None` consistently with the surrounding file rather than mixing styles unnecessarily.
-- For pandas-only imports used for typing, guard them with `TYPE_CHECKING` when practical.
+- Preserve existing type hints and add them to new non-trivial functions.
+- Match the local file style: some files use `Optional[...]`, others use `Path | None`.
+- Use `TYPE_CHECKING` guards for heavy typing-only imports such as pandas.
+- Use `Path` for filesystem paths instead of raw strings when writing new code.
+- Use NumPy arrays as the default representation for signal and time-series data.
 
 ### Naming
 
-- Modules use snake_case.
-- Functions use snake_case.
-- Config constants use ALL_CAPS.
-- Internal helper functions often use a leading underscore, especially in `workflows.py`, `io_aux_csv.py`, and metrics modules.
-- Dataclasses and similar types use CapWords, e.g. `RecordingContext`.
-- Time axis names typically use `t_*` and units are encoded in names like `*_sec`, `*_hz`, `*_ms`, `sfreq`, and `fs`.
+- Modules, functions, and variables use `snake_case`.
+- Classes and dataclasses use `CapWords`.
+- Config constants use `ALL_CAPS`.
+- Internal helpers often use a leading underscore.
+- Keep units visible in names when practical: `*_sec`, `*_hz`, `*_ms`, `fs`, `sfreq`, `t_*`.
 
-### Numeric And Array Conventions
+### Numeric And Signal Conventions
 
-- Use NumPy arrays for signal and time-series data.
-- Convert arrays to float explicitly when needed for NaN-safe operations.
-- Prefer vectorized operations, but small explicit loops are acceptable for sliding windows, median filters, and stepwise cleanup logic.
-- Validate signal shape and sampling frequency early, then raise a clear `ValueError` for invalid inputs.
-- Preserve unit clarity in variable names and docstrings.
+- Validate sampling frequency and array shape early.
+- Raise `ValueError` for invalid low-level inputs.
+- Convert arrays to float when downstream NaN handling or interpolation requires it.
+- Prefer vectorized NumPy operations, but small explicit loops are acceptable for cleanup and window logic.
+- Preserve unit clarity in variable names, docstrings, and summary fields.
 
 ### Error Handling
 
-- Fail fast inside low-level computation helpers when inputs are invalid.
-- At workflow or batch boundaries, catch exceptions, print a warning or error, and continue with the next file.
-- Use informative messages that include the EDF filename or channel/context when possible.
-- When a feature is optional, prefer returning `None`, empty arrays, or NaN-filled outputs rather than crashing the whole pipeline.
-- Do not swallow exceptions silently unless cleanup requires it.
+- Fail fast in low-level helpers when inputs are malformed.
+- At workflow boundaries, catch exceptions, print a useful warning, and continue to the next EDF.
+- Include file or channel context in error messages when possible.
+- For optional data sources, prefer `None`, empty outputs, or `np.nan` over crashing the full pipeline.
+- Do not silently swallow exceptions unless cleanup requires it.
 
-### Configuration And Parameters
+### Configuration
 
-- New algorithm knobs should usually live in `pat_toolbox/config.py`.
-- Read optional config values via `getattr(config, "NAME", default)` when backward compatibility matters.
-- Reuse existing config naming patterns such as `*_SEC`, `*_HZ`, `*_BPM`, `ENABLE_*`, and `*_SUBFOLDER`.
+- New algorithm knobs usually belong in `pat_toolbox/config.py`.
+- Use `getattr(config, "NAME", default)` when backward compatibility matters.
+- Reuse existing config naming patterns such as `ENABLE_*`, `*_SEC`, `*_HZ`, `*_BPM`, and `*_SUBFOLDER`.
 
 ### Paths And Outputs
 
-- Use `pathlib.Path` everywhere for path composition.
-- Use helpers in `pat_toolbox/paths.py` instead of manually creating output directories.
-- Keep output filenames descriptive and consistent with the existing `<edf_base>__...` convention.
+- Use `pathlib.Path` for path composition.
+- Prefer helpers in `pat_toolbox/paths.py` over ad hoc directory creation.
+- Keep output filenames descriptive and consistent with current `<edf_base>__...` conventions.
 
-### Documentation
+## Validation Expectations
 
-- Keep docstrings concise and practical.
-- Document units, array semantics, and return values when they are not obvious.
-- Prefer technical comments for algorithmic rationale, not narrative prose.
+- For non-runtime-safe edits, run `python -m compileall main.py pat_toolbox analysis experiments`.
+- Run `python main.py` only when the configured EDF and output paths are valid in the current environment.
+- If you change a standalone script, run that script directly when practical.
+- If runtime validation is impossible because local data paths are machine-specific, state that clearly.
 
-## Agent Do And Don't List
+## Agent Workflow Notes
 
-- Do inspect `config.py` before changing pipeline behavior.
-- Do preserve current public function names unless the user asked for a rename.
-- Do keep plotting/report code separate from metric computation.
-- Do not introduce a packaging system, formatter, or linter as incidental cleanup.
-- Do not add tests, CI, or new developer tooling unless requested.
-- Do not assume reference HR is active; current plotting code intentionally hides proprietary/device HR.
-
-## Validation Expectations For Changes
-
-- For pipeline changes, run `python main.py` only if the configured data paths are valid in the current environment.
-- For script-only changes, run the relevant script directly.
-- If real data is unavailable, fall back to `python -m compileall main.py pat_toolbox analysis experiments` and clearly state that runtime validation was limited.
-
-## Practical Note For Future Test Additions
-
-- If the repository later gains `pytest`, add a dedicated test section here.
-- Include both full-suite and single-test commands.
-- Until then, describe validation as smoke testing rather than automated testing.
-
-<!-- BEGIN BEADS INTEGRATION v:1 profile:full hash:d4f96305 -->
-## Issue Tracking with bd (beads)
-
-**IMPORTANT**: This project uses **bd (beads)** for ALL issue tracking. Do NOT use markdown TODOs, task lists, or other tracking methods.
-
-### Why bd?
-
-- Dependency-aware: Track blockers and relationships between issues
-- Git-friendly: Dolt-powered version control with native sync
-- Agent-optimized: JSON output, ready work detection, discovered-from links
-- Prevents duplicate tracking systems and confusion
-
-### Quick Start
-
-**Check for ready work:**
-
-```bash
-bd ready --json
-```
-
-**Create new issues:**
-
-```bash
-bd create "Issue title" --description="Detailed context" -t bug|feature|task -p 0-4 --json
-bd create "Issue title" --description="What this issue is about" -p 1 --deps discovered-from:bd-123 --json
-```
-
-**Claim and update:**
-
-```bash
-bd update <id> --claim --json
-bd update bd-42 --priority 1 --json
-```
-
-**Complete work:**
-
-```bash
-bd close bd-42 --reason "Completed" --json
-```
-
-### Issue Types
-
-- `bug` - Something broken
-- `feature` - New functionality
-- `task` - Work item (tests, docs, refactoring)
-- `epic` - Large feature with subtasks
-- `chore` - Maintenance (dependencies, tooling)
-
-### Priorities
-
-- `0` - Critical (security, data loss, broken builds)
-- `1` - High (major features, important bugs)
-- `2` - Medium (default, nice-to-have)
-- `3` - Low (polish, optimization)
-- `4` - Backlog (future ideas)
-
-### Workflow for AI Agents
-
-1. **Check ready work**: `bd ready` shows unblocked issues
-2. **Claim your task atomically**: `bd update <id> --claim`
-3. **Work on it**: Implement, test, document
-4. **Discover new work?** Create linked issue:
-   - `bd create "Found bug" --description="Details about what was found" -p 1 --deps discovered-from:<parent-id>`
-5. **Complete**: `bd close <id> --reason "Done"`
-
-### Auto-Sync
-
-bd automatically syncs via Dolt:
-
-- Each write auto-commits to Dolt history
-- Use `bd dolt push`/`bd dolt pull` for remote sync
-- No manual export/import needed!
-
-### Important Rules
-
-- ✅ Use bd for ALL task tracking
-- ✅ Always use `--json` flag for programmatic use
-- ✅ Link discovered work with `discovered-from` dependencies
-- ✅ Check `bd ready` before asking "what should I work on?"
-- ❌ Do NOT create markdown TODO lists
-- ❌ Do NOT use external issue trackers
-- ❌ Do NOT duplicate tracking systems
-
-For more details, see README.md and docs/QUICKSTART.md.
-
-## Landing the Plane (Session Completion)
-
-**When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.
-
-**MANDATORY WORKFLOW:**
-
-1. **File issues for remaining work** - Create issues for anything that needs follow-up
-2. **Run quality gates** (if code changed) - Tests, linters, builds
-3. **Update issue status** - Close finished work, update in-progress items
-4. **PUSH TO REMOTE** - This is MANDATORY:
-   ```bash
-   git pull --rebase
-   bd dolt push
-   git push
-   git status  # MUST show "up to date with origin"
-   ```
-5. **Clean up** - Clear stashes, prune remote branches
-6. **Verify** - All changes committed AND pushed
-7. **Hand off** - Provide context for next session
-
-**CRITICAL RULES:**
-- Work is NOT complete until `git push` succeeds
-- NEVER stop before pushing - that leaves work stranded locally
-- NEVER say "ready to push when you are" - YOU must push
-- If push fails, resolve and retry until it succeeds
-
-<!-- END BEADS INTEGRATION -->
-Use 'bd' for task tracking
+- Check `pat_toolbox/config.py` before changing behavior or claiming how the pipeline runs.
+- Keep changes narrow; avoid incidental tooling or packaging cleanup.
+- Do not add a formatter, linter, CI pipeline, or test framework unless the user asked for it.
+- This repository uses `bd` for issue tracking; prefer `bd` over markdown TODOs if task tracking is needed.
