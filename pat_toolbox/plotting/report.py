@@ -1,35 +1,15 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional, Dict, TYPE_CHECKING
+from typing import Dict, Optional, TYPE_CHECKING
 
 import numpy as np
-import matplotlib.pyplot as plt
-from matplotlib.backends.backend_pdf import PdfPages
 
 from .. import config
-from ..metrics.psd import compute_psd_figures_and_peaks
-
-from .utils import _infer_edf_base, _compute_exclusion_zones
-from .figures_summary import build_summary_pages, _build_sleep_stagegram_figure
-from .specs import active_event_plot_spec
-from .figures_hrv import (
-    _build_hrv_overview_figure,
-    _build_stagegram_and_hrv_tv_figure,
-)
-from .segments import _add_segment_pages_to_pdf
+from .report_helpers import _build_report_context, _build_report_figures, _write_report_pdf
 
 if TYPE_CHECKING:
     import pandas as pd
-
-
-def _close_figure(fig) -> None:
-    if fig is None:
-        return
-    try:
-        plt.close(fig)
-    except Exception:
-        pass
 
 
 def plot_pat_and_hr_segments_to_pdf(
@@ -68,18 +48,6 @@ def plot_pat_and_hr_segments_to_pdf(
     sleep_combo_summaries: Optional[Dict[str, Dict[str, object]]] = None,
     hrv_mask_info: Optional[Dict[str, object]] = None,
 ) -> Dict[str, float]:
-    """
-    Plotting-only mode:
-      - keep upstream API compatible
-      - hide proprietary/device HR and its comparison from all plots
-      - keep PAT-derived HR / HRV / PAT amplitude / PSD plotting active
-
-    Report order:
-      1) full-night pages
-      2) summary tables
-      3) segment pages
-    """
-
     if segment_minutes is None:
         segment_minutes = config.SEGMENT_MINUTES
 
@@ -93,195 +61,71 @@ def plot_pat_and_hr_segments_to_pdf(
     if samples_per_segment <= 0:
         raise ValueError("Computed non-positive samples_per_segment.")
 
-    edf_base = _infer_edf_base(pdf_path)
-
-    use_hrv = t_hrv is not None and hrv_rmssd is not None and np.size(hrv_rmssd) > 0
-    exclusion_zones = _compute_exclusion_zones(aux_df)
-    event_spec = active_event_plot_spec()
-
-    (
-        psd_features,
-        fig_psd_zoom,
-        fig_psd_full,
-        _psd_png_zoom,
-        _psd_png_full,
-    ) = compute_psd_figures_and_peaks(
-        signal_raw,
-        sfreq,
-        edf_base=edf_base,
-        aux_df=aux_df,
-    )
-
-    mayer_peak_freq = psd_features.get("mayer_peak_hz")
-    resp_peak_freq = psd_features.get("resp_peak_hz")
+    context = _build_report_context(signal_raw, sfreq, pdf_path, aux_df)
     duration_sec = n_samples / sfreq
 
-    # Hide proprietary/device HR from plots
-    t_hr_edf_plot = None
-    hr_edf_plot = None
-    delta_hr_edf_plot = None
-    delta_hr_edf_evt_plot = None
-    t_hr_edf_raw_plot = None
-    hr_edf_raw_plot = None
-
-    pearson_r_plot = None
-    spear_rho_plot = None
-    rmse_plot = None
-
-    summary_pages = build_summary_pages(
-        edf_base=edf_base,
-        pearson_r=pearson_r_plot,
-        spear_rho=spear_rho_plot,
-        rmse=rmse_plot,
-        hrv_summary=hrv_summary,
-        mayer_peak_freq=mayer_peak_freq,
-        resp_peak_freq=resp_peak_freq,
-        aux_df=aux_df,
+    figures = _build_report_figures(
+        edf_base=context["edf_base"],
+        duration_sec=duration_sec,
+        exclusion_zones=context["exclusion_zones"],
+        event_spec=context["event_spec"],
+        psd_features=context["psd_features"],
+        mayer_peak_freq=context["mayer_peak_freq"],
+        resp_peak_freq=context["resp_peak_freq"],
         t_hr_calc=t_hr_calc,
         hr_calc=hr_calc,
-        t_hr_edf=t_hr_edf_plot,
-        hr_edf=hr_edf_plot,
         t_hrv=t_hrv,
-        hrv_clean=hrv_rmssd,
-        hrv_raw=hrv_rmssd_raw,
+        hrv_rmssd=hrv_rmssd,
+        hrv_rmssd_raw=hrv_rmssd_raw,
         hrv_tv=hrv_tv,
-        psd_features=psd_features,
+        hrv_summary=hrv_summary,
+        aux_df=aux_df,
         delta_hr_calc=delta_hr_calc,
-        delta_hr_edf=delta_hr_edf_plot,
         delta_hr_calc_evt=delta_hr_calc_evt,
-        delta_hr_edf_evt=delta_hr_edf_evt_plot,
         pat_burden=pat_burden,
         pat_burden_diag=pat_burden_diag,
         sleep_combo_summaries=sleep_combo_summaries,
+        hrv_mask_info=hrv_mask_info,
     )
 
-    has_tv = (
-        use_hrv
-        and t_hrv is not None
-        and hrv_tv is not None
-        and isinstance(hrv_tv, dict)
-        and len(hrv_tv) > 0
+    segment_kwargs = dict(
+        signal_raw=signal_raw,
+        signal_filt=signal_filt,
+        sfreq=sfreq,
+        segment_minutes=float(segment_minutes),
+        title_prefix=title_prefix,
+        channel_name=channel_name,
+        t_hr_calc=t_hr_calc,
+        hr_calc=hr_calc,
+        t_hr_edf=None,
+        hr_edf=None,
+        t_hrv=t_hrv,
+        hrv_clean=hrv_rmssd,
+        hrv_raw=hrv_rmssd_raw,
+        aux_df=aux_df,
+        exclusion_zones=context["exclusion_zones"],
+        event_spec=context["event_spec"],
+        t_pat_amp=t_pat_amp,
+        pat_amp=pat_amp,
+        delta_hr_calc=delta_hr_calc,
+        delta_hr_edf=None,
+        delta_hr_calc_evt=delta_hr_calc_evt,
+        delta_hr_edf_evt=None,
+        t_hr_calc_raw=t_hr_calc_raw,
+        hr_calc_raw=hr_calc_raw,
+        t_hr_edf_raw=None,
+        hr_edf_raw=None,
     )
 
-    fig_stage = None
-    fig_stage_tv = None
+    _write_report_pdf(
+        pdf_path,
+        fig_stage_tv=figures["fig_stage_tv"],
+        fig_stage=figures["fig_stage"],
+        fig_psd_zoom=context["fig_psd_zoom"],
+        fig_psd_full=context["fig_psd_full"],
+        fig_ov=figures["fig_ov"],
+        summary_pages=figures["summary_pages"],
+        segment_kwargs=segment_kwargs,
+    )
 
-    if has_tv:
-        fig_stage_tv = _build_stagegram_and_hrv_tv_figure(
-            edf_base=edf_base,
-            aux_df=aux_df,
-            t_hrv=t_hrv,
-            hrv_rmssd=hrv_rmssd,
-            hrv_tv=hrv_tv,
-            exclusion_zones=exclusion_zones,
-            sleep_combo_summaries=sleep_combo_summaries,
-            event_spec=event_spec,
-            hrv_mask_info=hrv_mask_info,
-        )
-    else:
-        fig_stage = _build_sleep_stagegram_figure(
-            edf_base=edf_base,
-            aux_df=aux_df,
-        )
-
-    fig_ov = None
-    if use_hrv and t_hrv is not None and hrv_rmssd is not None:
-        fig_ov = _build_hrv_overview_figure(
-            edf_base=edf_base,
-            t_hrv=t_hrv,
-            hrv_clean=hrv_rmssd,
-            hrv_raw=hrv_rmssd_raw,
-            aux_df=aux_df,
-            exclusion_zones=exclusion_zones,
-            duration_sec_fallback=duration_sec,
-            event_spec=event_spec,
-            hrv_mask_info=hrv_mask_info,
-        )
-
-    try:
-        with PdfPages(str(pdf_path)) as pdf:
-            # ---------------------------------------------------------
-            # 1) FULL-NIGHT PAGES FIRST
-            # ---------------------------------------------------------
-            if fig_stage_tv is not None:
-                pdf.savefig(fig_stage_tv)
-                _close_figure(fig_stage_tv)
-                fig_stage_tv = None
-            elif fig_stage is not None:
-                pdf.savefig(fig_stage)
-                _close_figure(fig_stage)
-                fig_stage = None
-
-
-# TODO: Uncoment the blok with spectrums
-            #pdf.savefig(fig_psd_zoom)
-            _close_figure(fig_psd_zoom)
-            fig_psd_zoom = None
-
-            #pdf.savefig(fig_psd_full)
-            _close_figure(fig_psd_full)
-            fig_psd_full = None
-
-            if fig_ov is not None:
-                pdf.savefig(fig_ov)
-                _close_figure(fig_ov)
-                fig_ov = None
-
-            # ---------------------------------------------------------
-            # 2) SUMMARY TABLES
-            # ---------------------------------------------------------
-            for fig in summary_pages:
-                pdf.savefig(fig)
-                _close_figure(fig)
-            summary_pages = []
-
-            # ---------------------------------------------------------
-            # 3) SEGMENT PAGES LAST
-            # ---------------------------------------------------------
-            _add_segment_pages_to_pdf(
-                pdf,
-                signal_raw=signal_raw,
-                signal_filt=signal_filt,
-                sfreq=sfreq,
-                segment_minutes=float(segment_minutes),
-                title_prefix=title_prefix,
-                channel_name=channel_name,
-                t_hr_calc=t_hr_calc,
-                hr_calc=hr_calc,
-                t_hr_edf=t_hr_edf_plot,
-                hr_edf=hr_edf_plot,
-                t_hrv=t_hrv,
-                hrv_clean=hrv_rmssd,
-                hrv_raw=hrv_rmssd_raw,
-                aux_df=aux_df,
-                exclusion_zones=exclusion_zones,
-                event_spec=event_spec,
-                t_pat_amp=t_pat_amp,
-                pat_amp=pat_amp,
-                delta_hr_calc=delta_hr_calc,
-                delta_hr_edf=delta_hr_edf_plot,
-                delta_hr_calc_evt=delta_hr_calc_evt,
-                delta_hr_edf_evt=delta_hr_edf_evt_plot,
-                t_hr_calc_raw=t_hr_calc_raw,
-                hr_calc_raw=hr_calc_raw,
-                t_hr_edf_raw=t_hr_edf_raw_plot,
-                hr_edf_raw=hr_edf_raw_plot,
-            )
-
-    except Exception:
-        if pdf_path.exists():
-            try:
-                pdf_path.unlink()
-            except Exception:
-                pass
-        raise
-    finally:
-        _close_figure(fig_stage_tv)
-        _close_figure(fig_stage)
-        _close_figure(fig_ov)
-        _close_figure(fig_psd_zoom)
-        _close_figure(fig_psd_full)
-        for fig in summary_pages:
-            _close_figure(fig)
-
-    return psd_features
+    return context["psd_features"]

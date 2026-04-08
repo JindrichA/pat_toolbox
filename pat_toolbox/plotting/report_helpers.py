@@ -1,0 +1,201 @@
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any, Dict, List, Mapping, Optional, TYPE_CHECKING, cast
+
+import matplotlib.pyplot as plt
+import numpy as np
+from matplotlib.backends.backend_pdf import PdfPages
+
+from ..metrics.psd import compute_psd_figures_and_peaks
+from .figures_hrv import _build_hrv_overview_figure, _build_stagegram_and_hrv_tv_figure
+from .figures_summary import _build_sleep_stagegram_figure, build_summary_pages
+from .segments import _add_segment_pages_to_pdf
+from .specs import active_event_plot_spec
+from .utils import _compute_exclusion_zones, _infer_edf_base
+
+if TYPE_CHECKING:
+    import pandas as pd
+
+
+def _close_figure(fig) -> None:
+    if fig is None:
+        return
+    try:
+        plt.close(fig)
+    except Exception:
+        pass
+
+
+def _build_report_context(
+    signal_raw: np.ndarray,
+    sfreq: float,
+    pdf_path: Path,
+    aux_df: Optional["pd.DataFrame"],
+):
+    edf_base = _infer_edf_base(pdf_path)
+    exclusion_zones = _compute_exclusion_zones(aux_df)
+    event_spec = active_event_plot_spec()
+    psd_features, fig_psd_zoom, fig_psd_full, _psd_png_zoom, _psd_png_full = compute_psd_figures_and_peaks(
+        signal_raw,
+        sfreq,
+        edf_base=edf_base,
+        aux_df=aux_df,
+    )
+    return {
+        "edf_base": edf_base,
+        "exclusion_zones": exclusion_zones,
+        "event_spec": event_spec,
+        "psd_features": psd_features,
+        "fig_psd_zoom": fig_psd_zoom,
+        "fig_psd_full": fig_psd_full,
+        "mayer_peak_freq": psd_features.get("mayer_peak_hz"),
+        "resp_peak_freq": psd_features.get("resp_peak_hz"),
+    }
+
+
+def _build_report_figures(
+    *,
+    edf_base: str,
+    duration_sec: float,
+    exclusion_zones,
+    event_spec,
+    psd_features,
+    mayer_peak_freq,
+    resp_peak_freq,
+    t_hr_calc,
+    hr_calc,
+    t_hrv,
+    hrv_rmssd,
+    hrv_rmssd_raw,
+    hrv_tv,
+    hrv_summary,
+    aux_df,
+    delta_hr_calc,
+    delta_hr_calc_evt,
+    pat_burden,
+    pat_burden_diag,
+    sleep_combo_summaries,
+    hrv_mask_info,
+):
+    use_hrv = t_hrv is not None and hrv_rmssd is not None and np.size(hrv_rmssd) > 0
+    summary_pages = build_summary_pages(
+        edf_base=edf_base,
+        pearson_r=None,
+        spear_rho=None,
+        rmse=None,
+        hrv_summary=hrv_summary,
+        mayer_peak_freq=mayer_peak_freq,
+        resp_peak_freq=resp_peak_freq,
+        aux_df=aux_df,
+        t_hr_calc=t_hr_calc,
+        hr_calc=hr_calc,
+        t_hr_edf=None,
+        hr_edf=None,
+        t_hrv=t_hrv,
+        hrv_clean=hrv_rmssd,
+        hrv_raw=hrv_rmssd_raw,
+        hrv_tv=hrv_tv,
+        psd_features=psd_features,
+        delta_hr_calc=delta_hr_calc,
+        delta_hr_edf=None,
+        delta_hr_calc_evt=delta_hr_calc_evt,
+        delta_hr_edf_evt=None,
+        pat_burden=pat_burden,
+        pat_burden_diag=pat_burden_diag,
+        sleep_combo_summaries=sleep_combo_summaries,
+    )
+
+    has_tv = use_hrv and t_hrv is not None and hrv_tv is not None and isinstance(hrv_tv, dict) and len(hrv_tv) > 0
+    fig_stage = None
+    fig_stage_tv = None
+    if has_tv:
+        fig_stage_tv = _build_stagegram_and_hrv_tv_figure(
+            edf_base=edf_base,
+            aux_df=aux_df,
+            t_hrv=cast(np.ndarray, t_hrv),
+            hrv_rmssd=hrv_rmssd,
+            hrv_tv=cast(Dict[str, np.ndarray], hrv_tv),
+            exclusion_zones=exclusion_zones,
+            sleep_combo_summaries=sleep_combo_summaries,
+            event_spec=event_spec,
+            hrv_mask_info=hrv_mask_info,
+        )
+    else:
+        fig_stage = _build_sleep_stagegram_figure(edf_base=edf_base, aux_df=aux_df)
+
+    fig_ov = None
+    if use_hrv and t_hrv is not None and hrv_rmssd is not None:
+        fig_ov = _build_hrv_overview_figure(
+            edf_base=edf_base,
+            t_hrv=t_hrv,
+            hrv_clean=hrv_rmssd,
+            hrv_raw=hrv_rmssd_raw,
+            aux_df=aux_df,
+            exclusion_zones=exclusion_zones,
+            duration_sec_fallback=duration_sec,
+            event_spec=event_spec,
+            hrv_mask_info=hrv_mask_info,
+        )
+
+    return {
+        "summary_pages": summary_pages,
+        "fig_stage": fig_stage,
+        "fig_stage_tv": fig_stage_tv,
+        "fig_ov": fig_ov,
+    }
+
+
+def _write_report_pdf(
+    pdf_path: Path,
+    *,
+    fig_stage_tv,
+    fig_stage,
+    fig_psd_zoom,
+    fig_psd_full,
+    fig_ov,
+    summary_pages: List,
+    segment_kwargs: Mapping[str, Any],
+) -> None:
+    try:
+        with PdfPages(str(pdf_path)) as pdf:
+            if fig_stage_tv is not None:
+                pdf.savefig(fig_stage_tv)
+                _close_figure(fig_stage_tv)
+                fig_stage_tv = None
+            elif fig_stage is not None:
+                pdf.savefig(fig_stage)
+                _close_figure(fig_stage)
+                fig_stage = None
+
+            _close_figure(fig_psd_zoom)
+            fig_psd_zoom = None
+            _close_figure(fig_psd_full)
+            fig_psd_full = None
+
+            if fig_ov is not None:
+                pdf.savefig(fig_ov)
+                _close_figure(fig_ov)
+                fig_ov = None
+
+            for fig in summary_pages:
+                pdf.savefig(fig)
+                _close_figure(fig)
+            summary_pages = []
+
+            _add_segment_pages_to_pdf(pdf, **cast(dict[str, Any], segment_kwargs))
+    except Exception:
+        if pdf_path.exists():
+            try:
+                pdf_path.unlink()
+            except Exception:
+                pass
+        raise
+    finally:
+        _close_figure(fig_stage_tv)
+        _close_figure(fig_stage)
+        _close_figure(fig_ov)
+        _close_figure(fig_psd_zoom)
+        _close_figure(fig_psd_full)
+        for fig in summary_pages:
+            _close_figure(fig)

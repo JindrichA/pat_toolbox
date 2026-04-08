@@ -1,0 +1,84 @@
+from __future__ import annotations
+
+from . import config, paths, plotting
+from .context import RecordingContext
+from .metrics import hr as hr_metrics
+
+
+def build_pdf_step(ctx: RecordingContext) -> None:
+    assert ctx.view_pat is not None and ctx.view_pat_filt is not None and ctx.sfreq is not None
+    out_folder = paths.get_output_folder()
+    suffix = "_multi_sleep_summary" if getattr(ctx, "sleep_combo_summaries", None) else (config.sleep_stage_suffix() if getattr(config, "ENABLE_SLEEP_STAGE_MASKING", False) else "")
+    pdf_name = f"{ctx.edf_base}__VIEW_PAT_HR_HRV_{config.SEGMENT_MINUTES}min_overlay{suffix}.pdf"
+    ctx.pdf_path = out_folder / pdf_name
+    psd_results_dict = plotting.plot_pat_and_hr_segments_to_pdf(
+        signal_raw=ctx.view_pat,
+        signal_filt=ctx.view_pat_filt,
+        sfreq=ctx.sfreq,
+        pdf_path=ctx.pdf_path,
+        segment_minutes=config.SEGMENT_MINUTES,
+        title_prefix=ctx.edf_base,
+        channel_name=config.VIEW_PAT_CHANNEL_NAME,
+        t_hr_calc=ctx.t_hr_calc,
+        hr_calc=ctx.hr_calc,
+        t_hr_edf=None,
+        hr_edf=None,
+        t_hr_calc_raw=ctx.t_hr_calc,
+        hr_calc_raw=getattr(ctx, "hr_calc_raw", None),
+        t_hr_edf_raw=None,
+        hr_edf_raw=None,
+        t_hrv=ctx.t_hrv,
+        hrv_rmssd=ctx.hrv_rmssd_clean,
+        hrv_rmssd_raw=ctx.hrv_rmssd_raw,
+        hrv_tv=ctx.hrv_tv,
+        pearson_r=None,
+        spear_rho=None,
+        rmse=None,
+        hrv_summary=ctx.hrv_summary,
+        aux_df=ctx.aux_df,
+        t_pat_amp=ctx.t_pat_amp,
+        pat_amp=ctx.pat_amp,
+        delta_hr_calc=ctx.delta_hr_calc,
+        delta_hr_edf=None,
+        delta_hr_calc_evt=getattr(ctx, "delta_hr_calc_evt", None),
+        delta_hr_edf_evt=None,
+        pat_burden=getattr(ctx, "pat_burden", None),
+        pat_burden_diag=getattr(ctx, "pat_burden_diag", None),
+        sleep_combo_summaries=getattr(ctx, "sleep_combo_summaries", None),
+        hrv_mask_info=getattr(ctx, "hrv_mask_info", None),
+    )
+    ctx.psd_features = psd_results_dict
+    ctx.mayer_peak_freq = psd_results_dict.get("mayer_peak_hz")
+    ctx.resp_peak_freq = psd_results_dict.get("resp_peak_hz")
+    print(f"  Saved VIEW_PAT + HR + HRV overlay plots to: {ctx.pdf_path}")
+
+
+def build_peaks_debug_pdf_step(ctx: RecordingContext) -> None:
+    if not getattr(config, "ENABLE_PAT_PEAK_DEBUG_PLOTS", False):
+        return
+    try:
+        pdf_path = hr_metrics.create_peaks_debug_pdf_for_edf(ctx.edf_path)
+        try:
+            ctx.peaks_pdf_path = pdf_path
+        except Exception:
+            pass
+    except Exception as e:
+        print(f"  WARNING: could not create peaks debug PDF for {ctx.edf_path.name}: {e}")
+
+
+def append_summary_step(ctx: RecordingContext) -> None:
+    hr_metrics.append_hr_hrv_summary(
+        ctx.edf_path,
+        ctx.hrv_summary,
+        ctx.mayer_peak_freq,
+        ctx.resp_peak_freq,
+        hr_calc=ctx.hr_calc,
+        hrv_clean=ctx.hrv_rmssd_clean,
+        hrv_raw=ctx.hrv_rmssd_raw,
+        hrv_tv=ctx.hrv_tv,
+        aux_df=ctx.aux_df,
+        psd_features=getattr(ctx, "psd_features", None),
+        pat_burden=getattr(ctx, "pat_burden", None),
+        pat_burden_diag=getattr(ctx, "pat_burden_diag", None),
+        sleep_combo_summaries=getattr(ctx, "sleep_combo_summaries", None),
+    )
