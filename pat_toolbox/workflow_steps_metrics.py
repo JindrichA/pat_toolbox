@@ -10,6 +10,38 @@ from .metrics import hrv as hrv_metrics
 from .metrics import pat_burden as pat_burden_metrics
 from .metrics import psd as psd_metrics
 from .metrics.hr_delta import compute_delta_hr
+from .metrics.hr_event_response import summarize_event_hr_response
+
+
+def _delta_summary_for_subset(
+    hr_raw: np.ndarray,
+    t_hr: np.ndarray,
+    aux_df,
+    include_set: set[int],
+) -> dict[str, float]:
+    lag = float(getattr(config, "DELTA_HR_LAG_SEC", 30.0))
+    pre = float(getattr(config, "DELTA_HR_PRE_SMOOTH_SEC", 0.0))
+    use_abs = bool(getattr(config, "DELTA_HR_ABS", False))
+    fs_pat = float(getattr(config, "HR_TARGET_FS_HZ", 1.0))
+
+    delta = compute_delta_hr(hr_raw, lag_sec=lag, pre_smooth_sec=pre, fs=fs_pat, use_abs=use_abs)
+    policy = masking.policy_from_config(include_stages=include_set, force_sleep=True)
+    bundle = masking.build_mask_bundle(t_hr, aux_df, policy=policy)
+
+    full = np.asarray(delta, dtype=float).copy()
+    full[~np.asarray(bundle.combined_keep, dtype=bool)] = np.nan
+
+    inside = np.asarray(bundle.sleep_keep, dtype=bool) & (~np.asarray(bundle.event_keep, dtype=bool) | ~np.asarray(bundle.desat_keep, dtype=bool))
+    evt = np.asarray(delta, dtype=float).copy()
+    evt[~inside] = np.nan
+
+    def _mean_or_nan(x: np.ndarray) -> float:
+        return float(np.nanmean(x)) if np.any(np.isfinite(x)) else np.nan
+
+    return {
+        "full_mean": _mean_or_nan(full),
+        "event_mean": _mean_or_nan(evt),
+    }
 
 
 def compute_delta_hr_step(ctx: RecordingContext) -> None:
@@ -79,6 +111,14 @@ def compute_sleep_combo_summaries_step(ctx: RecordingContext) -> None:
     ctx.rr_duration_sec = float(duration_sec)
 
     summaries: dict[str, dict[str, object]] = {}
+    t_hr_subset = None
+    hr_raw_subset = None
+    if features.is_enabled("delta_hr"):
+        try:
+            t_hr_subset, hr_raw_subset = hr_metrics.compute_hr_from_pat_signal(ctx.view_pat, fs=ctx.sfreq)
+        except Exception:
+            t_hr_subset, hr_raw_subset = None, None
+
     for key, label, include_set in sleep_mask.fixed_sleep_stage_policies():
         sleep_hours = sleep_mask.compute_sleep_hours_from_aux(ctx.aux_df, include_set=include_set)
 
@@ -94,12 +134,28 @@ def compute_sleep_combo_summaries_step(ctx: RecordingContext) -> None:
         burden_diag = None
         if features.is_enabled("pat_burden") and ctx.t_pat_amp is not None and ctx.pat_amp is not None and ctx.aux_df is not None:
             burden, burden_diag, _episodes = pat_burden_metrics.compute_pat_burden_from_pat_amp(t_sec=ctx.t_pat_amp, pat_amp=ctx.pat_amp, aux_df=ctx.aux_df, include_set=include_set)
+
+        hr_delta_summary = None
+        if features.is_enabled("delta_hr") and t_hr_subset is not None and hr_raw_subset is not None and ctx.aux_df is not None:
+            hr_delta_summary = _delta_summary_for_subset(hr_raw_subset, t_hr_subset, ctx.aux_df, include_set)
+
+        hr_event_response_summary = None
+        if features.is_enabled("delta_hr") and t_hr_subset is not None and hr_raw_subset is not None and ctx.aux_df is not None:
+            hr_event_response_summary = summarize_event_hr_response(
+                t_hr_subset,
+                hr_raw_subset,
+                ctx.aux_df,
+                include_set=include_set,
+            )
+
         summaries[key] = {
             "label": label,
             "include_set": set(include_set),
             "sleep_hours": sleep_hours,
             "hrv_summary": hrv_summary,
             "psd_features": psd_features,
+            "delta_hr_summary": hr_delta_summary,
+            "hr_event_response_summary": hr_event_response_summary,
             "pat_burden": burden,
             "pat_burden_diag": burden_diag,
         }
@@ -148,8 +204,6 @@ def compute_hrv_step(ctx: RecordingContext) -> None:
             nseg = s.get("lf_n_segments_used", None)
             nseg_str = f", LF_segments_used={int(nseg)}" if nseg is not None else ""
             print("  HRV summary (Clean): " f"RMSSD_mean={s['rmssd_mean']:.2f} ms, " f"SDNN={s['sdnn']:.2f} ms" f"{nseg_str}")
-        if ctx.t_hrv is not None and ctx.hrv_rmssd_clean is not None:
-            ctx.hrv_csv_path = hrv_metrics.save_hrv_series_to_csv(ctx.edf_path, ctx.t_hrv, ctx.hrv_rmssd_clean)
         if ctx.t_hrv is not None:
             bundle = masking.build_mask_bundle(ctx.t_hrv, ctx.aux_df)
             ctx.hrv_mask_info = {

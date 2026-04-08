@@ -109,47 +109,123 @@ def _sleep_stage_rows(aux_df: Optional["pd.DataFrame"]) -> List[List[str]]:
     return rows
 
 
-def _sleep_combo_rows(sleep_combo_summaries: Optional[Dict[str, Dict[str, object]]]) -> List[List[str]]:
-    rows: List[List[str]] = []
-    if not sleep_combo_summaries:
-        return rows
-    rows.append(["Sleep subset comparison", ""])
+def _sleep_combo_row_values(item: Dict[str, Any]) -> tuple[str, list[str]]:
+    label = str(item.get("label", "subset"))
+    sleep_hours = _fmt_num(item.get("sleep_hours"), 2)
+    hrv_summary_obj = item.get("hrv_summary")
+    hrv_summary: Dict[str, Any] = hrv_summary_obj if isinstance(hrv_summary_obj, dict) else {}
+    psd_features_obj = item.get("psd_features")
+    psd_features: Dict[str, Any] = psd_features_obj if isinstance(psd_features_obj, dict) else {}
+    delta_summary_obj = item.get("delta_hr_summary")
+    delta_summary: Dict[str, Any] = delta_summary_obj if isinstance(delta_summary_obj, dict) else {}
+    hr_response_obj = item.get("hr_event_response_summary")
+    hr_response: Dict[str, Any] = hr_response_obj if isinstance(hr_response_obj, dict) else {}
+    burden = item.get("pat_burden")
 
-    parts = ["Sleep h"]
+    left = [f"{sleep_hours} h"]
     if features.is_enabled("hrv"):
-        parts.extend(["RMSSD", "SDNN", "LF/HF"])
+        left.extend([
+            f"{_fmt(hrv_summary.get('rmssd_mean'), 1)} ms",
+            f"{_fmt(hrv_summary.get('sdnn'), 1)} ms",
+            f"{_fmt(hrv_summary.get('lf_hf'), 2)}",
+        ])
+
+    right: list[str] = []
     if features.is_enabled("psd"):
-        parts.append("PSD win")
+        right.append(_fmt_int(psd_features.get("n_windows")))
+    if features.is_enabled("delta_hr"):
+        right.extend([
+            f"{_fmt(delta_summary.get('event_mean'), 2)} bpm",
+            f"{_fmt(hr_response.get('peak_minus_baseline'), 2)} bpm",
+            f"{_fmt(hr_response.get('peak_to_trough'), 2)} bpm",
+            f"{_fmt(hr_response.get('post_peak_minus_pre_mean'), 2)} bpm",
+        ])
     if features.is_enabled("pat_burden"):
-        parts.append("Burden")
-    rows.append(["Subset", " | ".join(parts)])
+        right.append(_fmt(burden, 3))
+    return label, left + right
+
+
+def _sleep_combo_tables(sleep_combo_summaries: Optional[Dict[str, Dict[str, object]]]) -> tuple[list[list[str]], list[list[str]]]:
+    if not sleep_combo_summaries:
+        return [], []
+
+    left_headers = ["Subset", "Sleep h"]
+    if features.is_enabled("hrv"):
+        left_headers.extend(["RMSSD", "SDNN", "LF/HF"])
+
+    right_headers = ["Subset"]
+    if features.is_enabled("psd"):
+        right_headers.append("PSD win")
+    if features.is_enabled("delta_hr"):
+        right_headers.extend(["dHR evt", "Peak-BL", "Peak-Tr", "PostPk-Pre"])
+    if features.is_enabled("pat_burden"):
+        right_headers.append("Burden")
+
+    left_rows: list[list[str]] = [left_headers]
+    right_rows: list[list[str]] = [right_headers] if len(right_headers) > 1 else []
 
     for key in ["all_sleep", "wake_sleep", "nrem", "deep", "rem"]:
         item_obj = sleep_combo_summaries.get(key)
         if not isinstance(item_obj, dict):
             continue
         item: Dict[str, Any] = item_obj
-        label = str(item.get("label", key))
-        sleep_hours = _fmt_num(item.get("sleep_hours"), 2)
-        hrv_summary_obj = item.get("hrv_summary")
-        hrv_summary: Dict[str, Any] = hrv_summary_obj if isinstance(hrv_summary_obj, dict) else {}
-        psd_features_obj = item.get("psd_features")
-        psd_features: Dict[str, Any] = psd_features_obj if isinstance(psd_features_obj, dict) else {}
-        burden = item.get("pat_burden")
-        value_parts = [f"{sleep_hours} h"]
-        if features.is_enabled("hrv"):
-            value_parts.extend([
-                f"{_fmt(hrv_summary.get('rmssd_mean'), 1)} ms",
-                f"{_fmt(hrv_summary.get('sdnn'), 1)} ms",
-                f"{_fmt(hrv_summary.get('lf_hf'), 2)}",
-            ])
-        if features.is_enabled("psd"):
-            value_parts.append(_fmt_int(psd_features.get("n_windows")))
-        if features.is_enabled("pat_burden"):
-            value_parts.append(_fmt(burden, 3))
-        value = " | ".join(value_parts)
-        rows.append([label, value])
-    return rows
+        label, values = _sleep_combo_row_values(item)
+        left_width = len(left_headers) - 1
+        left_rows.append([label, *values[:left_width]])
+        if right_rows:
+            right_rows.append([label, *values[left_width:]])
+    return left_rows, right_rows
+
+
+def _render_sleep_combo_page(
+    edf_base: str,
+    left_rows: list[list[str]],
+    right_rows: list[list[str]],
+):
+    fig, axes = plt.subplots(2 if right_rows else 1, 1, figsize=(11.69, 8.27))
+    axes_list = [axes] if not isinstance(axes, np.ndarray) else list(axes)
+    fig.suptitle(f"{edf_base} – Summary (Fixed Sleep Combinations)", fontsize=16, y=0.985)
+
+    for ax in axes_list:
+        ax.axis("off")
+
+    left_table = axes_list[0].table(
+        cellText=left_rows[1:],
+        colLabels=left_rows[0],
+        loc="center",
+        cellLoc="left",
+    )
+    left_table.auto_set_font_size(False)
+    left_table.set_fontsize(10)
+    left_table.scale(1.1, 1.4)
+    axes_list[0].set_title("Core sleep-subset metrics", fontsize=12, pad=8)
+
+    if right_rows and len(axes_list) > 1:
+        right_table = axes_list[1].table(
+            cellText=right_rows[1:],
+            colLabels=right_rows[0],
+            loc="center",
+            cellLoc="left",
+        )
+        right_table.auto_set_font_size(False)
+        right_table.set_fontsize(10)
+        right_table.scale(1.1, 1.4)
+        axes_list[1].set_title("Event / burden-derived sleep-subset metrics", fontsize=12, pad=8)
+
+    fig.text(
+        0.5,
+        0.93,
+        "dHR evt = mean lag-based delta-HR during event/desaturation periods | "
+        "Peak-BL = response peak minus pre-event baseline median | "
+        "Peak-Tr = event-window peak minus trough | "
+        "PostPk-Pre = post-event peak minus pre-event baseline mean",
+        ha="center",
+        va="top",
+        fontsize=8,
+    )
+
+    fig.tight_layout(rect=(0.02, 0.03, 0.98, 0.91))
+    return fig
 
 
 def _build_quality_rows(
@@ -297,9 +373,9 @@ def build_summary_pages(
     if rows_p3:
         figs.append(_render_table_page("Summary (ΔHR: baseline vs event-only)", rows_p3, edf_base=edf_base, font_size=12, scale_y=1.40))
 
-    combo_rows = _sleep_combo_rows(sleep_combo_summaries) if features.is_enabled("sleep_combo_summary") else []
-    if combo_rows:
-        figs.append(_render_table_page("Summary (Fixed Sleep Combinations)", combo_rows, edf_base=edf_base, font_size=12, scale_y=1.35))
+    combo_left_rows, combo_right_rows = _sleep_combo_tables(sleep_combo_summaries) if features.is_enabled("sleep_combo_summary") else ([], [])
+    if combo_left_rows:
+        figs.append(_render_sleep_combo_page(edf_base, combo_left_rows, combo_right_rows))
 
     rows_p4: List[List[str]] = []
     if aux_df is not None:

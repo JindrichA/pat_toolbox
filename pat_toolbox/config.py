@@ -27,7 +27,7 @@ RUN_ID = datetime.now().strftime("%Y%m%d_%H%M%S")
 
 # RUN_TAG is the human-readable label to help distinguish parameter sweeps.
 # Changing it affects output folder names only; it does not change calculations.
-RUN_TAG = "desat_2min_FD_fixed"
+RUN_TAG = "refactor"
 
 # Top-level feature selection. These switches are meant to answer the question
 # "what should this run produce?". If a feature is disabled here, the goal is to
@@ -50,7 +50,7 @@ FEATURES = {
     "hrv": True,
     "psd": False,
     "delta_hr": True,
-    "pat_burden": True,
+    "pat_burden": False,
     "sleep_combo_summary": True,
     "report_pdf": True,
     "peaks_debug_pdf": False,
@@ -166,6 +166,8 @@ def run_suffix() -> str:
 OUTPUT_SUBFOLDER = f"ViewPatPlotsOverlay__{run_suffix()}"
 HR_OUTPUT_SUBFOLDER = f"HR__{run_suffix()}"
 HRV_OUTPUT_SUBFOLDER = f"HRV__{run_suffix()}"
+DELTA_HR_OUTPUT_SUBFOLDER = f"DeltaHR__{run_suffix()}"
+PAT_BURDEN_OUTPUT_SUBFOLDER = f"PATBurden__{run_suffix()}"
 PSD_OUTPUT_SUBFOLDER = f"PSD__{run_suffix()}"
 
 
@@ -221,8 +223,8 @@ HRV_EXCLUSION_EVENT_COLUMNS = [
 
 # Fixed exclusion windows around events. Increasing these will remove more data
 # around flagged moments; setting them to zero keeps only the event instant logic.
-HRV_EXCLUSION_PRE_SEC = 0.0
-HRV_EXCLUSION_POST_SEC = 0.0
+HRV_EXCLUSION_PRE_SEC = 15.0
+HRV_EXCLUSION_POST_SEC = 30.0
 
 # Desaturation-dependent exclusion windows. When enabled, exclusion windows can
 # be driven by desaturation runs rather than fixed event padding.
@@ -417,6 +419,27 @@ DELTA_HR_ABS = False
 #   "subplot" -> extra row showing ΔHR
 #   "twinx"   -> overlay ΔHR on HR axis using a second y-axis
 DELTA_HR_PLOT_MODE = "subplot"
+
+# Event-response HR summary windows used in sleep-subset comparison tables.
+# These do not change the delta-HR signal itself; they define how per-event HR
+# response amplitudes are summarized around event/desaturation windows.
+# Interpretation:
+#   - baseline     -> pre-event reference window
+#   - response     -> event + immediate post-event window used to search for peak HR
+#   - post         -> strictly post-event window used for the post-peak metric
+#   - min samples  -> minimum finite HR samples required in a window before that
+#                     event contributes to the summary
+#
+# Reported derived metrics:
+#   - Peak-BL        = max HR in response window minus pre-event baseline median
+#   - Peak-Tr        = max HR minus min HR in the event-centered window
+#   - PostPk-Pre     = max HR in post window minus pre-event baseline mean
+#   - dHR evt        = mean of the separate lag-based delta-HR signal inside
+#                      event/desaturation periods; controlled by DELTA_HR_* above
+HR_EVENT_BASELINE_SEC = 30.0
+HR_EVENT_RESPONSE_SEC = 45.0
+HR_EVENT_POST_SEC = 45.0
+HR_EVENT_MIN_SAMPLES = 3
 
 
 # =============================================================================

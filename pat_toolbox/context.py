@@ -77,7 +77,10 @@ class RecordingContext:
 
     # Outputs
     pdf_path: Optional[Path] = None
+    hr_csv_path: Optional[Path] = None
     hrv_csv_path: Optional[Path] = None
+    delta_hr_csv_path: Optional[Path] = None
+    pat_burden_csv_path: Optional[Path] = None
     peaks_pdf_path: Optional[Path] = None
 
     def __post_init__(self) -> None:

@@ -255,8 +255,7 @@ def _build_stagegram_and_hrv_tv_figure(
             plotted_any = True
             ax.plot(t_bin_h[okb], y_bin[okb], linewidth=1.3, label=label, color=color, zorder=2)
             ax.errorbar(t_bin_h[okb], y_bin[okb], yerr=y_ci[okb], fmt="none", elinewidth=0.9, capsize=2, alpha=0.45, color=color, zorder=2)
-            if panel["kind"] == "single" or panel["key"] == "lf_hf_power":
-                _add_mean_median_lines(ax, y_bin[okb], color=color, include_median=False)
+            _add_mean_median_lines(ax, y_bin[okb], color=color, include_median=False)
         ax.relim()
         ax.autoscale_view()
         if hrv_mask_info is not None and panel["key"] == "rmssd":

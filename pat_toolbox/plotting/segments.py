@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, List, Optional, Tuple
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.backends.backend_pdf import PdfPages
+from matplotlib.ticker import FuncFormatter
 
 from .. import config, features
 from .segment_plot_helpers import (
@@ -18,6 +19,12 @@ from .specs import EventSpec
 
 if TYPE_CHECKING:
     import pandas as pd
+
+
+def _format_hour_tick(x: float, _pos: float) -> str:
+    total_minutes = int(round(float(x) * 60.0))
+    hours, minutes = divmod(total_minutes, 60)
+    return f"{hours:d}:{minutes:02d}"
 
 
 def _add_segment_pages_to_pdf(
@@ -129,6 +136,9 @@ def _add_segment_pages_to_pdf(
             ax_delta.set_xlabel("Time (hours from recording start)")
         elif ax_hr is not None:
             ax_hr.set_xlabel("Time (hours from recording start)")
+
+        for ax in axes:
+            ax.xaxis.set_major_formatter(FuncFormatter(_format_hour_tick))
 
         fig.tight_layout(rect=(0.04, 0.05, 0.88, 0.98))
         fig.subplots_adjust(hspace=0.22)

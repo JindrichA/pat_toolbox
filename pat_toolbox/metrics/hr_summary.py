@@ -351,6 +351,19 @@ def append_hr_hrv_summary(
             psd_item: Dict[str, Any] = psd_item_obj if isinstance(psd_item_obj, dict) else {}
             row[f"{prefix}_psd_valid_windows"] = psd_item.get("n_windows", np.nan)
 
+            delta_item_obj = item.get("delta_hr_summary")
+            delta_item: Dict[str, Any] = delta_item_obj if isinstance(delta_item_obj, dict) else {}
+            row[f"{prefix}_delta_hr_mean"] = delta_item.get("full_mean", np.nan)
+            row[f"{prefix}_delta_hr_evt_mean"] = delta_item.get("event_mean", np.nan)
+
+            hr_response_obj = item.get("hr_event_response_summary")
+            hr_response_item: Dict[str, Any] = hr_response_obj if isinstance(hr_response_obj, dict) else {}
+            row[f"{prefix}_peak_minus_baseline_hr"] = hr_response_item.get("peak_minus_baseline", np.nan)
+            row[f"{prefix}_peak_to_trough_hr"] = hr_response_item.get("peak_to_trough", np.nan)
+            row[f"{prefix}_post_peak_minus_pre_mean_hr"] = hr_response_item.get("post_peak_minus_pre_mean", np.nan)
+            row[f"{prefix}_event_windows_total"] = hr_response_item.get("n_event_windows", np.nan)
+            row[f"{prefix}_event_windows_used"] = hr_response_item.get("n_used_windows", np.nan)
+
     base_order = [
         "edf_file", "rmssd_mean_ms", "rmssd_median_ms", "sdnn_ms", "lf", "hf", "lf_hf",
         "lf_n_segments_used", "lf_hf_fixed_median", "lf_hf_fixed_mean", "lf_hf_fixed_n_windows_valid",

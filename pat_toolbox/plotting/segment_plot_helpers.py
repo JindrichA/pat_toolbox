@@ -199,7 +199,7 @@ def _plot_segment_pat_amp(
             l2.append(l)
             seen.add(l)
     if h2:
-        ax.legend(h2, l2, loc="center left", bbox_to_anchor=(1.01, 0.5), borderaxespad=0.0, fontsize=9)
+        ax.legend(h2, l2, loc="upper right", fontsize=8, framealpha=0.9)
     return ax.get_ylim()
 
 
@@ -275,7 +275,7 @@ def _plot_segment_hr(
 
     ax.set_ylabel("HR [bpm]")
     ax.grid(True)
-    ax.legend(loc="center left", bbox_to_anchor=(1.01, 0.5), borderaxespad=0.0, fontsize=9)
+    ax.legend(loc="upper right", fontsize=8, framealpha=0.9)
     if summary_lines:
         ax.text(0.01, 0.92, "\n".join(summary_lines), transform=ax.transAxes, fontsize=9, va="top")
     if seg_hr_min is not None and seg_hr_max is not None:
@@ -349,7 +349,7 @@ def _plot_segment_hrv(
             h2.append(h)
             l2.append(l)
             seen.add(l)
-    ax.legend(h2, l2, loc="center left", bbox_to_anchor=(1.01, 0.5), borderaxespad=0.0, fontsize=9)
+    ax.legend(h2, l2, loc="upper right", fontsize=8, framealpha=0.9)
     return hrv_ymin, hrv_ymax
 
 
@@ -403,7 +403,7 @@ def _plot_segment_delta_hr(
 
     ax.set_ylabel("ΔHR [bpm]")
     ax.grid(True)
-    ax.legend(loc="center left", bbox_to_anchor=(1.01, 0.5), borderaxespad=0.0, fontsize=9)
+    ax.legend(loc="upper right", fontsize=8, framealpha=0.9)
     ax.axhline(0.0, linewidth=0.8, alpha=0.5, zorder=0)
     ax.text(0.01, 0.92, "ΔHR:" if not summary_lines else "\n".join(summary_lines), transform=ax.transAxes, fontsize=9, va="top")
     if y_min is not None and y_max is not None:

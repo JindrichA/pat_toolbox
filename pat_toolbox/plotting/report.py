@@ -86,6 +86,9 @@ def plot_pat_and_hr_segments_to_pdf(
         pat_burden_diag=pat_burden_diag,
         sleep_combo_summaries=sleep_combo_summaries,
         hrv_mask_info=hrv_mask_info,
+        hr_calc_raw=hr_calc_raw,
+        t_pat_amp=t_pat_amp,
+        pat_amp=pat_amp,
     )
 
     segment_kwargs = dict(
@@ -124,6 +127,7 @@ def plot_pat_and_hr_segments_to_pdf(
         fig_psd_zoom=context["fig_psd_zoom"],
         fig_psd_full=context["fig_psd_full"],
         fig_ov=figures["fig_ov"],
+        overview_figures=figures["overview_figures"],
         summary_pages=figures["summary_pages"],
         segment_kwargs=segment_kwargs,
     )
