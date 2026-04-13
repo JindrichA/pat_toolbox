@@ -6,6 +6,7 @@ import numpy as np
 from matplotlib.patches import Patch
 
 from .. import config, io_aux_csv, sleep_mask
+from ..metrics.hr_event_response import extract_event_hr_windows
 from .specs import DEFAULT_EVENT_PLOT_SPEC, EventSpec
 from .utils import _add_exclusion_spans, _shade_masked_regions
 
@@ -199,7 +200,7 @@ def _plot_segment_pat_amp(
             l2.append(l)
             seen.add(l)
     if h2:
-        ax.legend(h2, l2, loc="center left", bbox_to_anchor=(1.01, 0.5), borderaxespad=0.0, fontsize=9)
+        ax.legend(h2, l2, loc="upper right", fontsize=8, framealpha=0.9)
     return ax.get_ylim()
 
 
@@ -233,17 +234,11 @@ def _plot_segment_hr(
 
     seg_hr_min: Optional[float] = None
     seg_hr_max: Optional[float] = None
-    summary_lines: List[str] = []
-
-    def _stats_line(name: str, y_seg: np.ndarray) -> None:
+    def _update_limits(y_seg: np.ndarray) -> None:
         ok = np.isfinite(y_seg)
-        n_total = int(y_seg.size)
-        n_used = int(np.count_nonzero(ok))
-        if n_used == 0:
-            summary_lines.append(f"{name}: no finite samples after masking (used 0/{n_total})")
+        if not np.any(ok):
             return
         yy = y_seg[ok]
-        summary_lines.append(f"{name}: n={n_used}/{n_total} | min={np.min(yy):.2f}, max={np.max(yy):.2f}, mean={np.mean(yy):.2f}, median={np.median(yy):.2f}, std={np.std(yy):.2f}")
         nonlocal seg_hr_min, seg_hr_max
         y0 = float(np.min(yy))
         y1 = float(np.max(yy))
@@ -271,13 +266,11 @@ def _plot_segment_hr(
                 y_clean = _apply_global_mask_to_series(t_sec_seg, y_raw, aux_df)
             if np.any(np.isfinite(y_clean)):
                 _plot_no_bridge(ax, x_sec=t_sec_seg, y=y_clean, label="HR used", linestyle="-", linewidth=1.4, color="tab:blue", alpha=0.95, zorder=3)
-            _stats_line("HR", y_clean)
+            _update_limits(y_clean)
 
     ax.set_ylabel("HR [bpm]")
     ax.grid(True)
-    ax.legend(loc="center left", bbox_to_anchor=(1.01, 0.5), borderaxespad=0.0, fontsize=9)
-    if summary_lines:
-        ax.text(0.01, 0.92, "\n".join(summary_lines), transform=ax.transAxes, fontsize=9, va="top")
+    ax.legend(loc="upper right", fontsize=8, framealpha=0.9)
     if seg_hr_min is not None and seg_hr_max is not None:
         margin = 0.1 * (seg_hr_max - seg_hr_min + 1e-6)
         ax.set_ylim(seg_hr_min - margin, seg_hr_max + margin)
@@ -298,11 +291,11 @@ def _plot_segment_hrv(
 ) -> tuple[Optional[float], Optional[float]]:
     _add_exclusion_spans(ax, exclusion_zones, t_seg_h_start, t_seg_h_end, label_once=True)
     hrv_ymin = hrv_ymax = None
+    legend_patches: List[Patch] = []
     use_raw = hrv_raw is not None and np.size(hrv_raw) == np.size(hrv_clean)
     mask = (t_hrv >= seg_start_sec) & (t_hrv <= seg_end_sec)
     if np.any(mask):
         t_sec_seg = t_hrv[mask].astype(float)
-        legend_patches: List[Patch] = []
         if aux_df is not None and bool(getattr(config, "ENABLE_SLEEP_STAGE_MASKING", False)):
             m_sleep_keep = sleep_mask.build_sleep_include_mask_for_times(t_sec_seg, aux_df)
             if m_sleep_keep is not None:
@@ -320,9 +313,11 @@ def _plot_segment_hrv(
             rr_only_excluded = np.isfinite(yr_seg) & ~np.isfinite(yc_seg)
             if np.any(rr_only_excluded):
                 _shade_masked_regions(ax, t_sec=t_sec_seg, masked=rr_only_excluded, color="tab:blue", alpha=0.22)
+                legend_patches.append(Patch(facecolor="tab:blue", alpha=0.22, label="Additional calc exclusion"))
             raw_missing = ~np.isfinite(yr_seg)
             if np.any(raw_missing):
                 _shade_masked_regions(ax, t_sec=t_sec_seg, masked=raw_missing, color="gold", alpha=0.45)
+                legend_patches.append(Patch(facecolor="gold", alpha=0.45, label="Metric invalid"))
         yc = hrv_clean[mask].astype(float)
         if use_raw:
             hrv_raw_arr = cast(np.ndarray, hrv_raw)
@@ -349,18 +344,20 @@ def _plot_segment_hrv(
             h2.append(h)
             l2.append(l)
             seen.add(l)
-    ax.legend(h2, l2, loc="center left", bbox_to_anchor=(1.01, 0.5), borderaxespad=0.0, fontsize=9)
+    for patch in legend_patches:
+        if patch.get_label() not in seen:
+            h2.append(patch)
+            l2.append(patch.get_label())
+            seen.add(patch.get_label())
+    ax.legend(h2, l2, loc="upper right", fontsize=8, framealpha=0.9)
     return hrv_ymin, hrv_ymax
 
 
 def _plot_segment_delta_hr(
     ax,
     t_hr_edf: Optional[np.ndarray],
-    delta_hr_edf: Optional[np.ndarray],
     t_hr_calc: Optional[np.ndarray],
-    delta_hr_calc: Optional[np.ndarray],
-    delta_hr_edf_evt: Optional[np.ndarray],
-    delta_hr_calc_evt: Optional[np.ndarray],
+    hr_calc_raw: Optional[np.ndarray],
     seg_start_sec: float,
     seg_end_sec: float,
     exclusion_zones: List[Tuple[float, float, str]],
@@ -369,43 +366,46 @@ def _plot_segment_delta_hr(
     aux_df: Optional["pd.DataFrame"],
 ) -> tuple[Optional[float], Optional[float]]:
     t_hr_edf = None
-    delta_hr_edf = None
-    delta_hr_edf_evt = None
-    _add_exclusion_spans(ax, exclusion_zones, t_seg_h_start, t_seg_h_end, label_once=True)
     y_min = y_max = None
-    summary_lines: List[str] = []
 
-    def _stats_line(name: str, y_seg: np.ndarray) -> None:
-        ok = np.isfinite(y_seg)
-        n_total = int(y_seg.size)
-        n_used = int(np.count_nonzero(ok))
-        if n_used == 0:
-            summary_lines.append(f"{name}: no finite samples after masking (used 0/{n_total})")
-            return
-        yy = y_seg[ok]
-        summary_lines.append(f"{name}: n={n_used}/{n_total} | min={np.min(yy):.1f}, max={np.max(yy):.1f}, mean={np.mean(yy):.1f}, median={np.median(yy):.1f}, std={np.std(yy):.1f}")
-
-    if t_hr_calc is not None:
+    if t_hr_calc is not None and hr_calc_raw is not None:
         mask_seg = (t_hr_calc >= seg_start_sec) & (t_hr_calc <= seg_end_sec)
         if np.any(mask_seg):
             t_sec_seg = t_hr_calc[mask_seg]
             th = t_sec_seg / 3600.0
-            if delta_hr_calc is not None and np.size(delta_hr_calc) == np.size(t_hr_calc):
-                y_full = delta_hr_calc[mask_seg].astype(float)
-                if np.any(np.isfinite(y_full)):
-                    ax.plot(th, np.ma.masked_invalid(y_full), label="ΔHR (full)", linewidth=0.9, alpha=0.45, linestyle="--", zorder=2)
-                    _stats_line("ΔHR full", y_full)
-            if delta_hr_calc_evt is not None and np.size(delta_hr_calc_evt) == np.size(t_hr_calc):
-                y_evt = delta_hr_calc_evt[mask_seg].astype(float)
-                if np.any(np.isfinite(y_evt)):
-                    ax.plot(th, np.ma.masked_invalid(y_evt), label="ΔHR (events)", linewidth=1.4, alpha=0.95, zorder=4)
-                    _stats_line("ΔHR events", y_evt)
+            y_hr = np.asarray(hr_calc_raw)[mask_seg].astype(float)
+            if np.any(np.isfinite(y_hr)):
+                ax.plot(th, np.ma.masked_invalid(y_hr), label="HR raw", linewidth=1.0, alpha=0.55, linestyle="-", color="tab:blue", zorder=2)
+                yy = y_hr[np.isfinite(y_hr)]
+                y_min = float(np.min(yy))
+                y_max = float(np.max(yy))
 
-    ax.set_ylabel("ΔHR [bpm]")
+            windows = extract_event_hr_windows(t_hr_calc, np.asarray(hr_calc_raw, dtype=float), aux_df, include_set=set(config.sleep_include_numeric()) if getattr(config, "ENABLE_SLEEP_STAGE_MASKING", False) else None) if aux_df is not None else []
+            used_windows = 0
+            for w in windows:
+                if w["event_end_t"] < seg_start_sec or w["event_start_t"] > seg_end_sec:
+                    continue
+                used_windows += 1
+                ax.axvspan(w["event_start_t"] / 3600.0, w["event_end_t"] / 3600.0, color="tab:cyan", alpha=0.12, label="Event window" if used_windows == 1 else "_nolegend_", zorder=0)
+                ax.axvspan(w["recovery_start_t"] / 3600.0, w["recovery_end_t"] / 3600.0, color="tab:green", alpha=0.10, label="Recovery window" if used_windows == 1 else "_nolegend_", zorder=0)
+                ax.plot(
+                    [w["event_start_t"] / 3600.0, w["event_end_t"] / 3600.0],
+                    [w["event_mean_hr"], w["event_mean_hr"]],
+                    linestyle="--",
+                    linewidth=1.0,
+                    color="0.35",
+                    alpha=0.85,
+                    label="Event mean" if used_windows == 1 else "_nolegend_",
+                    zorder=1,
+                )
+                if np.isfinite(w["event_min_t"]) and np.isfinite(w["event_min_hr"]):
+                    ax.scatter(w["event_min_t"] / 3600.0, w["event_min_hr"], color="black", s=14, zorder=4, marker="v", label="Event minimum" if used_windows == 1 else "_nolegend_")
+                if np.isfinite(w["recovery_max_t"]) and np.isfinite(w["recovery_max_hr"]):
+                    ax.scatter(w["recovery_max_t"] / 3600.0, w["recovery_max_hr"], color="tab:red", s=18, zorder=4, label="Recovery maximum" if used_windows == 1 else "_nolegend_")
+
+    ax.set_ylabel("Event HR [bpm]")
     ax.grid(True)
-    ax.legend(loc="center left", bbox_to_anchor=(1.01, 0.5), borderaxespad=0.0, fontsize=9)
-    ax.axhline(0.0, linewidth=0.8, alpha=0.5, zorder=0)
-    ax.text(0.01, 0.92, "ΔHR:" if not summary_lines else "\n".join(summary_lines), transform=ax.transAxes, fontsize=9, va="top")
+    ax.legend(loc="upper right", fontsize=8, framealpha=0.9)
     if y_min is not None and y_max is not None:
         margin = 0.15 * (y_max - y_min + 1e-6)
         ax.set_ylim(y_min - margin, y_max + margin)

@@ -9,7 +9,15 @@ from matplotlib.backends.backend_pdf import PdfPages
 
 from .. import features
 from ..metrics.psd import compute_psd_figures_and_peaks
-from .figures_hrv import _build_hrv_overview_figure, _build_stagegram_and_hrv_tv_figure
+from .feature_overview_builders import (
+    _build_event_response_overview_figure,
+    _build_hr_overview_figure,
+    _build_hrv_rmssd_overview_figure,
+    _build_multi_series_overview_figure,
+    _build_pat_burden_overview_figure,
+    _build_single_series_overview_figure,
+)
+from .figures_hrv import _build_stagegram_and_hrv_tv_figure
 from .figures_summary import _build_sleep_stagegram_figure, build_summary_pages
 from .segments import _add_segment_pages_to_pdf
 from .specs import active_event_plot_spec
@@ -73,8 +81,6 @@ def _build_summary_pages_for_enabled_features(
     hrv_tv,
     hrv_summary,
     psd_features,
-    delta_hr_calc,
-    delta_hr_calc_evt,
     pat_burden,
     pat_burden_diag,
     sleep_combo_summaries,
@@ -97,10 +103,6 @@ def _build_summary_pages_for_enabled_features(
         hrv_raw=hrv_rmssd_raw,
         hrv_tv=hrv_tv,
         psd_features=psd_features,
-        delta_hr_calc=delta_hr_calc,
-        delta_hr_edf=None,
-        delta_hr_calc_evt=delta_hr_calc_evt,
-        delta_hr_edf_evt=None,
         pat_burden=pat_burden,
         pat_burden_diag=pat_burden_diag,
         sleep_combo_summaries=sleep_combo_summaries,
@@ -126,7 +128,6 @@ def _build_hrv_report_figures(
 
     fig_stage = None
     fig_stage_tv = None
-    fig_ov = None
 
     if has_tv:
         fig_stage_tv = _build_stagegram_and_hrv_tv_figure(
@@ -143,8 +144,57 @@ def _build_hrv_report_figures(
     else:
         fig_stage = _build_sleep_stagegram_figure(edf_base=edf_base, aux_df=aux_df)
 
-    if use_hrv and t_hrv is not None and hrv_rmssd is not None:
-        fig_ov = _build_hrv_overview_figure(
+    return {
+        "fig_stage": fig_stage,
+        "fig_stage_tv": fig_stage_tv,
+        "fig_ov": None,
+    }
+
+
+def _build_non_hrv_report_figures(*, edf_base: str, aux_df) -> Dict[str, Any]:
+    return {
+        "fig_stage": _build_sleep_stagegram_figure(edf_base=edf_base, aux_df=aux_df),
+        "fig_stage_tv": None,
+        "fig_ov": None,
+    }
+
+
+def _build_feature_overview_figures(
+    *,
+    edf_base: str,
+    duration_sec: float,
+    exclusion_zones,
+    event_spec,
+    aux_df,
+    t_hr_calc,
+    hr_calc,
+    hr_calc_raw,
+    t_hrv,
+    hrv_rmssd,
+    hrv_rmssd_raw,
+    hrv_tv,
+    hrv_mask_info,
+    t_pat_amp,
+    pat_amp,
+) -> list[Any]:
+    figs: list[Any] = []
+
+    if features.is_enabled("hr"):
+        fig = _build_hr_overview_figure(
+            edf_base=edf_base,
+            t_hr=t_hr_calc,
+            hr_clean=hr_calc,
+            hr_raw=hr_calc_raw,
+            aux_df=aux_df,
+            exclusion_zones=exclusion_zones,
+            duration_sec_fallback=duration_sec,
+            event_spec=event_spec,
+        )
+        if fig is not None:
+            figs.append(fig)
+
+    if features.is_enabled("hrv"):
+        fig = _build_hrv_rmssd_overview_figure(
             edf_base=edf_base,
             t_hrv=t_hrv,
             hrv_clean=hrv_rmssd,
@@ -155,20 +205,92 @@ def _build_hrv_report_figures(
             event_spec=event_spec,
             hrv_mask_info=hrv_mask_info,
         )
+        if fig is not None:
+            figs.append(fig)
 
-    return {
-        "fig_stage": fig_stage,
-        "fig_stage_tv": fig_stage_tv,
-        "fig_ov": fig_ov,
-    }
+        if isinstance(hrv_tv, dict):
+            fig = _build_single_series_overview_figure(
+                edf_base=edf_base,
+                title="HRV-SDNN Overview",
+                ylabel="SDNN [ms]",
+                t_sec=t_hrv,
+                y=hrv_tv.get("sdnn_ms"),
+                y_raw=hrv_tv.get("sdnn_ms_raw"),
+                color="tab:green",
+                aux_df=aux_df,
+                exclusion_zones=exclusion_zones,
+                duration_sec_fallback=duration_sec,
+                event_spec=event_spec,
+                hrv_mask_info=hrv_mask_info,
+            )
+            if fig is not None:
+                figs.append(fig)
 
+            lf_hf_series = []
+            if hrv_tv.get("lf") is not None:
+                lf_hf_series.append({"label": "LF", "y": hrv_tv.get("lf"), "y_raw": hrv_tv.get("lf_raw"), "color": "tab:orange"})
+            if hrv_tv.get("hf") is not None:
+                lf_hf_series.append({"label": "HF", "y": hrv_tv.get("hf"), "y_raw": hrv_tv.get("hf_raw"), "color": "tab:blue"})
+            fig = _build_multi_series_overview_figure(
+                edf_base=edf_base,
+                title="HRV-LF-HF Overview",
+                ylabel="LF / HF [ms²]",
+                t_sec=t_hrv,
+                series=lf_hf_series,
+                aux_df=aux_df,
+                exclusion_zones=exclusion_zones,
+                duration_sec_fallback=duration_sec,
+                event_spec=event_spec,
+                yscale="log",
+                hrv_mask_info=hrv_mask_info,
+            )
+            if fig is not None:
+                figs.append(fig)
 
-def _build_non_hrv_report_figures(*, edf_base: str, aux_df) -> Dict[str, Any]:
-    return {
-        "fig_stage": _build_sleep_stagegram_figure(edf_base=edf_base, aux_df=aux_df),
-        "fig_stage_tv": None,
-        "fig_ov": None,
-    }
+            fig = _build_single_series_overview_figure(
+                edf_base=edf_base,
+                title="HRV-LF-HF Ratio Overview",
+                ylabel="LF/HF [-]",
+                t_sec=t_hrv,
+                y=hrv_tv.get("lf_hf"),
+                y_raw=hrv_tv.get("lf_hf_raw"),
+                color="tab:purple",
+                aux_df=aux_df,
+                exclusion_zones=exclusion_zones,
+                duration_sec_fallback=duration_sec,
+                event_spec=event_spec,
+                hrv_mask_info=hrv_mask_info,
+            )
+            if fig is not None:
+                figs.append(fig)
+
+    if features.is_enabled("delta_hr"):
+        fig = _build_event_response_overview_figure(
+            edf_base=edf_base,
+            t_hr=t_hr_calc,
+            hr_raw=hr_calc_raw,
+            aux_df=aux_df,
+            exclusion_zones=exclusion_zones,
+            duration_sec_fallback=duration_sec,
+            event_spec=event_spec,
+        )
+        if fig is not None:
+            figs.append(fig)
+
+    if features.is_enabled("pat_burden"):
+        fig = _build_pat_burden_overview_figure(
+            edf_base=edf_base,
+            t_pat_amp=t_pat_amp,
+            pat_amp=pat_amp,
+            aux_df=aux_df,
+            exclusion_zones=exclusion_zones,
+            duration_sec_fallback=duration_sec,
+            event_spec=event_spec,
+        )
+        if fig is not None:
+            figs.append(fig)
+
+    return figs
 
 
 def _build_report_figures(
@@ -188,12 +310,13 @@ def _build_report_figures(
     hrv_tv,
     hrv_summary,
     aux_df,
-    delta_hr_calc,
-    delta_hr_calc_evt,
     pat_burden,
     pat_burden_diag,
     sleep_combo_summaries,
     hrv_mask_info,
+    hr_calc_raw,
+    t_pat_amp,
+    pat_amp,
 ):
     summary_pages = _build_summary_pages_for_enabled_features(
         edf_base=edf_base,
@@ -208,8 +331,6 @@ def _build_report_figures(
         hrv_tv=hrv_tv,
         hrv_summary=hrv_summary,
         psd_features=psd_features,
-        delta_hr_calc=delta_hr_calc,
-        delta_hr_calc_evt=delta_hr_calc_evt,
         pat_burden=pat_burden,
         pat_burden_diag=pat_burden_diag,
         sleep_combo_summaries=sleep_combo_summaries,
@@ -232,8 +353,27 @@ def _build_report_figures(
     else:
         figure_bundle = _build_non_hrv_report_figures(edf_base=edf_base, aux_df=aux_df)
 
+    overview_figures = _build_feature_overview_figures(
+        edf_base=edf_base,
+        duration_sec=duration_sec,
+        exclusion_zones=exclusion_zones,
+        event_spec=event_spec,
+        aux_df=aux_df,
+        t_hr_calc=t_hr_calc,
+        hr_calc=hr_calc,
+        hr_calc_raw=hr_calc_raw,
+        t_hrv=t_hrv,
+        hrv_rmssd=hrv_rmssd,
+        hrv_rmssd_raw=hrv_rmssd_raw,
+        hrv_tv=hrv_tv,
+        hrv_mask_info=hrv_mask_info,
+        t_pat_amp=t_pat_amp,
+        pat_amp=pat_amp,
+    )
+
     return {
         "summary_pages": summary_pages,
+        "overview_figures": overview_figures,
         **figure_bundle,
     }
 
@@ -246,6 +386,7 @@ def _write_report_pdf(
     fig_psd_zoom,
     fig_psd_full,
     fig_ov,
+    overview_figures: List,
     summary_pages: List,
     segment_kwargs: Mapping[str, Any],
 ) -> None:
@@ -274,6 +415,11 @@ def _write_report_pdf(
                 _close_figure(fig_ov)
                 fig_ov = None
 
+            for fig in overview_figures:
+                pdf.savefig(fig)
+                _close_figure(fig)
+            overview_figures = []
+
             for fig in summary_pages:
                 pdf.savefig(fig)
                 _close_figure(fig)
@@ -293,5 +439,7 @@ def _write_report_pdf(
         _close_figure(fig_ov)
         _close_figure(fig_psd_zoom)
         _close_figure(fig_psd_full)
+        for fig in overview_figures:
+            _close_figure(fig)
         for fig in summary_pages:
             _close_figure(fig)

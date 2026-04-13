@@ -27,7 +27,7 @@ RUN_ID = datetime.now().strftime("%Y%m%d_%H%M%S")
 
 # RUN_TAG is the human-readable label to help distinguish parameter sweeps.
 # Changing it affects output folder names only; it does not change calculations.
-RUN_TAG = "desat_2min_FD_fixed"
+RUN_TAG = "deltaHRinclud"
 
 # Top-level feature selection. These switches are meant to answer the question
 # "what should this run produce?". If a feature is disabled here, the goal is to
@@ -40,7 +40,7 @@ RUN_TAG = "desat_2min_FD_fixed"
 #   - hr                  -> PAT-derived heart-rate series and HR summary outputs
 #   - hrv                 -> RMSSD/SDNN/LF/HF/LF-HF calculations, HRV plots, HRV CSV
 #   - psd                 -> spectral features and PSD report pages
-#   - delta_hr            -> delta-HR computation, segment subplot, delta summary rows
+#   - delta_hr            -> event-response HR metrics and event-response HR plots
 #   - pat_burden          -> PAT amplitude loading, burden metric, burden subplot/rows
 #   - sleep_combo_summary -> extra fixed sleep-subset comparison summaries
 #   - report_pdf          -> main multi-page PDF report
@@ -50,7 +50,7 @@ FEATURES = {
     "hrv": True,
     "psd": False,
     "delta_hr": True,
-    "pat_burden": True,
+    "pat_burden": False,
     "sleep_combo_summary": True,
     "report_pdf": True,
     "peaks_debug_pdf": False,
@@ -166,6 +166,7 @@ def run_suffix() -> str:
 OUTPUT_SUBFOLDER = f"ViewPatPlotsOverlay__{run_suffix()}"
 HR_OUTPUT_SUBFOLDER = f"HR__{run_suffix()}"
 HRV_OUTPUT_SUBFOLDER = f"HRV__{run_suffix()}"
+PAT_BURDEN_OUTPUT_SUBFOLDER = f"PATBurden__{run_suffix()}"
 PSD_OUTPUT_SUBFOLDER = f"PSD__{run_suffix()}"
 
 
@@ -221,8 +222,8 @@ HRV_EXCLUSION_EVENT_COLUMNS = [
 
 # Fixed exclusion windows around events. Increasing these will remove more data
 # around flagged moments; setting them to zero keeps only the event instant logic.
-HRV_EXCLUSION_PRE_SEC = 0.0
-HRV_EXCLUSION_POST_SEC = 0.0
+HRV_EXCLUSION_PRE_SEC = 15.0
+HRV_EXCLUSION_POST_SEC = 30.0
 
 # Desaturation-dependent exclusion windows. When enabled, exclusion windows can
 # be driven by desaturation runs rather than fixed event padding.
@@ -403,20 +404,31 @@ PSD_RESP_BAND = (0.15, 0.23)
 
 
 # =============================================================================
-# Delta-HR Feature
+# Event-Response HR Feature
 # =============================================================================
-# Delta-HR reflects short-term change in HR over a lagged baseline. It mainly
-# affects exploratory plots and summaries rather than the core HR/HRV pipeline.
+# This feature now focuses on event-centered HR response summaries and visual
+# overlays on the original HR signal rather than on a separate lag-difference
+# signal plot.
 
 ENABLE_DELTA_HR = FEATURES["delta_hr"]
-DELTA_HR_LAG_SEC = 30.0
-DELTA_HR_PRE_SMOOTH_SEC = 0.0
-DELTA_HR_ABS = False
-
 # Plot mode for segment pages:
-#   "subplot" -> extra row showing ΔHR
-#   "twinx"   -> overlay ΔHR on HR axis using a second y-axis
+#   "subplot" -> extra row showing event-response HR windows on the HR signal
+#   "twinx"   -> reserved for future overlay mode
 DELTA_HR_PLOT_MODE = "subplot"
+
+# Event-response HR definition.
+# The HR signal is smoothed first, then for each event start time ts:
+#   event window    = [ts, ts + HR_EVENT_WINDOW_SEC]
+#   recovery window = [ts + HR_EVENT_WINDOW_SEC, ts + HR_EVENT_RECOVERY_END_SEC]
+# Two derived metrics are reported from the same windows:
+#   - trough-to-peak response = max(HR in recovery window) - min(HR in event window)
+#   - mean-to-peak delta HR   = max(HR in recovery window) - mean(HR in event window)
+# An event is skipped if either window has insufficient valid HR samples or if a
+# new event begins before the recovery window ends.
+HR_EVENT_SMOOTH_SEC = 5.0
+HR_EVENT_WINDOW_SEC = 15.0
+HR_EVENT_RECOVERY_END_SEC = 45.0
+HR_EVENT_MIN_SAMPLES = 3
 
 
 # =============================================================================

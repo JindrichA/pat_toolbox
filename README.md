@@ -416,7 +416,7 @@ What these top-level switches mean:
 - `psd`
   - enables spectral feature calculation and PSD report pages
 - `delta_hr`
-  - enables delta-HR calculation, subplot rendering, and delta-HR summary outputs
+  - enables event-response HR summaries and event-response HR plots on the original HR signal
 - `pat_burden`
   - enables PAT amplitude loading, burden calculation, burden plotting, and burden summary outputs
 - `sleep_combo_summary`

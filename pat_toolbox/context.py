@@ -31,15 +31,11 @@ class RecordingContext:
     t_hr_calc: Optional[np.ndarray] = None
     hr_calc: Optional[np.ndarray] = None
     hr_calc_raw: Optional[np.ndarray] = None
-    delta_hr_calc: Optional[np.ndarray] = None
-    delta_hr_calc_evt: Optional[np.ndarray] = None
 
     # HR (EDF channel)
     t_hr_edf: Optional[np.ndarray] = None
     hr_edf: Optional[np.ndarray] = None
     hr_edf_raw: Optional[np.ndarray] = None
-    delta_hr_edf: Optional[np.ndarray] = None
-    delta_hr_edf_evt: Optional[np.ndarray] = None
 
     # HR correlation
     pearson_r: Optional[float] = None
@@ -77,7 +73,9 @@ class RecordingContext:
 
     # Outputs
     pdf_path: Optional[Path] = None
+    hr_csv_path: Optional[Path] = None
     hrv_csv_path: Optional[Path] = None
+    pat_burden_csv_path: Optional[Path] = None
     peaks_pdf_path: Optional[Path] = None
 
     def __post_init__(self) -> None:
