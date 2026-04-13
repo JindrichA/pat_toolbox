@@ -27,7 +27,7 @@ RUN_ID = datetime.now().strftime("%Y%m%d_%H%M%S")
 
 # RUN_TAG is the human-readable label to help distinguish parameter sweeps.
 # Changing it affects output folder names only; it does not change calculations.
-RUN_TAG = "refactor"
+RUN_TAG = "deltaHRinclud"
 
 # Top-level feature selection. These switches are meant to answer the question
 # "what should this run produce?". If a feature is disabled here, the goal is to
@@ -40,7 +40,7 @@ RUN_TAG = "refactor"
 #   - hr                  -> PAT-derived heart-rate series and HR summary outputs
 #   - hrv                 -> RMSSD/SDNN/LF/HF/LF-HF calculations, HRV plots, HRV CSV
 #   - psd                 -> spectral features and PSD report pages
-#   - delta_hr            -> delta-HR computation, segment subplot, delta summary rows
+#   - delta_hr            -> event-response HR metrics and event-response HR plots
 #   - pat_burden          -> PAT amplitude loading, burden metric, burden subplot/rows
 #   - sleep_combo_summary -> extra fixed sleep-subset comparison summaries
 #   - report_pdf          -> main multi-page PDF report
@@ -166,7 +166,6 @@ def run_suffix() -> str:
 OUTPUT_SUBFOLDER = f"ViewPatPlotsOverlay__{run_suffix()}"
 HR_OUTPUT_SUBFOLDER = f"HR__{run_suffix()}"
 HRV_OUTPUT_SUBFOLDER = f"HRV__{run_suffix()}"
-DELTA_HR_OUTPUT_SUBFOLDER = f"DeltaHR__{run_suffix()}"
 PAT_BURDEN_OUTPUT_SUBFOLDER = f"PATBurden__{run_suffix()}"
 PSD_OUTPUT_SUBFOLDER = f"PSD__{run_suffix()}"
 
@@ -405,40 +404,30 @@ PSD_RESP_BAND = (0.15, 0.23)
 
 
 # =============================================================================
-# Delta-HR Feature
+# Event-Response HR Feature
 # =============================================================================
-# Delta-HR reflects short-term change in HR over a lagged baseline. It mainly
-# affects exploratory plots and summaries rather than the core HR/HRV pipeline.
+# This feature now focuses on event-centered HR response summaries and visual
+# overlays on the original HR signal rather than on a separate lag-difference
+# signal plot.
 
 ENABLE_DELTA_HR = FEATURES["delta_hr"]
-DELTA_HR_LAG_SEC = 30.0
-DELTA_HR_PRE_SMOOTH_SEC = 0.0
-DELTA_HR_ABS = False
-
 # Plot mode for segment pages:
-#   "subplot" -> extra row showing ΔHR
-#   "twinx"   -> overlay ΔHR on HR axis using a second y-axis
+#   "subplot" -> extra row showing event-response HR windows on the HR signal
+#   "twinx"   -> reserved for future overlay mode
 DELTA_HR_PLOT_MODE = "subplot"
 
-# Event-response HR summary windows used in sleep-subset comparison tables.
-# These do not change the delta-HR signal itself; they define how per-event HR
-# response amplitudes are summarized around event/desaturation windows.
-# Interpretation:
-#   - baseline     -> pre-event reference window
-#   - response     -> event + immediate post-event window used to search for peak HR
-#   - post         -> strictly post-event window used for the post-peak metric
-#   - min samples  -> minimum finite HR samples required in a window before that
-#                     event contributes to the summary
-#
-# Reported derived metrics:
-#   - Peak-BL        = max HR in response window minus pre-event baseline median
-#   - Peak-Tr        = max HR minus min HR in the event-centered window
-#   - PostPk-Pre     = max HR in post window minus pre-event baseline mean
-#   - dHR evt        = mean of the separate lag-based delta-HR signal inside
-#                      event/desaturation periods; controlled by DELTA_HR_* above
-HR_EVENT_BASELINE_SEC = 30.0
-HR_EVENT_RESPONSE_SEC = 45.0
-HR_EVENT_POST_SEC = 45.0
+# Event-response HR definition.
+# The HR signal is smoothed first, then for each event start time ts:
+#   event window    = [ts, ts + HR_EVENT_WINDOW_SEC]
+#   recovery window = [ts + HR_EVENT_WINDOW_SEC, ts + HR_EVENT_RECOVERY_END_SEC]
+# Two derived metrics are reported from the same windows:
+#   - trough-to-peak response = max(HR in recovery window) - min(HR in event window)
+#   - mean-to-peak delta HR   = max(HR in recovery window) - mean(HR in event window)
+# An event is skipped if either window has insufficient valid HR samples or if a
+# new event begins before the recovery window ends.
+HR_EVENT_SMOOTH_SEC = 5.0
+HR_EVENT_WINDOW_SEC = 15.0
+HR_EVENT_RECOVERY_END_SEC = 45.0
 HR_EVENT_MIN_SAMPLES = 3
 
 

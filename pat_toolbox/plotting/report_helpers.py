@@ -10,6 +10,7 @@ from matplotlib.backends.backend_pdf import PdfPages
 from .. import features
 from ..metrics.psd import compute_psd_figures_and_peaks
 from .feature_overview_builders import (
+    _build_event_response_overview_figure,
     _build_hr_overview_figure,
     _build_hrv_rmssd_overview_figure,
     _build_multi_series_overview_figure,
@@ -80,8 +81,6 @@ def _build_summary_pages_for_enabled_features(
     hrv_tv,
     hrv_summary,
     psd_features,
-    delta_hr_calc,
-    delta_hr_calc_evt,
     pat_burden,
     pat_burden_diag,
     sleep_combo_summaries,
@@ -104,10 +103,6 @@ def _build_summary_pages_for_enabled_features(
         hrv_raw=hrv_rmssd_raw,
         hrv_tv=hrv_tv,
         psd_features=psd_features,
-        delta_hr_calc=delta_hr_calc,
-        delta_hr_edf=None,
-        delta_hr_calc_evt=delta_hr_calc_evt,
-        delta_hr_edf_evt=None,
         pat_burden=pat_burden,
         pat_burden_diag=pat_burden_diag,
         sleep_combo_summaries=sleep_combo_summaries,
@@ -179,8 +174,6 @@ def _build_feature_overview_figures(
     hrv_rmssd_raw,
     hrv_tv,
     hrv_mask_info,
-    delta_hr_calc,
-    delta_hr_calc_evt,
     t_pat_amp,
     pat_amp,
 ) -> list[Any]:
@@ -222,20 +215,22 @@ def _build_feature_overview_figures(
                 ylabel="SDNN [ms]",
                 t_sec=t_hrv,
                 y=hrv_tv.get("sdnn_ms"),
+                y_raw=hrv_tv.get("sdnn_ms_raw"),
                 color="tab:green",
                 aux_df=aux_df,
                 exclusion_zones=exclusion_zones,
                 duration_sec_fallback=duration_sec,
                 event_spec=event_spec,
+                hrv_mask_info=hrv_mask_info,
             )
             if fig is not None:
                 figs.append(fig)
 
             lf_hf_series = []
             if hrv_tv.get("lf") is not None:
-                lf_hf_series.append({"label": "LF", "y": hrv_tv.get("lf"), "color": "tab:orange"})
+                lf_hf_series.append({"label": "LF", "y": hrv_tv.get("lf"), "y_raw": hrv_tv.get("lf_raw"), "color": "tab:orange"})
             if hrv_tv.get("hf") is not None:
-                lf_hf_series.append({"label": "HF", "y": hrv_tv.get("hf"), "color": "tab:blue"})
+                lf_hf_series.append({"label": "HF", "y": hrv_tv.get("hf"), "y_raw": hrv_tv.get("hf_raw"), "color": "tab:blue"})
             fig = _build_multi_series_overview_figure(
                 edf_base=edf_base,
                 title="HRV-LF-HF Overview",
@@ -247,6 +242,7 @@ def _build_feature_overview_figures(
                 duration_sec_fallback=duration_sec,
                 event_spec=event_spec,
                 yscale="log",
+                hrv_mask_info=hrv_mask_info,
             )
             if fig is not None:
                 figs.append(fig)
@@ -257,27 +253,22 @@ def _build_feature_overview_figures(
                 ylabel="LF/HF [-]",
                 t_sec=t_hrv,
                 y=hrv_tv.get("lf_hf"),
+                y_raw=hrv_tv.get("lf_hf_raw"),
                 color="tab:purple",
                 aux_df=aux_df,
                 exclusion_zones=exclusion_zones,
                 duration_sec_fallback=duration_sec,
                 event_spec=event_spec,
+                hrv_mask_info=hrv_mask_info,
             )
             if fig is not None:
                 figs.append(fig)
 
     if features.is_enabled("delta_hr"):
-        series = []
-        if delta_hr_calc is not None:
-            series.append({"label": "Delta-HR", "y": delta_hr_calc, "color": "tab:red", "alpha": 0.8})
-        if delta_hr_calc_evt is not None:
-            series.append({"label": "Delta-HR (events)", "y": delta_hr_calc_evt, "color": "tab:purple", "alpha": 0.95})
-        fig = _build_multi_series_overview_figure(
+        fig = _build_event_response_overview_figure(
             edf_base=edf_base,
-            title="Delta-HR Overview",
-            ylabel="Delta-HR [bpm]",
-            t_sec=t_hr_calc,
-            series=series,
+            t_hr=t_hr_calc,
+            hr_raw=hr_calc_raw,
             aux_df=aux_df,
             exclusion_zones=exclusion_zones,
             duration_sec_fallback=duration_sec,
@@ -319,8 +310,6 @@ def _build_report_figures(
     hrv_tv,
     hrv_summary,
     aux_df,
-    delta_hr_calc,
-    delta_hr_calc_evt,
     pat_burden,
     pat_burden_diag,
     sleep_combo_summaries,
@@ -342,8 +331,6 @@ def _build_report_figures(
         hrv_tv=hrv_tv,
         hrv_summary=hrv_summary,
         psd_features=psd_features,
-        delta_hr_calc=delta_hr_calc,
-        delta_hr_calc_evt=delta_hr_calc_evt,
         pat_burden=pat_burden,
         pat_burden_diag=pat_burden_diag,
         sleep_combo_summaries=sleep_combo_summaries,
@@ -380,8 +367,6 @@ def _build_report_figures(
         hrv_rmssd_raw=hrv_rmssd_raw,
         hrv_tv=hrv_tv,
         hrv_mask_info=hrv_mask_info,
-        delta_hr_calc=delta_hr_calc,
-        delta_hr_calc_evt=delta_hr_calc_evt,
         t_pat_amp=t_pat_amp,
         pat_amp=pat_amp,
     )

@@ -6,7 +6,6 @@ from . import config, features, paths, plotting
 from .context import RecordingContext
 from .metrics import hr as hr_metrics
 from .metrics import hrv as hrv_metrics
-from .metrics.delta_hr_io import save_delta_hr_series_to_csv
 from .metrics.pat_burden_io import save_pat_burden_episodes_to_csv
 
 
@@ -47,10 +46,6 @@ def build_pdf_step(ctx: RecordingContext) -> None:
         aux_df=ctx.aux_df,
         t_pat_amp=ctx.t_pat_amp,
         pat_amp=ctx.pat_amp,
-        delta_hr_calc=ctx.delta_hr_calc,
-        delta_hr_edf=None,
-        delta_hr_calc_evt=getattr(ctx, "delta_hr_calc_evt", None),
-        delta_hr_edf_evt=None,
         pat_burden=getattr(ctx, "pat_burden", None),
         pat_burden_diag=getattr(ctx, "pat_burden_diag", None),
         sleep_combo_summaries=getattr(ctx, "sleep_combo_summaries", None),
@@ -75,12 +70,6 @@ def export_feature_csvs_step(ctx: RecordingContext) -> None:
             ctx.hrv_csv_path = hrv_metrics.save_hrv_bundle_to_csv(ctx.edf_path, ctx.t_hrv, ctx.hrv_rmssd_clean, rmssd_raw=ctx.hrv_rmssd_raw, hrv_tv=ctx.hrv_tv)
         except Exception as e:
             print(f"  WARNING: could not save HRV CSV for {ctx.edf_path.name}: {e}")
-
-    if features.is_enabled("delta_hr") and ctx.t_hr_calc is not None and ctx.delta_hr_calc is not None:
-        try:
-            ctx.delta_hr_csv_path = save_delta_hr_series_to_csv(ctx.edf_path, ctx.t_hr_calc, ctx.delta_hr_calc, delta_hr_evt=ctx.delta_hr_calc_evt)
-        except Exception as e:
-            print(f"  WARNING: could not save delta-HR CSV for {ctx.edf_path.name}: {e}")
 
     if features.is_enabled("pat_burden") and getattr(ctx, "pat_burden_episodes", None):
         try:
@@ -113,8 +102,6 @@ def append_summary_step(ctx: RecordingContext) -> None:
         ctx.mayer_peak_freq,
         ctx.resp_peak_freq,
         hr_calc=ctx.hr_calc,
-        delta_hr_calc=getattr(ctx, "delta_hr_calc", None),
-        delta_hr_calc_evt=getattr(ctx, "delta_hr_calc_evt", None),
         hrv_clean=ctx.hrv_rmssd_clean,
         hrv_raw=ctx.hrv_rmssd_raw,
         hrv_tv=ctx.hrv_tv,

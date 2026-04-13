@@ -3,69 +3,43 @@ from __future__ import annotations
 import numpy as np
 from typing import cast
 
-from . import config, features, io_aux_csv, masking, sleep_mask
+from . import config, features, masking, sleep_mask
 from .context import RecordingContext
 from .metrics import hr as hr_metrics
 from .metrics import hrv as hrv_metrics
 from .metrics import pat_burden as pat_burden_metrics
 from .metrics import psd as psd_metrics
-from .metrics.hr_delta import compute_delta_hr
 from .metrics.hr_event_response import summarize_event_hr_response
 
 
-def _delta_summary_for_subset(
+def _hr_summary_for_subset(
     hr_raw: np.ndarray,
     t_hr: np.ndarray,
     aux_df,
     include_set: set[int],
 ) -> dict[str, float]:
-    lag = float(getattr(config, "DELTA_HR_LAG_SEC", 30.0))
-    pre = float(getattr(config, "DELTA_HR_PRE_SMOOTH_SEC", 0.0))
-    use_abs = bool(getattr(config, "DELTA_HR_ABS", False))
-    fs_pat = float(getattr(config, "HR_TARGET_FS_HZ", 1.0))
-
-    delta = compute_delta_hr(hr_raw, lag_sec=lag, pre_smooth_sec=pre, fs=fs_pat, use_abs=use_abs)
     policy = masking.policy_from_config(include_stages=include_set, force_sleep=True)
     bundle = masking.build_mask_bundle(t_hr, aux_df, policy=policy)
 
-    full = np.asarray(delta, dtype=float).copy()
-    full[~np.asarray(bundle.combined_keep, dtype=bool)] = np.nan
+    hr_used = np.asarray(hr_raw, dtype=float).copy()
+    hr_used[~np.asarray(bundle.combined_keep, dtype=bool)] = np.nan
 
-    inside = np.asarray(bundle.sleep_keep, dtype=bool) & (~np.asarray(bundle.event_keep, dtype=bool) | ~np.asarray(bundle.desat_keep, dtype=bool))
-    evt = np.asarray(delta, dtype=float).copy()
-    evt[~inside] = np.nan
+    ok = np.isfinite(hr_used)
+    if not np.any(ok):
+        return {
+            "mean": np.nan,
+            "median": np.nan,
+            "std": np.nan,
+            "n_used": 0.0,
+        }
 
-    def _mean_or_nan(x: np.ndarray) -> float:
-        return float(np.nanmean(x)) if np.any(np.isfinite(x)) else np.nan
-
+    vals = hr_used[ok]
     return {
-        "full_mean": _mean_or_nan(full),
-        "event_mean": _mean_or_nan(evt),
+        "mean": float(np.mean(vals)),
+        "median": float(np.median(vals)),
+        "std": float(np.std(vals)),
+        "n_used": float(vals.size),
     }
-
-
-def compute_delta_hr_step(ctx: RecordingContext) -> None:
-    if not features.is_enabled("delta_hr"):
-        ctx.delta_hr_calc = None
-        ctx.delta_hr_calc_evt = None
-        return
-    lag = float(getattr(config, "DELTA_HR_LAG_SEC", 30.0))
-    pre = float(getattr(config, "DELTA_HR_PRE_SMOOTH_SEC", 0.0))
-    use_abs = bool(getattr(config, "DELTA_HR_ABS", False))
-    if ctx.t_hr_calc is not None and getattr(ctx, "hr_calc_raw", None) is not None:
-        fs_pat = float(getattr(config, "HR_TARGET_FS_HZ", 1.0))
-        ctx.delta_hr_calc = compute_delta_hr(cast(np.ndarray, ctx.hr_calc_raw), lag_sec=lag, pre_smooth_sec=pre, fs=fs_pat, use_abs=use_abs)
-        ctx.delta_hr_calc_evt = None
-        if ctx.aux_df is not None:
-            m_evt_keep = io_aux_csv.build_time_exclusion_mask(ctx.t_hr_calc, ctx.aux_df)
-            if m_evt_keep is not None:
-                m_inside = ~np.asarray(m_evt_keep, dtype=bool)
-                d = ctx.delta_hr_calc.astype(float, copy=True)
-                d[~m_inside] = np.nan
-                ctx.delta_hr_calc_evt = d
-    else:
-        ctx.delta_hr_calc = None
-        ctx.delta_hr_calc_evt = None
 
 
 def compute_pat_burden_step(ctx: RecordingContext) -> None:
@@ -97,7 +71,7 @@ def compute_sleep_combo_summaries_step(ctx: RecordingContext) -> None:
     ctx.sleep_combo_summaries = None
     if not features.is_enabled("sleep_combo_summary"):
         return
-    if not features.any_enabled("hrv", "psd", "pat_burden"):
+    if not features.any_enabled("hr", "hrv", "psd", "delta_hr", "pat_burden"):
         return
     if ctx.view_pat is None or ctx.sfreq is None or ctx.sfreq <= 0:
         return
@@ -113,7 +87,7 @@ def compute_sleep_combo_summaries_step(ctx: RecordingContext) -> None:
     summaries: dict[str, dict[str, object]] = {}
     t_hr_subset = None
     hr_raw_subset = None
-    if features.is_enabled("delta_hr"):
+    if features.any_enabled("hr", "delta_hr"):
         try:
             t_hr_subset, hr_raw_subset = hr_metrics.compute_hr_from_pat_signal(ctx.view_pat, fs=ctx.sfreq)
         except Exception:
@@ -126,6 +100,10 @@ def compute_sleep_combo_summaries_step(ctx: RecordingContext) -> None:
         if features.is_enabled("hrv"):
             hrv_summary = hrv_metrics.summarize_hrv_from_rr(rr_mid, ctx.rr_ms_clean, duration_sec, ctx.aux_df, include_set=include_set)
 
+        hr_summary = None
+        if features.is_enabled("hr") and t_hr_subset is not None and hr_raw_subset is not None and ctx.aux_df is not None:
+            hr_summary = _hr_summary_for_subset(hr_raw_subset, t_hr_subset, ctx.aux_df, include_set)
+
         psd_features = None
         if features.is_enabled("psd"):
             psd_features = psd_metrics.compute_psd_features_from_rr(rr_mid, ctx.rr_ms_clean, duration_sec, ctx.aux_df, include_set=include_set)
@@ -134,10 +112,6 @@ def compute_sleep_combo_summaries_step(ctx: RecordingContext) -> None:
         burden_diag = None
         if features.is_enabled("pat_burden") and ctx.t_pat_amp is not None and ctx.pat_amp is not None and ctx.aux_df is not None:
             burden, burden_diag, _episodes = pat_burden_metrics.compute_pat_burden_from_pat_amp(t_sec=ctx.t_pat_amp, pat_amp=ctx.pat_amp, aux_df=ctx.aux_df, include_set=include_set)
-
-        hr_delta_summary = None
-        if features.is_enabled("delta_hr") and t_hr_subset is not None and hr_raw_subset is not None and ctx.aux_df is not None:
-            hr_delta_summary = _delta_summary_for_subset(hr_raw_subset, t_hr_subset, ctx.aux_df, include_set)
 
         hr_event_response_summary = None
         if features.is_enabled("delta_hr") and t_hr_subset is not None and hr_raw_subset is not None and ctx.aux_df is not None:
@@ -152,9 +126,9 @@ def compute_sleep_combo_summaries_step(ctx: RecordingContext) -> None:
             "label": label,
             "include_set": set(include_set),
             "sleep_hours": sleep_hours,
+            "hr_summary": hr_summary,
             "hrv_summary": hrv_summary,
             "psd_features": psd_features,
-            "delta_hr_summary": hr_delta_summary,
             "hr_event_response_summary": hr_event_response_summary,
             "pat_burden": burden,
             "pat_burden_diag": burden_diag,

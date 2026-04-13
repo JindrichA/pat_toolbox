@@ -26,11 +26,13 @@ def _shade_hrv_mask_layers(
         return
 
     sleep_keep = hrv_mask_info.get("sleep_keep")
+    sleep_excluded_mask = None
     if sleep_keep is not None:
+        sleep_excluded_mask = ~np.asarray(sleep_keep, dtype=bool)
         _shade_masked_regions(
             ax,
             t_sec=t_sec,
-            masked=~np.asarray(sleep_keep, dtype=bool),
+            masked=sleep_excluded_mask,
             color="#6c757d",
             alpha=0.10,
             zorder=0.03,
@@ -38,10 +40,13 @@ def _shade_hrv_mask_layers(
 
     calc_excluded = hrv_mask_info.get("combined_keep")
     if calc_excluded is not None:
+        calc_excluded_mask = ~np.asarray(calc_excluded, dtype=bool)
+        if sleep_excluded_mask is not None and sleep_excluded_mask.shape == calc_excluded_mask.shape:
+            calc_excluded_mask = calc_excluded_mask & ~sleep_excluded_mask
         _shade_masked_regions(
             ax,
             t_sec=t_sec,
-            masked=~np.asarray(calc_excluded, dtype=bool),
+            masked=calc_excluded_mask,
             color="#c1121f",
             alpha=0.08,
             zorder=0.04,
@@ -71,7 +76,7 @@ def _format_nrem_legend_label(
     if metric_key in {"rmssd_mean", "sdnn"}:
         value_str = f"{float(value):.1f} ms"
     elif metric_key in {"lf", "hf"}:
-        value_str = f"{float(value):.4f}"
+        value_str = f"{float(value):.2f}"
     else:
         value_str = f"{float(value):.2f}"
 
@@ -205,7 +210,7 @@ def _add_colored_event_key(fig: Any, event_spec: List[EventSpec]) -> None:
         loc="upper center",
         child=packed,
         frameon=False,
-        bbox_to_anchor=(0.5, 0.885),
+        bbox_to_anchor=(0.5, getattr(fig, "_event_key_y", 0.885)),
         bbox_transform=fig.transFigure,
         borderpad=0.0,
         pad=0.0,

@@ -55,7 +55,7 @@ def save_hrv_bundle_to_csv(
         headers.append("rmssd_raw_ms")
 
     if isinstance(hrv_tv, dict):
-        for key in ["sdnn_ms", "lf", "hf", "lf_hf"]:
+        for key in ["sdnn_ms_raw", "sdnn_ms", "lf_raw", "lf", "hf_raw", "hf", "lf_hf_raw", "lf_hf"]:
             value = hrv_tv.get(key)
             if value is not None and np.size(value) == np.size(t_hrv):
                 cols.append(np.asarray(value, dtype=float))

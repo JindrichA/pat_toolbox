@@ -535,15 +535,30 @@ def compute_hrv_from_pat_signal_with_tv_metrics(
     if rr_mid_for_calc.size == 0:
         tv = {
             "rmssd_ms": np.full_like(t_hrv, np.nan, dtype=float),
+            "sdnn_ms_raw": np.full_like(t_hrv, np.nan, dtype=float),
             "sdnn_ms": np.full_like(t_hrv, np.nan, dtype=float),
+            "lf_raw": np.full_like(t_hrv, np.nan, dtype=float),
             "lf": np.full_like(t_hrv, np.nan, dtype=float),
+            "hf_raw": np.full_like(t_hrv, np.nan, dtype=float),
             "hf": np.full_like(t_hrv, np.nan, dtype=float),
+            "lf_hf_raw": np.full_like(t_hrv, np.nan, dtype=float),
             "lf_hf": np.full_like(t_hrv, np.nan, dtype=float),
             "tv_window_sec": np.array([float(tv_window_sec)], dtype=float),
         }
         return t_hrv, rmssd_1hz_raw, rmssd_1hz_clean, summary, tv
 
-    tv = _calculate_hrv_windowed_series(
+    tv_raw = _calculate_hrv_windowed_series(
+        t_grid=t_hrv,
+        rr_mid=rr_mid_sleep,
+        rr_ms=rr_ms_sleep,
+        window_sec=float(tv_window_sec),
+        fs_resample=float(fs_resample_tv),
+        min_rr=int(min_rr_tv),
+        min_span_sec=float(min_freq_span_sec_tv),
+        max_gap_sec=float(max_gap_sec_tv),
+    )
+
+    tv_clean = _calculate_hrv_windowed_series(
         t_grid=t_hrv,
         rr_mid=rr_mid_for_calc,
         rr_ms=rr_ms_for_calc,
@@ -553,6 +568,17 @@ def compute_hrv_from_pat_signal_with_tv_metrics(
         min_span_sec=float(min_freq_span_sec_tv),
         max_gap_sec=float(max_gap_sec_tv),
     )
+    tv = {
+        "rmssd_ms": np.asarray(rmssd_1hz_clean, dtype=float),
+        "sdnn_ms_raw": np.asarray(tv_raw.get("sdnn_ms", np.full_like(t_hrv, np.nan, dtype=float)), dtype=float),
+        "sdnn_ms": np.asarray(tv_clean.get("sdnn_ms", np.full_like(t_hrv, np.nan, dtype=float)), dtype=float),
+        "lf_raw": np.asarray(tv_raw.get("lf", np.full_like(t_hrv, np.nan, dtype=float)), dtype=float),
+        "lf": np.asarray(tv_clean.get("lf", np.full_like(t_hrv, np.nan, dtype=float)), dtype=float),
+        "hf_raw": np.asarray(tv_raw.get("hf", np.full_like(t_hrv, np.nan, dtype=float)), dtype=float),
+        "hf": np.asarray(tv_clean.get("hf", np.full_like(t_hrv, np.nan, dtype=float)), dtype=float),
+        "lf_hf_raw": np.asarray(tv_raw.get("lf_hf", np.full_like(t_hrv, np.nan, dtype=float)), dtype=float),
+        "lf_hf": np.asarray(tv_clean.get("lf_hf", np.full_like(t_hrv, np.nan, dtype=float)), dtype=float),
+    }
     tv["tv_window_sec"] = np.array([float(tv_window_sec)], dtype=float)
 
     return t_hrv, rmssd_1hz_raw, rmssd_1hz_clean, summary, tv

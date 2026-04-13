@@ -8,6 +8,7 @@ from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.ticker import FuncFormatter
 
 from .. import config, features
+from .hrv_plot_utils import _add_colored_event_key
 from .segment_plot_helpers import (
     _overlay_events_on_axes,
     _plot_segment_delta_hr,
@@ -48,10 +49,6 @@ def _add_segment_pages_to_pdf(
     event_spec: List[EventSpec],
     t_pat_amp: Optional[np.ndarray],
     pat_amp: Optional[np.ndarray],
-    delta_hr_calc: Optional[np.ndarray],
-    delta_hr_edf: Optional[np.ndarray],
-    delta_hr_calc_evt: Optional[np.ndarray],
-    delta_hr_edf_evt: Optional[np.ndarray],
     t_hr_calc_raw: Optional[np.ndarray],
     hr_calc_raw: Optional[np.ndarray],
     t_hr_edf_raw: Optional[np.ndarray],
@@ -76,7 +73,7 @@ def _add_segment_pages_to_pdf(
 
         enable_delta = features.segment_plot_requested("delta_hr")
         delta_mode = str(getattr(config, "DELTA_HR_PLOT_MODE", "subplot")).lower()
-        has_any_delta = ((delta_hr_calc is not None and np.size(delta_hr_calc) > 0) or (delta_hr_calc_evt is not None and np.size(delta_hr_calc_evt) > 0))
+        has_any_delta = hr_calc_raw is not None and t_hr_calc is not None
         use_delta_subplot = enable_delta and (delta_mode == "subplot") and has_any_delta
 
         n_rows = (1 if use_hr else 0) + (1 if use_delta_subplot else 0) + (1 if use_hrv else 0) + (1 if use_pat_amp else 0)
@@ -94,6 +91,8 @@ def _add_segment_pages_to_pdf(
         fig, axes = plt.subplots(n_rows, 1, figsize=(11.69, 8.27), sharex=True, gridspec_kw={"height_ratios": height_ratios})
         if n_rows == 1:
             axes = [axes]
+        fig._event_key_y = 0.975
+        _add_colored_event_key(fig, list(event_spec))
 
         idx = 0
         ax_hr = axes[idx] if use_hr else None
@@ -114,7 +113,7 @@ def _add_segment_pages_to_pdf(
 
         delta_ylim = None
         if ax_delta is not None:
-            _plot_segment_delta_hr(ax_delta, t_hr_edf=t_hr_edf, delta_hr_edf=delta_hr_edf, t_hr_calc=t_hr_calc, delta_hr_calc=delta_hr_calc, delta_hr_edf_evt=delta_hr_edf_evt, delta_hr_calc_evt=delta_hr_calc_evt, seg_start_sec=seg_start_sec, seg_end_sec=seg_end_sec, exclusion_zones=exclusion_zones, t_seg_h_start=t_h_start, t_seg_h_end=t_h_end, aux_df=aux_df)
+            _plot_segment_delta_hr(ax_delta, t_hr_edf=t_hr_edf, t_hr_calc=t_hr_calc, hr_calc_raw=hr_calc_raw, seg_start_sec=seg_start_sec, seg_end_sec=seg_end_sec, exclusion_zones=exclusion_zones, t_seg_h_start=t_h_start, t_seg_h_end=t_h_end, aux_df=aux_df)
             delta_ylim = ax_delta.get_ylim()
 
         hrv_ylim = None
@@ -140,7 +139,7 @@ def _add_segment_pages_to_pdf(
         for ax in axes:
             ax.xaxis.set_major_formatter(FuncFormatter(_format_hour_tick))
 
-        fig.tight_layout(rect=(0.04, 0.05, 0.88, 0.98))
+        fig.tight_layout(rect=(0.04, 0.05, 0.88, 0.84))
         fig.subplots_adjust(hspace=0.22)
         pdf.savefig(fig)
         plt.close(fig)

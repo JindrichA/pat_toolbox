@@ -70,7 +70,7 @@ def enabled_feature_parts(candidates: Sequence[str]) -> list[str]:
         "hr": "HR",
         "hrv": "HRV",
         "psd": "PSD",
-        "delta_hr": "DELTA",
+        "delta_hr": "EVENT_HR",
         "pat_burden": "BURDEN",
         "sleep_combo_summary": "SLEEP_COMBO",
     }

@@ -45,6 +45,13 @@ def _fmt_int(x: Optional[float]) -> str:
     return f"{int(x)}"
 
 
+def _wrap_csv_columns(cols: list[str], *, per_line: int = 3) -> str:
+    if not cols:
+        return "none"
+    chunks = [cols[i:i + per_line] for i in range(0, len(cols), per_line)]
+    return "\n".join(", ".join(chunk) for chunk in chunks)
+
+
 def _finite_stats(y: Optional[np.ndarray]) -> Dict[str, Any]:
     out: Dict[str, Any] = {"n_total": None, "n_used": None, "min": None, "max": None, "mean": None, "median": None, "std": None, "nan_pct": None}
     if y is None:
@@ -112,17 +119,23 @@ def _sleep_stage_rows(aux_df: Optional["pd.DataFrame"]) -> List[List[str]]:
 def _sleep_combo_row_values(item: Dict[str, Any]) -> tuple[str, list[str]]:
     label = str(item.get("label", "subset"))
     sleep_hours = _fmt_num(item.get("sleep_hours"), 2)
+    hr_summary_obj = item.get("hr_summary")
+    hr_summary: Dict[str, Any] = hr_summary_obj if isinstance(hr_summary_obj, dict) else {}
     hrv_summary_obj = item.get("hrv_summary")
     hrv_summary: Dict[str, Any] = hrv_summary_obj if isinstance(hrv_summary_obj, dict) else {}
     psd_features_obj = item.get("psd_features")
     psd_features: Dict[str, Any] = psd_features_obj if isinstance(psd_features_obj, dict) else {}
-    delta_summary_obj = item.get("delta_hr_summary")
-    delta_summary: Dict[str, Any] = delta_summary_obj if isinstance(delta_summary_obj, dict) else {}
     hr_response_obj = item.get("hr_event_response_summary")
     hr_response: Dict[str, Any] = hr_response_obj if isinstance(hr_response_obj, dict) else {}
     burden = item.get("pat_burden")
 
     left = [f"{sleep_hours} h"]
+    if features.is_enabled("hr"):
+        left.extend([
+            f"{_fmt(hr_summary.get('mean'), 1)} bpm",
+            f"{_fmt(hr_summary.get('median'), 1)} bpm",
+            f"{_fmt(hr_summary.get('std'), 1)} bpm",
+        ])
     if features.is_enabled("hrv"):
         left.extend([
             f"{_fmt(hrv_summary.get('rmssd_mean'), 1)} ms",
@@ -135,10 +148,9 @@ def _sleep_combo_row_values(item: Dict[str, Any]) -> tuple[str, list[str]]:
         right.append(_fmt_int(psd_features.get("n_windows")))
     if features.is_enabled("delta_hr"):
         right.extend([
-            f"{_fmt(delta_summary.get('event_mean'), 2)} bpm",
-            f"{_fmt(hr_response.get('peak_minus_baseline'), 2)} bpm",
-            f"{_fmt(hr_response.get('peak_to_trough'), 2)} bpm",
-            f"{_fmt(hr_response.get('post_peak_minus_pre_mean'), 2)} bpm",
+            f"{_fmt(hr_response.get('trough_to_peak_response_mean'), 2)} bpm",
+            f"{_fmt(hr_response.get('mean_to_peak_response_mean'), 2)} bpm",
+            f"{_fmt_int(hr_response.get('n_used_windows'))}/{_fmt_int(hr_response.get('n_event_windows'))}",
         ])
     if features.is_enabled("pat_burden"):
         right.append(_fmt(burden, 3))
@@ -150,6 +162,8 @@ def _sleep_combo_tables(sleep_combo_summaries: Optional[Dict[str, Dict[str, obje
         return [], []
 
     left_headers = ["Subset", "Sleep h"]
+    if features.is_enabled("hr"):
+        left_headers.extend(["HR mean", "HR med", "HR std"])
     if features.is_enabled("hrv"):
         left_headers.extend(["RMSSD", "SDNN", "LF/HF"])
 
@@ -157,7 +171,7 @@ def _sleep_combo_tables(sleep_combo_summaries: Optional[Dict[str, Dict[str, obje
     if features.is_enabled("psd"):
         right_headers.append("PSD win")
     if features.is_enabled("delta_hr"):
-        right_headers.extend(["dHR evt", "Peak-BL", "Peak-Tr", "PostPk-Pre"])
+        right_headers.extend(["Tr-Pk resp", "Mean-Pk dHR", "win used/tot"])
     if features.is_enabled("pat_burden"):
         right_headers.append("Burden")
 
@@ -198,9 +212,21 @@ def _render_sleep_combo_page(
     left_table.auto_set_font_size(False)
     left_table.set_fontsize(10)
     left_table.scale(1.1, 1.4)
-    axes_list[0].set_title("Core sleep-subset metrics", fontsize=12, pad=8)
+    axes_list[0].set_title("Core sleep-subset metrics", fontsize=12, pad=10)
 
     if right_rows and len(axes_list) > 1:
+        axes_list[1].set_title("Event-response / burden-derived sleep-subset metrics", fontsize=12, pad=56)
+        axes_list[1].text(
+            0.5,
+            1.02,
+            "Tr-Pk resp = mean(recovery max HR - event-window trough) across valid events\n"
+            "Mean-Pk dHR = mean(recovery max HR - event-window mean HR) across valid events\n"
+            "win used/tot = valid event windows / all detected event windows",
+            transform=axes_list[1].transAxes,
+            ha="center",
+            va="bottom",
+            fontsize=8,
+        )
         right_table = axes_list[1].table(
             cellText=right_rows[1:],
             colLabels=right_rows[0],
@@ -210,21 +236,8 @@ def _render_sleep_combo_page(
         right_table.auto_set_font_size(False)
         right_table.set_fontsize(10)
         right_table.scale(1.1, 1.4)
-        axes_list[1].set_title("Event / burden-derived sleep-subset metrics", fontsize=12, pad=8)
 
-    fig.text(
-        0.5,
-        0.93,
-        "dHR evt = mean lag-based delta-HR during event/desaturation periods | "
-        "Peak-BL = response peak minus pre-event baseline median | "
-        "Peak-Tr = event-window peak minus trough | "
-        "PostPk-Pre = post-event peak minus pre-event baseline mean",
-        ha="center",
-        va="top",
-        fontsize=8,
-    )
-
-    fig.tight_layout(rect=(0.02, 0.03, 0.98, 0.91))
+    fig.tight_layout(rect=(0.02, 0.03, 0.98, 0.96))
     return fig
 
 
@@ -249,7 +262,7 @@ def _build_quality_rows(
             rows += [["Signal quality (NaN %)", ""]]
         rows += [["  HRV RMSSD clean NaN %", _fmt_pct(hrv_clean_nan, 1)], ["  HRV RMSSD raw NaN %", _fmt_pct(hrv_raw_nan, 1)]]
         if isinstance(hrv_tv, dict) and len(hrv_tv) > 0:
-            rows += [["", ""], ["Time-varying HRV quality", ""]]
+            rows += [["", ""], ["Sliding-window HRV quality", ""]]
             for k, v in sorted(hrv_tv.items()):
                 rows.append([f"  {k} NaN %", _fmt_pct(_nan_pct(v), 1)])
     return rows
@@ -269,7 +282,7 @@ def _build_hrv_psd_rows(
         lf = hrv_summary.get("lf") if hrv_summary else None
         hf = hrv_summary.get("hf") if hrv_summary else None
         lf_hf = hrv_summary.get("lf_hf") if hrv_summary else None
-        rows += [["HRV summary (clean RR, after masking/rejection)", ""], ["  RMSSD mean [ms]", _fmt(rmssd_mean, 2)], ["  RMSSD median [ms]", _fmt(rmssd_median, 2)], ["  SDNN [ms]", _fmt(sdnn, 2)], ["  LF", _fmt(lf, 4)], ["  HF", _fmt(hf, 4)], ["  LF/HF", _fmt(lf_hf, 2)]]
+        rows += [["HRV summary (clean RR, after masking/rejection)", ""], ["  RMSSD mean [ms]", _fmt(rmssd_mean, 2)], ["  RMSSD median [ms]", _fmt(rmssd_median, 2)], ["  SDNN [ms]", _fmt(sdnn, 2)], ["  LF", _fmt(lf, 2)], ["  HF", _fmt(hf, 2)], ["  LF/HF", _fmt(lf_hf, 2)]]
         if hrv_summary:
             rows += [["  LF segments used", _fmt_int(hrv_summary.get("lf_n_segments_used"))], ["  Fixed LF/HF median", _fmt(hrv_summary.get("lf_hf_fixed_median"), 2)], ["  Fixed LF/HF mean", _fmt(hrv_summary.get("lf_hf_fixed_mean"), 2)], ["  Fixed LF/HF valid windows", _fmt_int(hrv_summary.get("lf_hf_fixed_n_windows_valid"))], ["  Fixed LF/HF total windows", _fmt_int(hrv_summary.get("lf_hf_fixed_n_windows_total"))], ["  Fixed window [s]", _fmt(hrv_summary.get("lf_hf_fixed_window_sec"), 0)], ["  Fixed hop [s]", _fmt(hrv_summary.get("lf_hf_fixed_hop_sec"), 0)]]
 
@@ -282,12 +295,24 @@ def _build_hrv_psd_rows(
     return rows
 
 
-def _build_delta_rows(delta_hr_calc: Optional[np.ndarray], delta_hr_calc_evt: Optional[np.ndarray]) -> List[List[str]]:
-    if not features.is_enabled("delta_hr"):
+def _build_event_response_rows(sleep_combo_summaries: Optional[Dict[str, Dict[str, object]]]) -> List[List[str]]:
+    if not features.is_enabled("delta_hr") or not isinstance(sleep_combo_summaries, dict):
         return []
-    d_pat_all = _finite_stats(delta_hr_calc)
-    d_pat_evt = _finite_stats(delta_hr_calc_evt)
-    return [["ΔHR baseline (all finite samples)", ""], ["  ΔHR n used", _fmt_int(d_pat_all["n_used"])], ["  ΔHR min / max [bpm]", f"{_fmt_num(d_pat_all['min'], 2)} / {_fmt_num(d_pat_all['max'], 2)}"], ["  ΔHR mean / median [bpm]", f"{_fmt_num(d_pat_all['mean'], 2)} / {_fmt_num(d_pat_all['median'], 2)}"], ["  ΔHR std [bpm]", _fmt_num(d_pat_all["std"], 2)], ["  ΔHR NaN %", _fmt_pct(d_pat_all["nan_pct"], 1)], ["", ""], ["ΔHR event-only (inside event/desat windows only)", ""], ["  ΔHR n used", _fmt_int(d_pat_evt["n_used"])], ["  ΔHR min / max [bpm]", f"{_fmt_num(d_pat_evt['min'], 2)} / {_fmt_num(d_pat_evt['max'], 2)}"], ["  ΔHR mean / median [bpm]", f"{_fmt_num(d_pat_evt['mean'], 2)} / {_fmt_num(d_pat_evt['median'], 2)}"], ["  ΔHR std [bpm]", _fmt_num(d_pat_evt["std"], 2)], ["  ΔHR NaN %", _fmt_pct(d_pat_evt["nan_pct"], 1)]]
+    rows: List[List[str]] = [["Event-response HR metrics", ""], ["Subset", "Tr-Pk resp | Mean-Pk dHR | windows used/total"]]
+    for key in ["all_sleep", "wake_sleep", "nrem", "deep", "rem"]:
+        item = sleep_combo_summaries.get(key)
+        if not isinstance(item, dict):
+            continue
+        label = str(item.get("label", key))
+        hr_response_obj = item.get("hr_event_response_summary")
+        hr_response: Dict[str, Any] = hr_response_obj if isinstance(hr_response_obj, dict) else {}
+        rows.append([
+            label,
+            f"{_fmt(hr_response.get('trough_to_peak_response_mean'), 2)} bpm | "
+            f"{_fmt(hr_response.get('mean_to_peak_response_mean'), 2)} bpm | "
+            f"{_fmt_int(hr_response.get('n_used_windows'))}/{_fmt_int(hr_response.get('n_event_windows'))}",
+        ])
+    return rows
 
 
 def _render_table_page(
@@ -335,10 +360,6 @@ def build_summary_pages(
     hrv_raw: Optional[np.ndarray] = None,
     hrv_tv: Optional[Dict[str, np.ndarray]] = None,
     psd_features: Optional[Dict[str, float]] = None,
-    delta_hr_calc: Optional[np.ndarray] = None,
-    delta_hr_edf: Optional[np.ndarray] = None,
-    delta_hr_calc_evt: Optional[np.ndarray] = None,
-    delta_hr_edf_evt: Optional[np.ndarray] = None,
     pat_burden: Optional[float] = None,
     pat_burden_diag: Optional[Dict[str, float]] = None,
     sleep_combo_summaries: Optional[Dict[str, Dict[str, object]]] = None,
@@ -348,9 +369,6 @@ def build_summary_pages(
     rmse = None
     t_hr_edf = None
     hr_edf = None
-    delta_hr_edf = None
-    delta_hr_edf_evt = None
-
     figs = []
 
     rows_p1 = _build_quality_rows(hr_calc, hrv_clean, hrv_raw, hrv_tv)
@@ -369,9 +387,9 @@ def build_summary_pages(
             title = "Summary (Spectral)"
         figs.append(_render_table_page(title, rows_p2, edf_base=edf_base, font_size=12, scale_y=1.35))
 
-    rows_p3 = _build_delta_rows(delta_hr_calc, delta_hr_calc_evt)
+    rows_p3 = _build_event_response_rows(sleep_combo_summaries)
     if rows_p3:
-        figs.append(_render_table_page("Summary (ΔHR: baseline vs event-only)", rows_p3, edf_base=edf_base, font_size=12, scale_y=1.40))
+        figs.append(_render_table_page("Summary (Event-Response HR)", rows_p3, edf_base=edf_base, font_size=12, scale_y=1.40))
 
     combo_left_rows, combo_right_rows = _sleep_combo_tables(sleep_combo_summaries) if features.is_enabled("sleep_combo_summary") else ([], [])
     if combo_left_rows:
@@ -390,7 +408,7 @@ def build_summary_pages(
         cen4_n, cen4_pct = _count_flags(aux_df, "evt_central_4")
         obs4_n, obs4_pct = _count_flags(aux_df, "evt_obstructive_4")
         unc4_n, unc4_pct = _count_flags(aux_df, "evt_unclassified_4")
-        rows_p4 += [["Overall event summary (aux CSV)", ""], ["  Samples (rows)", f"{aux_total:d}"], ["  Active exclusion columns", ", ".join(policy.exclusion_columns) if policy.exclusion_columns else "none"], ["  Desaturation flags", f"{desat_n:d} ({desat_pct})"], ["  Exclude HR flags", f"{excl_hr_n:d} ({excl_hr_pct})"], ["  Exclude PAT flags", f"{excl_pat_n:d} ({excl_pat_pct})"], ["  Central A/H 3%", f"{cen3_n:d} ({cen3_pct})"], ["  Obstructive A/H 3%", f"{obs3_n:d} ({obs3_pct})"], ["  Unclassified A/H 3%", f"{unc3_n:d} ({unc3_pct})"]]
+        rows_p4 += [["Overall event summary (aux CSV)", ""], ["  Samples (rows)", f"{aux_total:d}"], ["  Active exclusion columns", _wrap_csv_columns(list(policy.exclusion_columns))], ["  Desaturation flags", f"{desat_n:d} ({desat_pct})"], ["  Exclude HR flags", f"{excl_hr_n:d} ({excl_hr_pct})"], ["  Exclude PAT flags", f"{excl_pat_n:d} ({excl_pat_pct})"], ["  Central A/H 3%", f"{cen3_n:d} ({cen3_pct})"], ["  Obstructive A/H 3%", f"{obs3_n:d} ({obs3_pct})"], ["  Unclassified A/H 3%", f"{unc3_n:d} ({unc3_pct})"]]
         if (cen4_n + obs4_n + unc4_n) > 0:
             rows_p4 += [["  Central A/H 4%", f"{cen4_n:d} ({cen4_pct})"], ["  Obstructive A/H 4%", f"{obs4_n:d} ({obs4_pct})"], ["  Unclassified A/H 4%", f"{unc4_n:d} ({unc4_pct})"]]
         rows_p4 += [["", ""]]

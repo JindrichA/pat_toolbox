@@ -258,8 +258,6 @@ def _build_stagegram_and_hrv_tv_figure(
             _add_mean_median_lines(ax, y_bin[okb], color=color, include_median=False)
         ax.relim()
         ax.autoscale_view()
-        if hrv_mask_info is not None and panel["key"] == "rmssd":
-            _shade_hrv_mask_layers(ax, t_hrv, hrv_mask_info)
         _overlay_events_on_single_axis_whole_night(ax=ax, aux_df=aux_df, start_sec=start_sec, end_sec=end_sec, event_spec=event_spec, show_legend_labels=False, event_style="short")
         ax.set_xlim(start_h, end_h)
         ax.set_ylabel(panel["ylabel"])
