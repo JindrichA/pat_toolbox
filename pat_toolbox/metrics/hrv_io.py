@@ -64,3 +64,34 @@ def save_hrv_bundle_to_csv(
     data = np.column_stack(cols)
     np.savetxt(out_csv, data, delimiter=",", header=",".join(headers), comments="")
     return out_csv
+
+
+def save_hrv_mask_to_csv(
+    edf_path: Path,
+    t_hrv: np.ndarray,
+    hrv_mask_info: dict[str, object],
+) -> Optional[Path]:
+    if t_hrv.size == 0 or not hrv_mask_info:
+        return None
+
+    hrv_sub = getattr(config, "HRV_OUTPUT_SUBFOLDER", getattr(config, "HR_OUTPUT_SUBFOLDER", "HRV"))
+    hrv_folder = paths.get_output_folder(hrv_sub)
+    edf_base = edf_path.stem
+    out_csv = hrv_folder / f"{edf_base}__HRV_Mask_1Hz.csv"
+
+    cols = [np.asarray(t_hrv, dtype=float)]
+    headers = ["time_sec"]
+
+    for key in ["sleep_keep", "apnea_keep", "quality_keep", "event_keep", "desat_keep", "combined_keep"]:
+        value = hrv_mask_info.get(key)
+        if value is None or np.size(value) != np.size(t_hrv):
+            continue
+        cols.append(np.asarray(value, dtype=bool).astype(int))
+        headers.append(key)
+
+    if len(cols) <= 1:
+        return None
+
+    data = np.column_stack(cols)
+    np.savetxt(out_csv, data, delimiter=",", header=",".join(headers), comments="")
+    return out_csv

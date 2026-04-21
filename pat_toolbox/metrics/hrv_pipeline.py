@@ -354,6 +354,9 @@ def summarize_hrv_from_rr(
                 "lf_hf_fixed_mean": np.nan,
                 "lf_hf_fixed_n_windows_valid": 0,
                 "lf_hf_fixed_n_windows_total": 0,
+                "lf_hf_fixed_valid_pct": np.nan,
+                "lf_hf_fixed_valid_min": 0.0,
+                "lf_hf_fixed_total_min": 0.0,
                 "lf_hf_fixed_window_sec": float(fixed_win_sec),
                 "lf_hf_fixed_hop_sec": float(fixed_hop_sec),
             }
@@ -394,6 +397,9 @@ def summarize_hrv_from_rr(
 
     summary["lf_hf_fixed_n_windows_valid"] = n_valid
     summary["lf_hf_fixed_n_windows_total"] = n_total
+    summary["lf_hf_fixed_valid_pct"] = float(100.0 * n_valid / n_total) if n_total > 0 else np.nan
+    summary["lf_hf_fixed_valid_min"] = float(n_valid * fixed_win_sec / 60.0)
+    summary["lf_hf_fixed_total_min"] = float(n_total * fixed_win_sec / 60.0)
     summary["lf_hf_fixed_window_sec"] = float(fixed_win_sec)
     summary["lf_hf_fixed_hop_sec"] = float(fixed_hop_sec)
     return summary
@@ -529,6 +535,9 @@ def compute_hrv_from_pat_signal_with_tv_metrics(
 
     summary["lf_hf_fixed_n_windows_valid"] = n_valid
     summary["lf_hf_fixed_n_windows_total"] = n_total
+    summary["lf_hf_fixed_valid_pct"] = float(100.0 * n_valid / n_total) if n_total > 0 else np.nan
+    summary["lf_hf_fixed_valid_min"] = float(n_valid * fixed_win_sec / 60.0)
+    summary["lf_hf_fixed_total_min"] = float(n_total * fixed_win_sec / 60.0)
     summary["lf_hf_fixed_window_sec"] = float(fixed_win_sec)
     summary["lf_hf_fixed_hop_sec"] = float(fixed_hop_sec)
 

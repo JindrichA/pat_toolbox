@@ -70,6 +70,11 @@ def export_feature_csvs_step(ctx: RecordingContext) -> None:
             ctx.hrv_csv_path = hrv_metrics.save_hrv_bundle_to_csv(ctx.edf_path, ctx.t_hrv, ctx.hrv_rmssd_clean, rmssd_raw=ctx.hrv_rmssd_raw, hrv_tv=ctx.hrv_tv)
         except Exception as e:
             print(f"  WARNING: could not save HRV CSV for {ctx.edf_path.name}: {e}")
+        try:
+            if ctx.hrv_mask_info is not None:
+                ctx.hrv_mask_csv_path = hrv_metrics.save_hrv_mask_to_csv(ctx.edf_path, ctx.t_hrv, ctx.hrv_mask_info)
+        except Exception as e:
+            print(f"  WARNING: could not save HRV mask CSV for {ctx.edf_path.name}: {e}")
 
     if features.is_enabled("pat_burden") and getattr(ctx, "pat_burden_episodes", None):
         try:
@@ -101,10 +106,13 @@ def append_summary_step(ctx: RecordingContext) -> None:
         ctx.hrv_summary,
         ctx.mayer_peak_freq,
         ctx.resp_peak_freq,
+        t_hr=ctx.t_hr_calc,
         hr_calc=ctx.hr_calc,
+        t_hrv=ctx.t_hrv,
         hrv_clean=ctx.hrv_rmssd_clean,
         hrv_raw=ctx.hrv_rmssd_raw,
         hrv_tv=ctx.hrv_tv,
+        hrv_mask_info=ctx.hrv_mask_info,
         aux_df=ctx.aux_df,
         psd_features=getattr(ctx, "psd_features", None),
         pat_burden=getattr(ctx, "pat_burden", None),

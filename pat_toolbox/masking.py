@@ -28,6 +28,8 @@ class MaskPolicy:
 class MaskBundle:
     t_sec: np.ndarray
     sleep_keep: np.ndarray
+    apnea_keep: np.ndarray
+    quality_keep: np.ndarray
     event_keep: np.ndarray
     desat_keep: np.ndarray
     combined_keep: np.ndarray
@@ -162,6 +164,17 @@ def _event_times_from_aux(aux_df, columns: tuple[str, ...]) -> np.ndarray:
     return np.unique(np.concatenate(times))
 
 
+def _split_exclusion_columns(columns: tuple[str, ...]) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    apnea_cols: list[str] = []
+    quality_cols: list[str] = []
+    for col in columns:
+        if col.startswith("evt_"):
+            apnea_cols.append(col)
+        elif col.startswith("exclude_"):
+            quality_cols.append(col)
+    return tuple(apnea_cols), tuple(quality_cols)
+
+
 def _gated_desat_windows(aux_df, policy: MaskPolicy, active_event_times: np.ndarray) -> tuple[tuple[float, float], ...]:
     if not policy.use_desat_windows:
         return ()
@@ -191,6 +204,8 @@ def build_mask_bundle(
 ) -> MaskBundle:
     tt = np.asarray(t_sec, dtype=float)
     sleep_keep = np.ones_like(tt, dtype=bool)
+    apnea_keep = np.ones_like(tt, dtype=bool)
+    quality_keep = np.ones_like(tt, dtype=bool)
     event_keep = np.ones_like(tt, dtype=bool)
     desat_keep = np.ones_like(tt, dtype=bool)
 
@@ -201,6 +216,8 @@ def build_mask_bundle(
         return MaskBundle(
             t_sec=tt,
             sleep_keep=sleep_keep,
+            apnea_keep=apnea_keep,
+            quality_keep=quality_keep,
             event_keep=event_keep,
             desat_keep=desat_keep,
             combined_keep=sleep_keep,
@@ -219,9 +236,18 @@ def build_mask_bundle(
         if m_sleep is not None:
             sleep_keep = np.asarray(m_sleep, dtype=bool)
 
+    apnea_cols, quality_cols = _split_exclusion_columns(policy.exclusion_columns)
+    active_apnea_times = _event_times_from_aux(aux_df, apnea_cols)
+    active_quality_times = _event_times_from_aux(aux_df, quality_cols)
     active_event_times = _event_times_from_aux(aux_df, policy.exclusion_columns)
-    for te in active_event_times:
-        event_keep[(tt >= te - policy.event_pre_sec) & (tt <= te + policy.event_post_sec)] = False
+
+    for te in active_apnea_times:
+        apnea_keep[(tt >= te - policy.event_pre_sec) & (tt <= te + policy.event_post_sec)] = False
+
+    for te in active_quality_times:
+        quality_keep[(tt >= te - policy.event_pre_sec) & (tt <= te + policy.event_post_sec)] = False
+
+    event_keep = apnea_keep & quality_keep
 
     gated_desats = _gated_desat_windows(aux_df, policy, active_event_times)
     for a, b in gated_desats:
@@ -231,6 +257,8 @@ def build_mask_bundle(
     return MaskBundle(
         t_sec=tt,
         sleep_keep=sleep_keep,
+        apnea_keep=apnea_keep,
+        quality_keep=quality_keep,
         event_keep=event_keep,
         desat_keep=desat_keep,
         combined_keep=combined_keep,

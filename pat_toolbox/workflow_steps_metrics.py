@@ -182,6 +182,8 @@ def compute_hrv_step(ctx: RecordingContext) -> None:
             bundle = masking.build_mask_bundle(ctx.t_hrv, ctx.aux_df)
             ctx.hrv_mask_info = {
                 "sleep_keep": np.asarray(bundle.sleep_keep, dtype=bool),
+                "apnea_keep": np.asarray(bundle.apnea_keep, dtype=bool),
+                "quality_keep": np.asarray(bundle.quality_keep, dtype=bool),
                 "event_keep": np.asarray(bundle.event_keep, dtype=bool),
                 "desat_keep": np.asarray(bundle.desat_keep, dtype=bool),
                 "combined_keep": np.asarray(bundle.combined_keep, dtype=bool),

@@ -15,10 +15,13 @@ def append_hr_hrv_summary(
     mayer_peak_freq: Optional[float] = None,
     resp_peak_freq: Optional[float] = None,
     *,
+    t_hr: Optional[np.ndarray] = None,
     hr_calc: Optional[np.ndarray] = None,
+    t_hrv: Optional[np.ndarray] = None,
     hrv_clean: Optional[np.ndarray] = None,
     hrv_raw: Optional[np.ndarray] = None,
     hrv_tv: Optional[Dict[str, np.ndarray]] = None,
+    hrv_mask_info: Optional[Dict[str, object]] = None,
     aux_df: Optional[Any] = None,
     psd_features: Optional[Dict[str, float]] = None,
     pat_burden: Optional[float] = None,
@@ -29,19 +32,144 @@ def append_hr_hrv_summary(
     Append one PAT-only summary row with:
       - HRV summary
       - spectral peaks / PSD features
-      - PAT HR / HRV NaN quality
+      - PAT HR / HRV valid coverage
       - aux event counts
       - sleep-stage masking stats
       - PAT burden
     """
 
-    def _nan_pct(x: Optional[np.ndarray]) -> Optional[float]:
+    def _sample_dt_sec(t: Optional[np.ndarray], default_fs: float) -> float:
+        if t is not None:
+            tt = np.asarray(t, dtype=float)
+            if tt.size >= 2:
+                dt = np.diff(tt)
+                dt = dt[np.isfinite(dt) & (dt > 0)]
+                if dt.size > 0:
+                    return float(np.median(dt))
+        fs = float(default_fs)
+        return 1.0 / fs if fs > 0 else 1.0
+
+    def _coverage_stats(
+        x: Optional[np.ndarray],
+        *,
+        t: Optional[np.ndarray] = None,
+        default_fs: float = 1.0,
+    ) -> Dict[str, float]:
+        out = {
+            "valid_pct": np.nan,
+            "valid_min": np.nan,
+            "total_min": np.nan,
+            "n_valid": np.nan,
+            "n_total": np.nan,
+        }
         if x is None:
-            return None
-        x = np.asarray(x)
-        if x.size == 0:
-            return None
-        return float(100.0 * np.mean(~np.isfinite(x)))
+            return out
+        arr = np.asarray(x, dtype=float)
+        if arr.size == 0:
+            out.update({
+                "valid_pct": 0.0,
+                "valid_min": 0.0,
+                "total_min": 0.0,
+                "n_valid": 0.0,
+                "n_total": 0.0,
+            })
+            return out
+        ok = np.isfinite(arr)
+        n_valid = float(np.count_nonzero(ok))
+        n_total = float(arr.size)
+        dt_sec = _sample_dt_sec(t, default_fs)
+        out["valid_pct"] = 100.0 * n_valid / n_total if n_total > 0 else np.nan
+        out["valid_min"] = (n_valid * dt_sec) / 60.0
+        out["total_min"] = (n_total * dt_sec) / 60.0
+        out["n_valid"] = n_valid
+        out["n_total"] = n_total
+        return out
+
+    def _hrv_tv_csv_prefix(key: str) -> str:
+        mapping = {
+            "sdnn_ms_raw": "hrv_tv_sdnn_pre_exclusion",
+            "sdnn_ms": "hrv_tv_sdnn_clean",
+            "lf_raw": "hrv_tv_lf_pre_exclusion",
+            "lf": "hrv_tv_lf_clean",
+            "hf_raw": "hrv_tv_hf_pre_exclusion",
+            "hf": "hrv_tv_hf_clean",
+            "lf_hf_raw": "hrv_tv_lf_hf_pre_exclusion",
+            "lf_hf": "hrv_tv_lf_hf_clean",
+        }
+        return mapping.get(key, f"hrv_tv_{key}")
+
+    def _mask_breakdown_stats(
+        t: Optional[np.ndarray],
+        mask_info: Optional[Dict[str, object]],
+    ) -> Dict[str, float]:
+        out = {
+            "selected_policy_min": np.nan,
+            "clean_kept_min": np.nan,
+            "clean_kept_pct_of_selected": np.nan,
+            "excluded_total_min": np.nan,
+            "excluded_total_pct_of_selected": np.nan,
+            "excluded_apnea_only_min": np.nan,
+            "excluded_apnea_only_pct_of_selected": np.nan,
+            "excluded_quality_only_min": np.nan,
+            "excluded_quality_only_pct_of_selected": np.nan,
+            "excluded_desat_only_min": np.nan,
+            "excluded_desat_only_pct_of_selected": np.nan,
+            "excluded_overlap_min": np.nan,
+            "excluded_overlap_pct_of_selected": np.nan,
+        }
+        if t is None or not mask_info:
+            return out
+
+        sleep_keep = mask_info.get("sleep_keep")
+        apnea_keep = mask_info.get("apnea_keep")
+        quality_keep = mask_info.get("quality_keep")
+        desat_keep = mask_info.get("desat_keep")
+        combined_keep = mask_info.get("combined_keep")
+        required = [sleep_keep, apnea_keep, quality_keep, desat_keep, combined_keep]
+        if not all(isinstance(v, np.ndarray) and np.size(v) == np.size(t) for v in required):
+            return out
+
+        dt_sec = _sample_dt_sec(t, float(getattr(config, "HRV_TARGET_FS_HZ", 1.0)))
+        sleep_keep = np.asarray(sleep_keep, dtype=bool)
+        apnea_keep = np.asarray(apnea_keep, dtype=bool)
+        quality_keep = np.asarray(quality_keep, dtype=bool)
+        desat_keep = np.asarray(desat_keep, dtype=bool)
+        combined_keep = np.asarray(combined_keep, dtype=bool)
+
+        selected_n = int(np.count_nonzero(sleep_keep))
+        if selected_n <= 0:
+            return out
+
+        apnea_excl = sleep_keep & (~apnea_keep)
+        quality_excl = sleep_keep & (~quality_keep)
+        desat_excl = sleep_keep & (~desat_keep)
+        excl_count = apnea_excl.astype(int) + quality_excl.astype(int) + desat_excl.astype(int)
+        only_apnea = (excl_count == 1) & apnea_excl
+        only_quality = (excl_count == 1) & quality_excl
+        only_desat = (excl_count == 1) & desat_excl
+        overlap = excl_count > 1
+        excluded_total = sleep_keep & (~combined_keep)
+
+        def _min(mask: np.ndarray) -> float:
+            return float(np.count_nonzero(mask) * dt_sec / 60.0)
+
+        def _pct(mask: np.ndarray) -> float:
+            return float(100.0 * np.count_nonzero(mask) / selected_n)
+
+        out["selected_policy_min"] = _min(sleep_keep)
+        out["clean_kept_min"] = _min(combined_keep)
+        out["clean_kept_pct_of_selected"] = _pct(combined_keep)
+        out["excluded_total_min"] = _min(excluded_total)
+        out["excluded_total_pct_of_selected"] = _pct(excluded_total)
+        out["excluded_apnea_only_min"] = _min(only_apnea)
+        out["excluded_apnea_only_pct_of_selected"] = _pct(only_apnea)
+        out["excluded_quality_only_min"] = _min(only_quality)
+        out["excluded_quality_only_pct_of_selected"] = _pct(only_quality)
+        out["excluded_desat_only_min"] = _min(only_desat)
+        out["excluded_desat_only_pct_of_selected"] = _pct(only_desat)
+        out["excluded_overlap_min"] = _min(overlap)
+        out["excluded_overlap_pct_of_selected"] = _pct(overlap)
+        return out
 
     def _fmt6(x: Optional[float]) -> str:
         if x is None:
@@ -197,88 +325,135 @@ def append_hr_hrv_summary(
     }
 
     if features.is_enabled("psd"):
-        row["mayer_peak_hz"] = mayer_peak_freq
-        row["resp_peak_hz"] = resp_peak_freq
+        row["selected_mayer_peak_hz"] = mayer_peak_freq
+        row["selected_resp_peak_hz"] = resp_peak_freq
 
     if features.is_enabled("pat_burden"):
-        row["pat_burden"] = pat_burden
+        row["selected_pat_burden"] = pat_burden
         if isinstance(pat_burden_diag, dict):
-            row["pat_burden_sleep_hours"] = pat_burden_diag.get("sleep_hours")
-            row["pat_burden_total_area_min"] = pat_burden_diag.get("total_area_min")
-            row["pat_burden_n_episodes"] = pat_burden_diag.get("n_episodes")
-            row["pat_burden_n_episodes_used"] = pat_burden_diag.get("n_episodes_used")
-            row["pat_burden_relative"] = int(bool(pat_burden_diag.get("relative", False)))
-            row["pat_burden_nan_pct"] = pat_burden_diag.get("nan_pct_inside")
+            row["selected_pat_burden_sleep_hours"] = pat_burden_diag.get("sleep_hours")
+            row["selected_pat_burden_total_area_min"] = pat_burden_diag.get("total_area_min")
+            row["selected_pat_burden_n_episodes"] = pat_burden_diag.get("n_episodes")
+            row["selected_pat_burden_n_episodes_used"] = pat_burden_diag.get("n_episodes_used")
+            row["selected_pat_burden_relative"] = int(bool(pat_burden_diag.get("relative", False)))
+            row["selected_pat_burden_nan_pct"] = pat_burden_diag.get("nan_pct_inside")
         else:
-            row["pat_burden_sleep_hours"] = np.nan
-            row["pat_burden_total_area_min"] = np.nan
-            row["pat_burden_n_episodes"] = np.nan
-            row["pat_burden_n_episodes_used"] = np.nan
-            row["pat_burden_relative"] = np.nan
-            row["pat_burden_nan_pct"] = np.nan
+            row["selected_pat_burden_sleep_hours"] = np.nan
+            row["selected_pat_burden_total_area_min"] = np.nan
+            row["selected_pat_burden_n_episodes"] = np.nan
+            row["selected_pat_burden_n_episodes_used"] = np.nan
+            row["selected_pat_burden_relative"] = np.nan
+            row["selected_pat_burden_nan_pct"] = np.nan
 
     if features.is_enabled("hrv") and hrv_summary is not None:
         row.update(
             {
-                "rmssd_mean_ms": hrv_summary.get("rmssd_mean", np.nan),
-                "rmssd_median_ms": hrv_summary.get("rmssd_median", np.nan),
-                "sdnn_ms": hrv_summary.get("sdnn", np.nan),
-                "lf": hrv_summary.get("lf", np.nan),
-                "hf": hrv_summary.get("hf", np.nan),
-                "lf_hf": hrv_summary.get("lf_hf", np.nan),
-                "lf_n_segments_used": hrv_summary.get("lf_n_segments_used", np.nan),
-                "lf_hf_fixed_median": hrv_summary.get("lf_hf_fixed_median", np.nan),
-                "lf_hf_fixed_mean": hrv_summary.get("lf_hf_fixed_mean", np.nan),
-                "lf_hf_fixed_n_windows_valid": hrv_summary.get("lf_hf_fixed_n_windows_valid", np.nan),
-                "lf_hf_fixed_n_windows_total": hrv_summary.get("lf_hf_fixed_n_windows_total", np.nan),
-                "lf_hf_fixed_window_sec": hrv_summary.get("lf_hf_fixed_window_sec", np.nan),
-                "lf_hf_fixed_hop_sec": hrv_summary.get("lf_hf_fixed_hop_sec", np.nan),
+                "selected_rmssd_mean_ms": hrv_summary.get("rmssd_mean", np.nan),
+                "selected_rmssd_median_ms": hrv_summary.get("rmssd_median", np.nan),
+                "selected_sdnn_ms": hrv_summary.get("sdnn", np.nan),
+                "selected_lf": hrv_summary.get("lf", np.nan),
+                "selected_hf": hrv_summary.get("hf", np.nan),
+                "selected_lf_hf": hrv_summary.get("lf_hf", np.nan),
+                "selected_lf_n_segments_used": hrv_summary.get("lf_n_segments_used", np.nan),
+                "selected_lf_hf_fixed_median": hrv_summary.get("lf_hf_fixed_median", np.nan),
+                "selected_lf_hf_fixed_mean": hrv_summary.get("lf_hf_fixed_mean", np.nan),
+                "selected_lf_hf_fixed_n_windows_valid": hrv_summary.get("lf_hf_fixed_n_windows_valid", np.nan),
+                "selected_lf_hf_fixed_n_windows_total": hrv_summary.get("lf_hf_fixed_n_windows_total", np.nan),
+                "selected_lf_hf_fixed_valid_pct": hrv_summary.get("lf_hf_fixed_valid_pct", np.nan),
+                "selected_lf_hf_fixed_valid_min": hrv_summary.get("lf_hf_fixed_valid_min", np.nan),
+                "selected_lf_hf_fixed_total_min": hrv_summary.get("lf_hf_fixed_total_min", np.nan),
+                "selected_lf_hf_fixed_window_sec": hrv_summary.get("lf_hf_fixed_window_sec", np.nan),
+                "selected_lf_hf_fixed_hop_sec": hrv_summary.get("lf_hf_fixed_hop_sec", np.nan),
             }
         )
     elif features.is_enabled("hrv"):
         row.update(
             {
-                "rmssd_mean_ms": np.nan,
-                "rmssd_median_ms": np.nan,
-                "sdnn_ms": np.nan,
-                "lf": np.nan,
-                "hf": np.nan,
-                "lf_hf": np.nan,
-                "lf_n_segments_used": np.nan,
-                "lf_hf_fixed_median": np.nan,
-                "lf_hf_fixed_mean": np.nan,
-                "lf_hf_fixed_n_windows_valid": np.nan,
-                "lf_hf_fixed_n_windows_total": np.nan,
-                "lf_hf_fixed_window_sec": np.nan,
-                "lf_hf_fixed_hop_sec": np.nan,
+                "selected_rmssd_mean_ms": np.nan,
+                "selected_rmssd_median_ms": np.nan,
+                "selected_sdnn_ms": np.nan,
+                "selected_lf": np.nan,
+                "selected_hf": np.nan,
+                "selected_lf_hf": np.nan,
+                "selected_lf_n_segments_used": np.nan,
+                "selected_lf_hf_fixed_median": np.nan,
+                "selected_lf_hf_fixed_mean": np.nan,
+                "selected_lf_hf_fixed_n_windows_valid": np.nan,
+                "selected_lf_hf_fixed_n_windows_total": np.nan,
+                "selected_lf_hf_fixed_valid_pct": np.nan,
+                "selected_lf_hf_fixed_valid_min": np.nan,
+                "selected_lf_hf_fixed_total_min": np.nan,
+                "selected_lf_hf_fixed_window_sec": np.nan,
+                "selected_lf_hf_fixed_hop_sec": np.nan,
             }
         )
 
     if features.is_enabled("psd") and psd_features:
         row.update(
             {
-                "psd_pow_vlf": psd_features.get("pow_vlf"),
-                "psd_pow_mayer": psd_features.get("pow_mayer"),
-                "psd_pow_resp": psd_features.get("pow_resp"),
-                "psd_norm_mayer": psd_features.get("norm_mayer"),
-                "psd_norm_resp": psd_features.get("norm_resp"),
-                "psd_valid_windows": psd_features.get("n_windows"),
+                "selected_psd_pow_vlf": psd_features.get("pow_vlf"),
+                "selected_psd_pow_mayer": psd_features.get("pow_mayer"),
+                "selected_psd_pow_resp": psd_features.get("pow_resp"),
+                "selected_psd_norm_mayer": psd_features.get("norm_mayer"),
+                "selected_psd_norm_resp": psd_features.get("norm_resp"),
+                "selected_psd_valid_windows": psd_features.get("n_windows"),
             }
         )
 
-    row["hr_pat_nan_pct"] = _nan_pct(hr_calc)
+    hr_cov = _coverage_stats(
+        hr_calc,
+        t=t_hr,
+        default_fs=float(getattr(config, "HR_TARGET_FS_HZ", 1.0)),
+    )
+    row["selected_hr_valid_pct"] = hr_cov["valid_pct"]
+    row["selected_hr_valid_min"] = hr_cov["valid_min"]
     if features.is_enabled("hrv"):
-        row["hrv_rmssd_clean_nan_pct"] = _nan_pct(hrv_clean)
-        row["hrv_rmssd_raw_nan_pct"] = _nan_pct(hrv_raw)
+        hrv_clean_cov = _coverage_stats(
+            hrv_clean,
+            t=t_hrv,
+            default_fs=float(getattr(config, "HRV_TARGET_FS_HZ", 1.0)),
+        )
+        hrv_raw_cov = _coverage_stats(
+            hrv_raw,
+            t=t_hrv,
+            default_fs=float(getattr(config, "HRV_TARGET_FS_HZ", 1.0)),
+        )
+        row["selected_hrv_rmssd_clean_valid_pct"] = hrv_clean_cov["valid_pct"]
+        row["selected_hrv_rmssd_clean_valid_min"] = hrv_clean_cov["valid_min"]
+        row["selected_hrv_rmssd_raw_valid_pct"] = hrv_raw_cov["valid_pct"]
+        row["selected_hrv_rmssd_raw_valid_min"] = hrv_raw_cov["valid_min"]
 
     if features.is_enabled("hrv") and isinstance(hrv_tv, dict):
         for k, v in hrv_tv.items():
-            if v is None:
+            if v is None or k == "tv_window_sec":
                 continue
             try:
-                row[f"hrv_tv_{k}_nan_pct"] = _nan_pct(np.asarray(v))
+                cov = _coverage_stats(
+                    np.asarray(v),
+                    t=t_hrv,
+                    default_fs=float(getattr(config, "HRV_TARGET_FS_HZ", 1.0)),
+                )
+                prefix = _hrv_tv_csv_prefix(k)
+                row[f"{prefix}_valid_pct"] = cov["valid_pct"]
+                row[f"{prefix}_valid_min"] = cov["valid_min"]
             except Exception:
                 pass
+
+    if features.is_enabled("hrv"):
+        mask_breakdown = _mask_breakdown_stats(t_hrv, hrv_mask_info)
+        row["selected_hrv_selected_policy_min"] = mask_breakdown["selected_policy_min"]
+        row["selected_hrv_clean_kept_min"] = mask_breakdown["clean_kept_min"]
+        row["selected_hrv_clean_kept_pct_of_selected"] = mask_breakdown["clean_kept_pct_of_selected"]
+        row["selected_hrv_mask_excluded_total_min"] = mask_breakdown["excluded_total_min"]
+        row["selected_hrv_mask_excluded_total_pct_of_selected"] = mask_breakdown["excluded_total_pct_of_selected"]
+        row["selected_hrv_excluded_apnea_only_min"] = mask_breakdown["excluded_apnea_only_min"]
+        row["selected_hrv_excluded_apnea_only_pct_of_selected"] = mask_breakdown["excluded_apnea_only_pct_of_selected"]
+        row["selected_hrv_excluded_quality_only_min"] = mask_breakdown["excluded_quality_only_min"]
+        row["selected_hrv_excluded_quality_only_pct_of_selected"] = mask_breakdown["excluded_quality_only_pct_of_selected"]
+        row["selected_hrv_excluded_desat_only_min"] = mask_breakdown["excluded_desat_only_min"]
+        row["selected_hrv_excluded_desat_only_pct_of_selected"] = mask_breakdown["excluded_desat_only_pct_of_selected"]
+        row["selected_hrv_excluded_overlap_min"] = mask_breakdown["excluded_overlap_min"]
+        row["selected_hrv_excluded_overlap_pct_of_selected"] = mask_breakdown["excluded_overlap_pct_of_selected"]
 
     if aux_df is not None and hasattr(aux_df, "__len__"):
         try:
@@ -329,9 +504,19 @@ def append_hr_hrv_summary(
             for src, dst in [
                 ("rmssd_mean", "rmssd_mean_ms"),
                 ("sdnn", "sdnn_ms"),
+                ("lf", "lf"),
+                ("hf", "hf"),
                 ("lf_hf", "lf_hf"),
                 ("lf_n_segments_used", "lf_n_segments_used"),
+                ("lf_hf_fixed_median", "lf_hf_fixed_median"),
+                ("lf_hf_fixed_mean", "lf_hf_fixed_mean"),
                 ("lf_hf_fixed_n_windows_valid", "lf_hf_fixed_n_windows_valid"),
+                ("lf_hf_fixed_n_windows_total", "lf_hf_fixed_n_windows_total"),
+                ("lf_hf_fixed_valid_pct", "lf_hf_fixed_valid_pct"),
+                ("lf_hf_fixed_valid_min", "lf_hf_fixed_valid_min"),
+                ("lf_hf_fixed_total_min", "lf_hf_fixed_total_min"),
+                ("lf_hf_fixed_window_sec", "lf_hf_fixed_window_sec"),
+                ("lf_hf_fixed_hop_sec", "lf_hf_fixed_hop_sec"),
             ]:
                 row[f"{prefix}_{dst}"] = hrv_item.get(src, np.nan)
 
@@ -347,14 +532,21 @@ def append_hr_hrv_summary(
             row[f"{prefix}_event_windows_used"] = hr_response_item.get("n_used_windows", np.nan)
 
     base_order = [
-        "edf_file", "rmssd_mean_ms", "rmssd_median_ms", "sdnn_ms", "lf", "hf", "lf_hf",
-        "lf_n_segments_used", "lf_hf_fixed_median", "lf_hf_fixed_mean", "lf_hf_fixed_n_windows_valid",
-        "lf_hf_fixed_n_windows_total", "lf_hf_fixed_window_sec", "lf_hf_fixed_hop_sec", "mayer_peak_hz",
-        "resp_peak_hz", "psd_pow_vlf", "psd_pow_mayer", "psd_pow_resp", "psd_norm_mayer",
-        "psd_norm_resp", "psd_valid_windows", "pat_burden", "pat_burden_sleep_hours",
-        "pat_burden_total_area_min", "pat_burden_n_episodes", "pat_burden_n_episodes_used",
-        "pat_burden_relative", "pat_burden_nan_pct", "hr_pat_nan_pct", "hrv_rmssd_clean_nan_pct",
-        "hrv_rmssd_raw_nan_pct", "aux_rows", "desat_n", "desat_pct", "exclude_hr_n", "exclude_hr_pct",
+        "edf_file", "selected_rmssd_mean_ms", "selected_rmssd_median_ms", "selected_sdnn_ms", "selected_lf", "selected_hf", "selected_lf_hf",
+        "selected_lf_n_segments_used", "selected_lf_hf_fixed_median", "selected_lf_hf_fixed_mean", "selected_lf_hf_fixed_n_windows_valid",
+        "selected_lf_hf_fixed_n_windows_total", "selected_lf_hf_fixed_valid_pct", "selected_lf_hf_fixed_valid_min", "selected_lf_hf_fixed_total_min",
+        "selected_lf_hf_fixed_window_sec", "selected_lf_hf_fixed_hop_sec", "selected_mayer_peak_hz",
+        "selected_resp_peak_hz", "selected_psd_pow_vlf", "selected_psd_pow_mayer", "selected_psd_pow_resp", "selected_psd_norm_mayer",
+        "selected_psd_norm_resp", "selected_psd_valid_windows", "selected_pat_burden", "selected_pat_burden_sleep_hours",
+        "selected_pat_burden_total_area_min", "selected_pat_burden_n_episodes", "selected_pat_burden_n_episodes_used",
+        "selected_pat_burden_relative", "selected_pat_burden_nan_pct", "selected_hr_valid_pct", "selected_hr_valid_min",
+        "selected_hrv_rmssd_clean_valid_pct", "selected_hrv_rmssd_clean_valid_min", "selected_hrv_rmssd_raw_valid_pct",
+        "selected_hrv_rmssd_raw_valid_min", "selected_hrv_selected_policy_min", "selected_hrv_clean_kept_min",
+        "selected_hrv_clean_kept_pct_of_selected", "selected_hrv_mask_excluded_total_min", "selected_hrv_mask_excluded_total_pct_of_selected",
+        "selected_hrv_excluded_apnea_only_min", "selected_hrv_excluded_apnea_only_pct_of_selected",
+        "selected_hrv_excluded_quality_only_min", "selected_hrv_excluded_quality_only_pct_of_selected",
+        "selected_hrv_excluded_desat_only_min", "selected_hrv_excluded_desat_only_pct_of_selected",
+        "selected_hrv_excluded_overlap_min", "selected_hrv_excluded_overlap_pct_of_selected", "aux_rows", "desat_n", "desat_pct", "exclude_hr_n", "exclude_hr_pct",
         "exclude_pat_n", "exclude_pat_pct", "evt_central_3_n", "evt_central_3_pct", "evt_obstructive_3_n",
         "evt_obstructive_3_pct", "evt_unclassified_3_n", "evt_unclassified_3_pct", "evt_central_4_n",
         "evt_central_4_pct", "evt_obstructive_4_n", "evt_obstructive_4_pct", "evt_unclassified_4_n",
@@ -377,9 +569,11 @@ def append_hr_hrv_summary(
             elif isinstance(v, (int, np.integer)):
                 out[k] = str(int(v))
             elif isinstance(v, (float, np.floating)):
-                if k.startswith("psd_pow_"):
+                if k.startswith("selected_psd_pow_"):
                     out[k] = _fmt_sci(float(v))
-                elif k.endswith("_pct") or k.endswith("_nan_pct"):
+                elif k.endswith("_pct"):
+                    out[k] = _fmt1(float(v))
+                elif k.endswith("_valid_min") or k.endswith("_total_min"):
                     out[k] = _fmt1(float(v))
                 else:
                     out[k] = _fmt6(float(v))
@@ -431,11 +625,14 @@ def append_hr_correlation_to_summary(
     mayer_peak_freq: Optional[float] = None,
     resp_peak_freq: Optional[float] = None,
     *,
+    t_hr: Optional[np.ndarray] = None,
     hr_calc: Optional[np.ndarray] = None,
     hr_edf: Optional[np.ndarray] = None,
+    t_hrv: Optional[np.ndarray] = None,
     hrv_clean: Optional[np.ndarray] = None,
     hrv_raw: Optional[np.ndarray] = None,
     hrv_tv: Optional[Dict[str, np.ndarray]] = None,
+    hrv_mask_info: Optional[Dict[str, object]] = None,
     aux_df: Optional[Any] = None,
     psd_features: Optional[Dict[str, float]] = None,
     pat_burden: Optional[float] = None,
@@ -450,10 +647,13 @@ def append_hr_correlation_to_summary(
         hrv_summary=hrv_summary,
         mayer_peak_freq=mayer_peak_freq,
         resp_peak_freq=resp_peak_freq,
+        t_hr=t_hr,
         hr_calc=hr_calc,
+        t_hrv=t_hrv,
         hrv_clean=hrv_clean,
         hrv_raw=hrv_raw,
         hrv_tv=hrv_tv,
+        hrv_mask_info=hrv_mask_info,
         aux_df=aux_df,
         psd_features=psd_features,
         pat_burden=pat_burden,

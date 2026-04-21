@@ -84,6 +84,7 @@ def _build_summary_pages_for_enabled_features(
     pat_burden,
     pat_burden_diag,
     sleep_combo_summaries,
+    hrv_mask_info,
 ):
     return build_summary_pages(
         edf_base=edf_base,
@@ -106,6 +107,7 @@ def _build_summary_pages_for_enabled_features(
         pat_burden=pat_burden,
         pat_burden_diag=pat_burden_diag,
         sleep_combo_summaries=sleep_combo_summaries,
+        hrv_mask_info=hrv_mask_info,
     )
 
 
@@ -334,6 +336,7 @@ def _build_report_figures(
         pat_burden=pat_burden,
         pat_burden_diag=pat_burden_diag,
         sleep_combo_summaries=sleep_combo_summaries,
+        hrv_mask_info=hrv_mask_info,
     )
 
     if features.is_enabled("hrv"):
