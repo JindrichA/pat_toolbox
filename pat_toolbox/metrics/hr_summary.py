@@ -7,6 +7,7 @@ from typing import Any, Dict, Optional, Sequence
 import numpy as np
 
 from .. import config, features, paths
+from ..io.aux_events import compute_sleep_timing_from_aux
 
 
 def append_hr_hrv_summary(
@@ -22,6 +23,7 @@ def append_hr_hrv_summary(
     hrv_raw: Optional[np.ndarray] = None,
     hrv_tv: Optional[Dict[str, np.ndarray]] = None,
     hrv_mask_info: Optional[Dict[str, object]] = None,
+    hrv_midpoint_halves: Optional[Dict[str, Dict[str, float]]] = None,
     aux_df: Optional[Any] = None,
     psd_features: Optional[Dict[str, float]] = None,
     pat_burden: Optional[float] = None,
@@ -455,6 +457,23 @@ def append_hr_hrv_summary(
         row["selected_hrv_excluded_overlap_min"] = mask_breakdown["excluded_overlap_min"]
         row["selected_hrv_excluded_overlap_pct_of_selected"] = mask_breakdown["excluded_overlap_pct_of_selected"]
 
+    if features.is_enabled("hrv") and isinstance(hrv_midpoint_halves, dict):
+        for half_key, prefix in [("first_half", "selected_first_half"), ("second_half", "selected_second_half")]:
+            half_summary = hrv_midpoint_halves.get(half_key)
+            if not isinstance(half_summary, dict):
+                continue
+            for src, dst in [
+                ("rmssd_mean", "rmssd_mean_ms"),
+                ("sdnn", "sdnn_ms"),
+                ("lf", "lf_ms2"),
+                ("hf", "hf_ms2"),
+                ("lf_hf", "lf_hf_ratio"),
+                ("lf_hf_fixed_mean", "lf_hf_fixed_mean"),
+                ("lf_hf_fixed_median", "lf_hf_fixed_median"),
+                ("lf_hf_fixed_n_windows_valid", "lf_hf_fixed_n_windows_valid"),
+            ]:
+                row[f"{prefix}_{dst}"] = half_summary.get(src, np.nan)
+
     if aux_df is not None and hasattr(aux_df, "__len__"):
         try:
             row["aux_rows"] = int(len(aux_df))
@@ -478,6 +497,15 @@ def append_hr_hrv_summary(
                 row[f"{short}_n"] = c
             if p is not None:
                 row[f"{short}_pct"] = p
+
+        sleep_timing = compute_sleep_timing_from_aux(aux_df)
+        if sleep_timing:
+            row["sleep_onset_h_from_start"] = sleep_timing.get("sleep_onset_rel_h", np.nan)
+            row["sleep_onset_hhmm_from_start"] = sleep_timing.get("sleep_onset_rel_hhmm", "")
+            row["sleep_midpoint_h_from_start"] = sleep_timing.get("sleep_midpoint_rel_h", np.nan)
+            row["sleep_midpoint_hhmm_from_start"] = sleep_timing.get("sleep_midpoint_rel_hhmm", "")
+            row["sleep_end_h_from_start"] = sleep_timing.get("sleep_end_rel_h", np.nan)
+            row["sleep_end_hhmm_from_start"] = sleep_timing.get("sleep_end_rel_hhmm", "")
 
     row.update(_sleep_stage_stats(aux_df))
 
@@ -546,7 +574,13 @@ def append_hr_hrv_summary(
         "selected_hrv_excluded_apnea_only_min", "selected_hrv_excluded_apnea_only_pct_of_selected",
         "selected_hrv_excluded_quality_only_min", "selected_hrv_excluded_quality_only_pct_of_selected",
         "selected_hrv_excluded_desat_only_min", "selected_hrv_excluded_desat_only_pct_of_selected",
-        "selected_hrv_excluded_overlap_min", "selected_hrv_excluded_overlap_pct_of_selected", "aux_rows", "desat_n", "desat_pct", "exclude_hr_n", "exclude_hr_pct",
+        "selected_hrv_excluded_overlap_min", "selected_hrv_excluded_overlap_pct_of_selected", "sleep_onset_h_from_start", "sleep_onset_hhmm_from_start",
+        "sleep_midpoint_h_from_start", "sleep_midpoint_hhmm_from_start", "sleep_end_h_from_start", "sleep_end_hhmm_from_start",
+        "selected_first_half_rmssd_mean_ms", "selected_first_half_sdnn_ms", "selected_first_half_lf_ms2", "selected_first_half_hf_ms2",
+        "selected_first_half_lf_hf_ratio", "selected_first_half_lf_hf_fixed_mean", "selected_first_half_lf_hf_fixed_median", "selected_first_half_lf_hf_fixed_n_windows_valid",
+        "selected_second_half_rmssd_mean_ms", "selected_second_half_sdnn_ms", "selected_second_half_lf_ms2", "selected_second_half_hf_ms2",
+        "selected_second_half_lf_hf_ratio", "selected_second_half_lf_hf_fixed_mean", "selected_second_half_lf_hf_fixed_median", "selected_second_half_lf_hf_fixed_n_windows_valid",
+        "aux_rows", "desat_n", "desat_pct", "exclude_hr_n", "exclude_hr_pct",
         "exclude_pat_n", "exclude_pat_pct", "evt_central_3_n", "evt_central_3_pct", "evt_obstructive_3_n",
         "evt_obstructive_3_pct", "evt_unclassified_3_n", "evt_unclassified_3_pct", "evt_central_4_n",
         "evt_central_4_pct", "evt_obstructive_4_n", "evt_obstructive_4_pct", "evt_unclassified_4_n",
@@ -633,6 +667,7 @@ def append_hr_correlation_to_summary(
     hrv_raw: Optional[np.ndarray] = None,
     hrv_tv: Optional[Dict[str, np.ndarray]] = None,
     hrv_mask_info: Optional[Dict[str, object]] = None,
+    hrv_midpoint_halves: Optional[Dict[str, Dict[str, float]]] = None,
     aux_df: Optional[Any] = None,
     psd_features: Optional[Dict[str, float]] = None,
     pat_burden: Optional[float] = None,
@@ -654,6 +689,7 @@ def append_hr_correlation_to_summary(
         hrv_raw=hrv_raw,
         hrv_tv=hrv_tv,
         hrv_mask_info=hrv_mask_info,
+        hrv_midpoint_halves=hrv_midpoint_halves,
         aux_df=aux_df,
         psd_features=psd_features,
         pat_burden=pat_burden,

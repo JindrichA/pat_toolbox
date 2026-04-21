@@ -7,6 +7,7 @@ import numpy as np
 from matplotlib.ticker import MultipleLocator
 
 from .. import config
+from ..io.aux_events import compute_sleep_timing_from_aux
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -104,6 +105,16 @@ def _build_sleep_stagegram_figure(
     ax.set_title(f"{edf_base} - Hypnogram", fontsize=14, pad=12)
     ax.xaxis.set_major_locator(MultipleLocator(1.0))
     ax.grid(True, which="major", axis="x", alpha=0.25)
+    sleep_timing = compute_sleep_timing_from_aux(aux_df)
+    if sleep_timing:
+        line_specs = [
+            (sleep_timing.get("sleep_onset_rel_h"), "Sleep onset", "tab:green", "--"),
+            (sleep_timing.get("sleep_midpoint_rel_h"), "Sleep midpoint", "tab:purple", "-"),
+            (sleep_timing.get("sleep_end_rel_h"), "Sleep end", "tab:red", "--"),
+        ]
+        for x_h, label, color, style in line_specs:
+            if x_h is not None and np.isfinite(x_h):
+                ax.axvline(float(x_h), color=color, linestyle=style, linewidth=1.8, alpha=0.9, zorder=4)
     total = int(len(s))
     if total > 0:
         pct = lambda n: f"{(100.0 * n / total):.1f}%"

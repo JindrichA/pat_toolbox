@@ -10,6 +10,7 @@ from matplotlib.ticker import MultipleLocator
 from matplotlib.transforms import blended_transform_factory
 
 from .. import config
+from ..io.aux_events import compute_sleep_timing_from_aux
 from .specs import DEFAULT_EVENT_PLOT_SPEC, EventSpec
 from .utils import _shade_masked_regions
 
@@ -390,6 +391,17 @@ def _plot_sleep_stagegram_on_ax(
         ax.set_title(f"{edf_base} - Hypnogram", fontsize=14, pad=12)
     ax.xaxis.set_major_locator(MultipleLocator(1.0))
     ax.grid(True, which="major", axis="x", alpha=0.25)
+
+    sleep_timing = compute_sleep_timing_from_aux(aux_df)
+    if sleep_timing:
+        line_specs = [
+            (sleep_timing.get("sleep_onset_rel_h"), "Sleep onset", "tab:green", "--"),
+            (sleep_timing.get("sleep_midpoint_rel_h"), "Sleep midpoint", "tab:purple", "-"),
+            (sleep_timing.get("sleep_end_rel_h"), "Sleep end", "tab:red", "--"),
+        ]
+        for x_h, label, color, style in line_specs:
+            if x_h is not None and np.isfinite(x_h):
+                ax.axvline(float(x_h), color=color, linestyle=style, linewidth=1.6, alpha=0.9, zorder=4)
 
     if show_stats_box:
         total = int(len(s))

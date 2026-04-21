@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from .. import config, features, masking
+from ..io.aux_events import compute_sleep_timing_from_aux
 from .utils import _count_flags, _fmt
 
 if TYPE_CHECKING:
@@ -163,6 +164,26 @@ def _build_mask_breakdown_rows(
     rows += [["  Overlap excluded [min]", _fmt_num(_min(overlap), 1)], ["  Overlap excluded [% of selected-policy]", _fmt_pct(_pct(overlap), 1)]]
     rows += [["", ""], ["Note", "Mask-based only; upstream RR cleaning / PAT artifact loss is not included here."]]
     return rows
+
+
+def _format_sleep_timing_value(timing: Dict[str, Any], key: str) -> str:
+    rel_h = timing.get(f"sleep_{key}_rel_h")
+    rel_hhmm = timing.get(f"sleep_{key}_rel_hhmm")
+    return f"{_fmt_num(rel_h, 2)} h ({rel_hhmm} from start)"
+
+
+def _build_sleep_timing_rows(aux_df: Optional["pd.DataFrame"]) -> List[List[str]]:
+    if aux_df is None:
+        return []
+    timing = compute_sleep_timing_from_aux(aux_df)
+    if not timing:
+        return []
+    return [
+        ["Sleep timing", ""],
+        ["  Sleep onset", _format_sleep_timing_value(timing, "onset")],
+        ["  Sleep midpoint", _format_sleep_timing_value(timing, "midpoint")],
+        ["  Sleep end", _format_sleep_timing_value(timing, "end")],
+    ]
 
 
 def _wrap_csv_columns(cols: list[str], *, per_line: int = 3) -> str:
@@ -518,6 +539,49 @@ def _render_table_page(
     return fig
 
 
+def _render_comparison_table_page(
+    title: str,
+    rows: List[List[str]],
+    *,
+    edf_base: str,
+    headers: List[str],
+    font_size: int = 11,
+    scale_y: float = 1.35,
+):
+    fig, ax = plt.subplots(figsize=(11.69, 8.27))
+    ax.axis("off")
+    table = ax.table(cellText=rows, colLabels=headers, loc="center", cellLoc="left")
+    table.auto_set_font_size(False)
+    table.set_fontsize(font_size)
+    for (r, c), cell in table.get_celld().items():
+        if r == 0:
+            cell.set_text_props(weight="bold")
+    table.auto_set_column_width(col=list(range(len(headers))))
+    table.scale(1.0, scale_y)
+    ax.set_title(f"{edf_base} – {title}", fontsize=16, pad=18)
+    fig.tight_layout(rect=(0.02, 0.03, 0.98, 0.98))
+    return fig
+
+
+def _build_midpoint_half_rows(hrv_midpoint_halves: Optional[Dict[str, Dict[str, float]]]) -> List[List[str]]:
+    if not hrv_midpoint_halves:
+        return []
+    first = hrv_midpoint_halves.get("first_half") or {}
+    second = hrv_midpoint_halves.get("second_half") or {}
+    if not first and not second:
+        return []
+    return [
+        ["RMSSD mean [ms]", _fmt(first.get("rmssd_mean"), 2), _fmt(second.get("rmssd_mean"), 2)],
+        ["SDNN [ms]", _fmt(first.get("sdnn"), 2), _fmt(second.get("sdnn"), 2)],
+        ["LF [ms^2]", _fmt(first.get("lf"), 2), _fmt(second.get("lf"), 2)],
+        ["HF [ms^2]", _fmt(first.get("hf"), 2), _fmt(second.get("hf"), 2)],
+        ["LF/HF [-]", _fmt(first.get("lf_hf"), 2), _fmt(second.get("lf_hf"), 2)],
+        ["Fixed LF/HF mean [-]", _fmt(first.get("lf_hf_fixed_mean"), 2), _fmt(second.get("lf_hf_fixed_mean"), 2)],
+        ["Fixed LF/HF median [-]", _fmt(first.get("lf_hf_fixed_median"), 2), _fmt(second.get("lf_hf_fixed_median"), 2)],
+        ["Fixed LF/HF valid windows [n]", _fmt_int(first.get("lf_hf_fixed_n_windows_valid")), _fmt_int(second.get("lf_hf_fixed_n_windows_valid"))],
+    ]
+
+
 def build_summary_pages(
     edf_base: str,
     pearson_r: Optional[float],
@@ -541,6 +605,7 @@ def build_summary_pages(
     pat_burden_diag: Optional[Dict[str, float]] = None,
     sleep_combo_summaries: Optional[Dict[str, Dict[str, object]]] = None,
     hrv_mask_info: Optional[Dict[str, object]] = None,
+    hrv_midpoint_halves: Optional[Dict[str, Dict[str, float]]] = None,
 ):
     pearson_r = None
     spear_rho = None
@@ -564,6 +629,23 @@ def build_summary_pages(
         else:
             title = "Summary (Selected-Policy Spectral)"
         figs.append(_render_table_page(title, rows_p2, edf_base=edf_base, font_size=12, scale_y=1.35))
+
+    rows_sleep_timing = _build_sleep_timing_rows(aux_df)
+    if rows_sleep_timing:
+        figs.append(_render_table_page("Summary (Sleep Timing)", rows_sleep_timing, edf_base=edf_base, font_size=12, scale_y=1.35))
+
+    rows_midpoint_halves = _build_midpoint_half_rows(hrv_midpoint_halves)
+    if rows_midpoint_halves:
+        figs.append(
+            _render_comparison_table_page(
+                "Summary (Sleep Midpoint HRV Halves)",
+                rows_midpoint_halves,
+                edf_base=edf_base,
+                headers=["Metric", "First half", "Second half"],
+                font_size=12,
+                scale_y=1.4,
+            )
+        )
 
     rows_p3 = _build_mask_breakdown_rows(t_hrv, hrv_mask_info)
     if rows_p3:

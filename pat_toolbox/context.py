@@ -52,9 +52,11 @@ class RecordingContext:
     hrv_summary: Optional[Dict[str, float]] = None
     hrv_tv: Optional[Dict[str, np.ndarray]] = None
     hrv_mask_info: Optional[Dict[str, object]] = None
+    hrv_midpoint_halves: Optional[Dict[str, Dict[str, float]]] = None
     rr_mid_clean: Optional[np.ndarray] = None
     rr_ms_clean: Optional[np.ndarray] = None
     rr_duration_sec: Optional[float] = None
+    sleep_timing: Optional[Dict[str, object]] = None
     sleep_combo_summaries: Optional[Dict[str, Dict[str, object]]] = None
 
     # ACTIGRAPH (motion)
@@ -76,6 +78,7 @@ class RecordingContext:
     hr_csv_path: Optional[Path] = None
     hrv_csv_path: Optional[Path] = None
     hrv_mask_csv_path: Optional[Path] = None
+    sleep_timing_csv_path: Optional[Path] = None
     pat_burden_csv_path: Optional[Path] = None
     peaks_pdf_path: Optional[Path] = None
 

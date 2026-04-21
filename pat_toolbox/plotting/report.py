@@ -43,6 +43,7 @@ def plot_pat_and_hr_segments_to_pdf(
     pat_burden_diag: Optional[Dict[str, float]] = None,
     sleep_combo_summaries: Optional[Dict[str, Dict[str, object]]] = None,
     hrv_mask_info: Optional[Dict[str, object]] = None,
+    hrv_midpoint_halves: Optional[Dict[str, Dict[str, float]]] = None,
 ) -> Dict[str, float]:
     if segment_minutes is None:
         segment_minutes = config.SEGMENT_MINUTES
@@ -80,6 +81,7 @@ def plot_pat_and_hr_segments_to_pdf(
         pat_burden_diag=pat_burden_diag,
         sleep_combo_summaries=sleep_combo_summaries,
         hrv_mask_info=hrv_mask_info,
+        hrv_midpoint_halves=hrv_midpoint_halves,
         hr_calc_raw=hr_calc_raw,
         t_pat_amp=t_pat_amp,
         pat_amp=pat_amp,

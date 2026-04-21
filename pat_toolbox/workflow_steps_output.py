@@ -4,6 +4,7 @@ from typing import Any, cast
 
 from . import config, features, paths, plotting
 from .context import RecordingContext
+from .io_aux_csv import save_sleep_timing_to_csv
 from .metrics import hr as hr_metrics
 from .metrics import hrv as hrv_metrics
 from .metrics.pat_burden_io import save_pat_burden_episodes_to_csv
@@ -50,6 +51,7 @@ def build_pdf_step(ctx: RecordingContext) -> None:
         pat_burden_diag=getattr(ctx, "pat_burden_diag", None),
         sleep_combo_summaries=getattr(ctx, "sleep_combo_summaries", None),
         hrv_mask_info=getattr(ctx, "hrv_mask_info", None),
+        hrv_midpoint_halves=getattr(ctx, "hrv_midpoint_halves", None),
     )
     if features.is_enabled("psd"):
         ctx.psd_features = psd_results_dict
@@ -84,6 +86,12 @@ def export_feature_csvs_step(ctx: RecordingContext) -> None:
         except Exception as e:
             print(f"  WARNING: could not save PAT burden CSV for {ctx.edf_path.name}: {e}")
 
+    if ctx.aux_df is not None:
+        try:
+            ctx.sleep_timing_csv_path = save_sleep_timing_to_csv(ctx.edf_path, ctx.aux_df)
+        except Exception as e:
+            print(f"  WARNING: could not save sleep timing CSV for {ctx.edf_path.name}: {e}")
+
 
 def build_peaks_debug_pdf_step(ctx: RecordingContext) -> None:
     if not features.is_enabled("peaks_debug_pdf"):
@@ -113,6 +121,7 @@ def append_summary_step(ctx: RecordingContext) -> None:
         hrv_raw=ctx.hrv_rmssd_raw,
         hrv_tv=ctx.hrv_tv,
         hrv_mask_info=ctx.hrv_mask_info,
+        hrv_midpoint_halves=getattr(ctx, "hrv_midpoint_halves", None),
         aux_df=ctx.aux_df,
         psd_features=getattr(ctx, "psd_features", None),
         pat_burden=getattr(ctx, "pat_burden", None),

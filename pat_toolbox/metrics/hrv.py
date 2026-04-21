@@ -11,6 +11,8 @@ from .hrv_pipeline import (
     _subset_rr_by_sleep_and_events,
     compute_hrv_from_pat_signal,
     compute_hrv_from_pat_signal_with_tv_metrics,
+    summarize_hrv_from_clean_rr,
+    summarize_hrv_halves_from_clean_rr,
     summarize_hrv_from_rr,
 )
 from .hrv_time_domain import _calculate_rmssd_series, _rmssd, _sdnn
@@ -21,5 +23,7 @@ __all__ = [
     "save_hrv_bundle_to_csv",
     "save_hrv_mask_to_csv",
     "save_hrv_series_to_csv",
+    "summarize_hrv_from_clean_rr",
+    "summarize_hrv_halves_from_clean_rr",
     "summarize_hrv_from_rr",
 ]
