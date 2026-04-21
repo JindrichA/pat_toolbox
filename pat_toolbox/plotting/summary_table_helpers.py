@@ -308,7 +308,7 @@ def _sleep_combo_tables(sleep_combo_summaries: Optional[Dict[str, Dict[str, obje
     if features.is_enabled("hr"):
         left_headers.extend(["HR mean", "HR med", "HR std"])
     if features.is_enabled("hrv"):
-        left_headers.extend(["RMSSD", "SDNN", "LF global\n[ms^2]", "HF global\n[ms^2]", "LF/HF global\n[-]"])
+        left_headers.extend(["RMSSD", "SDNN", "LF fixed\n[ms^2]", "HF fixed\n[ms^2]", "LF/HF fixed\n[-]"])
 
     right_headers = ["Subset"]
     if features.is_enabled("psd"):
@@ -459,9 +459,9 @@ def _build_hrv_psd_rows(
         lf = hrv_summary.get("lf") if hrv_summary else None
         hf = hrv_summary.get("hf") if hrv_summary else None
         lf_hf = hrv_summary.get("lf_hf") if hrv_summary else None
-        rows += [["Selected-policy HRV summary (clean RR)", ""], ["  RMSSD mean [ms]", _fmt(rmssd_mean, 2)], ["  RMSSD median [ms]", _fmt(rmssd_median, 2)], ["  SDNN [ms]", _fmt(sdnn, 2)], ["  Global LF (segmented clean RR) [ms^2]", _fmt(lf, 2)], ["  Global HF (segmented clean RR) [ms^2]", _fmt(hf, 2)], ["  Global LF/HF (segmented clean RR) [-]", _fmt(lf_hf, 2)]]
+        rows += [["Selected-policy HRV summary (clean RR)", ""], ["  RMSSD mean [ms]", _fmt(rmssd_mean, 2)], ["  RMSSD median [ms]", _fmt(rmssd_median, 2)], ["  SDNN [ms]", _fmt(sdnn, 2)], ["  LF fixed-window mean [ms^2]", _fmt(lf, 2)], ["  HF fixed-window mean [ms^2]", _fmt(hf, 2)], ["  LF/HF fixed-window mean [-]", _fmt(lf_hf, 2)]]
         if hrv_summary:
-            rows += [["  Global LF segments used", _fmt_int(hrv_summary.get("lf_n_segments_used"))], ["  Fixed-window LF/HF median [-]", _fmt(hrv_summary.get("lf_hf_fixed_median"), 2)], ["  Fixed-window LF/HF mean [-]", _fmt(hrv_summary.get("lf_hf_fixed_mean"), 2)], ["  Fixed-window LF/HF valid windows [n]", _fmt_int(hrv_summary.get("lf_hf_fixed_n_windows_valid"))], ["  Fixed-window LF/HF total windows [n]", _fmt_int(hrv_summary.get("lf_hf_fixed_n_windows_total"))], ["  Fixed-window LF/HF valid [min]", _fmt_num(hrv_summary.get("lf_hf_fixed_valid_min"), 1)], ["  Fixed-window LF/HF valid [%]", _fmt_pct(hrv_summary.get("lf_hf_fixed_valid_pct"), 1)], ["  Fixed-window LF/HF total [min]", _fmt_num(hrv_summary.get("lf_hf_fixed_total_min"), 1)], ["  Fixed window [s]", _fmt(hrv_summary.get("lf_hf_fixed_window_sec"), 0)], ["  Fixed hop [s]", _fmt(hrv_summary.get("lf_hf_fixed_hop_sec"), 0)]]
+            rows += [["  LF fixed-window median [ms^2]", _fmt(hrv_summary.get("lf_fixed_median"), 2)], ["  HF fixed-window median [ms^2]", _fmt(hrv_summary.get("hf_fixed_median"), 2)], ["  LF/HF fixed-window median [-]", _fmt(hrv_summary.get("lf_hf_fixed_median"), 2)], ["  Legacy segmented LF segments used", _fmt_int(hrv_summary.get("lf_n_segments_used"))], ["  Fixed-window valid windows [n]", _fmt_int(hrv_summary.get("lf_hf_fixed_n_windows_valid"))], ["  Fixed-window total windows [n]", _fmt_int(hrv_summary.get("lf_hf_fixed_n_windows_total"))], ["  Fixed-window valid [min]", _fmt_num(hrv_summary.get("lf_hf_fixed_valid_min"), 1)], ["  Fixed-window valid [%]", _fmt_pct(hrv_summary.get("lf_hf_fixed_valid_pct"), 1)], ["  Fixed-window total [min]", _fmt_num(hrv_summary.get("lf_hf_fixed_total_min"), 1)], ["  Fixed window [s]", _fmt(hrv_summary.get("lf_hf_fixed_window_sec"), 0)], ["  Fixed hop [s]", _fmt(hrv_summary.get("lf_hf_fixed_hop_sec"), 0)]]
 
     if features.is_enabled("psd"):
         if rows:
@@ -573,12 +573,11 @@ def _build_midpoint_half_rows(hrv_midpoint_halves: Optional[Dict[str, Dict[str, 
     return [
         ["RMSSD mean [ms]", _fmt(first.get("rmssd_mean"), 2), _fmt(second.get("rmssd_mean"), 2)],
         ["SDNN [ms]", _fmt(first.get("sdnn"), 2), _fmt(second.get("sdnn"), 2)],
-        ["LF [ms^2]", _fmt(first.get("lf"), 2), _fmt(second.get("lf"), 2)],
-        ["HF [ms^2]", _fmt(first.get("hf"), 2), _fmt(second.get("hf"), 2)],
-        ["LF/HF [-]", _fmt(first.get("lf_hf"), 2), _fmt(second.get("lf_hf"), 2)],
-        ["Fixed LF/HF mean [-]", _fmt(first.get("lf_hf_fixed_mean"), 2), _fmt(second.get("lf_hf_fixed_mean"), 2)],
-        ["Fixed LF/HF median [-]", _fmt(first.get("lf_hf_fixed_median"), 2), _fmt(second.get("lf_hf_fixed_median"), 2)],
-        ["Fixed LF/HF valid windows [n]", _fmt_int(first.get("lf_hf_fixed_n_windows_valid")), _fmt_int(second.get("lf_hf_fixed_n_windows_valid"))],
+        ["LF fixed-window mean [ms^2]", _fmt(first.get("lf"), 2), _fmt(second.get("lf"), 2)],
+        ["HF fixed-window mean [ms^2]", _fmt(first.get("hf"), 2), _fmt(second.get("hf"), 2)],
+        ["LF/HF fixed-window mean [-]", _fmt(first.get("lf_hf"), 2), _fmt(second.get("lf_hf"), 2)],
+        ["LF/HF fixed-window median [-]", _fmt(first.get("lf_hf_fixed_median"), 2), _fmt(second.get("lf_hf_fixed_median"), 2)],
+        ["Fixed-window valid windows [n]", _fmt_int(first.get("lf_hf_fixed_n_windows_valid")), _fmt_int(second.get("lf_hf_fixed_n_windows_valid"))],
     ]
 
 

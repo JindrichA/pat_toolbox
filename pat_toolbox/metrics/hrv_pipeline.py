@@ -194,6 +194,55 @@ def _build_summary_from_clean_rr_and_times(
     return summary
 
 
+def _apply_fixed_window_frequency_summary(
+    summary: Dict[str, float],
+    lfhf_fixed: Dict[str, np.ndarray],
+    *,
+    fixed_win_sec: float,
+    fixed_hop_sec: float,
+) -> Dict[str, float]:
+    valid = lfhf_fixed.get("valid_mask", np.array([], dtype=bool))
+    n_total = int(valid.size)
+    n_valid = int(np.sum(valid)) if n_total > 0 else 0
+
+    summary["lf_hf_fixed_n_windows_valid"] = n_valid
+    summary["lf_hf_fixed_n_windows_total"] = n_total
+    summary["lf_hf_fixed_valid_pct"] = float(100.0 * n_valid / n_total) if n_total > 0 else np.nan
+    summary["lf_hf_fixed_valid_min"] = float(n_valid * fixed_win_sec / 60.0)
+    summary["lf_hf_fixed_total_min"] = float(n_total * fixed_win_sec / 60.0)
+    summary["lf_hf_fixed_window_sec"] = float(fixed_win_sec)
+    summary["lf_hf_fixed_hop_sec"] = float(fixed_hop_sec)
+
+    if n_valid <= 0:
+        summary["lf_fixed_mean"] = np.nan
+        summary["lf_fixed_median"] = np.nan
+        summary["hf_fixed_mean"] = np.nan
+        summary["hf_fixed_median"] = np.nan
+        summary["lf_hf_fixed_median"] = np.nan
+        summary["lf_hf_fixed_mean"] = np.nan
+        summary["lf"] = np.nan
+        summary["hf"] = np.nan
+        summary["lf_hf"] = np.nan
+        return summary
+
+    lf_vals = np.asarray(lfhf_fixed["lf_ms2"], dtype=float)[valid]
+    hf_vals = np.asarray(lfhf_fixed["hf_ms2"], dtype=float)[valid]
+    lfhf_vals = np.asarray(lfhf_fixed["lf_hf"], dtype=float)[valid]
+
+    summary["lf_fixed_mean"] = float(np.nanmean(lf_vals))
+    summary["lf_fixed_median"] = float(np.nanmedian(lf_vals))
+    summary["hf_fixed_mean"] = float(np.nanmean(hf_vals))
+    summary["hf_fixed_median"] = float(np.nanmedian(hf_vals))
+    summary["lf_hf_fixed_median"] = float(np.nanmedian(lfhf_vals))
+    summary["lf_hf_fixed_mean"] = float(np.nanmean(lfhf_vals))
+
+    # Main exported LF/HF metrics now follow the fixed-window analysis.
+    summary["lf"] = summary["lf_fixed_mean"]
+    summary["hf"] = summary["hf_fixed_mean"]
+    summary["lf_hf"] = summary["lf_hf_fixed_mean"]
+    return summary
+
+
 def compute_hrv_from_pat_signal(
     pat_signal: np.ndarray,
     fs: float,
@@ -384,25 +433,12 @@ def summarize_hrv_from_rr(
         max_gap_sec=max_gap_sec,
         min_rr=fixed_min_rr,
     )
-    valid = lfhf_fixed.get("valid_mask", np.array([], dtype=bool))
-    n_total = int(valid.size)
-    n_valid = int(np.sum(valid)) if n_total > 0 else 0
-    if n_valid > 0:
-        lfhf_vals = np.asarray(lfhf_fixed["lf_hf"], dtype=float)[valid]
-        summary["lf_hf_fixed_median"] = float(np.nanmedian(lfhf_vals))
-        summary["lf_hf_fixed_mean"] = float(np.nanmean(lfhf_vals))
-    else:
-        summary["lf_hf_fixed_median"] = np.nan
-        summary["lf_hf_fixed_mean"] = np.nan
-
-    summary["lf_hf_fixed_n_windows_valid"] = n_valid
-    summary["lf_hf_fixed_n_windows_total"] = n_total
-    summary["lf_hf_fixed_valid_pct"] = float(100.0 * n_valid / n_total) if n_total > 0 else np.nan
-    summary["lf_hf_fixed_valid_min"] = float(n_valid * fixed_win_sec / 60.0)
-    summary["lf_hf_fixed_total_min"] = float(n_total * fixed_win_sec / 60.0)
-    summary["lf_hf_fixed_window_sec"] = float(fixed_win_sec)
-    summary["lf_hf_fixed_hop_sec"] = float(fixed_hop_sec)
-    return summary
+    return _apply_fixed_window_frequency_summary(
+        summary,
+        lfhf_fixed,
+        fixed_win_sec=fixed_win_sec,
+        fixed_hop_sec=fixed_hop_sec,
+    )
 
 
 def summarize_hrv_from_clean_rr(
@@ -489,25 +525,12 @@ def summarize_hrv_from_clean_rr(
         max_gap_sec=max_gap_sec,
         min_rr=fixed_min_rr,
     )
-    valid = lfhf_fixed.get("valid_mask", np.array([], dtype=bool))
-    n_total = int(valid.size)
-    n_valid = int(np.sum(valid)) if n_total > 0 else 0
-    if n_valid > 0:
-        lfhf_vals = np.asarray(lfhf_fixed["lf_hf"], dtype=float)[valid]
-        summary["lf_hf_fixed_median"] = float(np.nanmedian(lfhf_vals))
-        summary["lf_hf_fixed_mean"] = float(np.nanmean(lfhf_vals))
-    else:
-        summary["lf_hf_fixed_median"] = np.nan
-        summary["lf_hf_fixed_mean"] = np.nan
-
-    summary["lf_hf_fixed_n_windows_valid"] = n_valid
-    summary["lf_hf_fixed_n_windows_total"] = n_total
-    summary["lf_hf_fixed_valid_pct"] = float(100.0 * n_valid / n_total) if n_total > 0 else np.nan
-    summary["lf_hf_fixed_valid_min"] = float(n_valid * fixed_win_sec / 60.0)
-    summary["lf_hf_fixed_total_min"] = float(n_total * fixed_win_sec / 60.0)
-    summary["lf_hf_fixed_window_sec"] = float(fixed_win_sec)
-    summary["lf_hf_fixed_hop_sec"] = float(fixed_hop_sec)
-    return summary
+    return _apply_fixed_window_frequency_summary(
+        summary,
+        lfhf_fixed,
+        fixed_win_sec=fixed_win_sec,
+        fixed_hop_sec=fixed_hop_sec,
+    )
 
 
 def summarize_hrv_halves_from_clean_rr(

@@ -74,6 +74,41 @@ Auxiliary CSV information is used to define:
 - event exclusion windows
 - desaturation-related logic
 
+## How To Read Provenance
+
+For most exported values, the most important question is not only "what does this metric mean?" but also:
+
+- which signal was used
+- which masks were active
+- whether the value is point-wise, windowed, or whole-interval pooled
+
+In this repository, the main provenance terms are:
+
+- `physio-clean RR`
+  - RR intervals obtained from PAT after beat detection and low-level RR cleaning
+  - this happens before sleep/event/desaturation masking
+
+- `sleep_keep`
+  - time or RR samples retained by the selected sleep-stage policy
+
+- `combined_keep`
+  - final clean analysis mask after sleep policy plus event/quality/desaturation exclusion
+
+- `pre-exclusion`
+  - after sleep-stage selection, before the final event/quality/desaturation exclusion
+
+- `clean`
+  - after the final selected-policy combined mask
+
+- `fixed-window`
+  - value computed in repeated fixed-duration windows, then summarized across valid windows
+
+- `selected-policy`
+  - value computed under the currently active sleep policy from `config.py`
+
+- `combo_*`
+  - same kind of value, recomputed separately for a predefined subset such as all sleep, NREM, deep, REM, or wake+sleep
+
 ## Sleep And Exclusion Terms
 
 You will see several kinds of masking/exclusion in the report.
@@ -103,10 +138,23 @@ The HR feature computes PAT-derived heart rate from the cleaned RR intervals.
 - smoothing and plausibility limits may be applied
 - the final clean HR signal uses the same shared mask logic style as other features
 
+### What signal is summarized
+
+The main HR summaries in the grouped CSV and PDF are based on:
+
+- PAT-derived HR
+- interpolated to a regular grid
+- then masked by the selected-policy `combined_keep`
+
+So `HR mean`, `HR median`, and `HR std` are not based on a residual signal. They are summaries of the final PAT-derived HR signal that remains after the configured sleep/event/quality/desaturation mask.
+
 ### Important exported HR fields
 
-- `hr_pat_nan_pct`
-  - percentage of missing/invalid values in the final HR signal
+- `selected_hr_valid_pct`
+  - percentage of valid PAT-derived HR samples after the selected-policy combined mask
+
+- `selected_hr_valid_min`
+  - valid PAT-derived HR coverage in minutes after the selected-policy combined mask
 
 ### Sleep-combo HR fields
 
@@ -136,6 +184,15 @@ The HRV feature computes both scalar HRV metrics and sliding-window HRV series.
 
 ### Scalar HRV summary metrics
 
+Important change:
+
+- the main exported `LF`, `HF`, and `LF/HF` values now follow the fixed-window analysis
+- they are no longer the legacy global segmented spectral values
+- in other words:
+  - `selected_lf`, `selected_hf`, `selected_lf_hf`
+  - `combo_*_lf`, `combo_*_hf`, `combo_*_lf_hf`
+  now represent fixed-window means across valid windows
+
 - `rmssd_mean_ms`
   - mean RMSSD over valid clean windows
 
@@ -144,20 +201,51 @@ The HRV feature computes both scalar HRV metrics and sliding-window HRV series.
 
 - `sdnn_ms`
   - SDNN from the clean RR series
+  - this is still an overall clean-RR time-domain summary, not a fixed-window mean
 
 - `lf`
-  - low-frequency HRV power from the clean RR series
+  - low-frequency HRV power represented by the mean across valid fixed windows
+  - units are `ms^2`
 
 - `hf`
-  - high-frequency HRV power from the clean RR series
+  - high-frequency HRV power represented by the mean across valid fixed windows
+  - units are `ms^2`
 
 - `lf_hf`
-  - LF/HF ratio from the clean RR series
+  - LF/HF ratio represented by the mean across valid fixed windows
+  - unitless
 
 - `lf_n_segments_used`
-  - number of contiguous clean RR segments contributing to the LF/HF summary
+  - legacy count from the older segmented frequency-domain calculation
+  - kept as reference only; it is no longer the primary source of the reported LF/HF values
+
+### Time-domain versus frequency-domain summary style
+
+The main selected-policy HRV summary now mixes two styles by design:
+
+- time-domain
+  - `RMSSD mean`, `RMSSD median`
+    - derived from valid sliding RMSSD windows on the clean RR signal
+  - `SDNN`
+    - derived from the clean RR series as a whole
+
+- frequency-domain
+  - `LF`, `HF`, `LF/HF`
+    - derived from repeated fixed windows on the clean RR signal
+    - then summarized across valid windows
+
+So if you compare `SDNN` and `LF`, they are not coming from exactly the same style of aggregation.
 
 ### Fixed-window LF/HF summary fields
+
+These are computed on the selected-policy clean RR signal using:
+
+- `window_sec = HRV_LFHF_FIXED_WINDOW_SEC`
+- `hop_sec = HRV_LFHF_FIXED_HOP_SEC`
+
+If `hop_sec == window_sec`, windows do not overlap.
+
+The current main exported frequency-domain values use this same fixed-window engine.
 
 - `lf_hf_fixed_median`
   - median LF/HF across valid fixed windows
@@ -171,22 +259,62 @@ The HRV feature computes both scalar HRV metrics and sliding-window HRV series.
 - `lf_hf_fixed_n_windows_total`
   - total number of fixed windows considered
 
+- `lf_hf_fixed_valid_pct`
+  - percentage of valid fixed windows
+
+- `lf_hf_fixed_valid_min`
+  - total valid fixed-window coverage in minutes
+
+- `lf_hf_fixed_total_min`
+  - total fixed-window span considered in minutes
+
 - `lf_hf_fixed_window_sec`
   - fixed-window duration in seconds
 
 - `lf_hf_fixed_hop_sec`
   - hop size between fixed windows in seconds
 
-### HRV NaN / coverage fields
+Internally the fixed-window engine also computes per-window:
 
-- `hrv_rmssd_clean_nan_pct`
-  - percentage of invalid points in the clean RMSSD series
+- `lf_ms2`
+- `hf_ms2`
+- `lf_hf`
 
-- `hrv_rmssd_raw_nan_pct`
-  - percentage of invalid points in the pre-event-exclusion RMSSD series
+The main exported `lf`, `hf`, and `lf_hf` values now correspond to the mean of those valid per-window values.
 
-- `hrv_tv_*_nan_pct`
-  - missing fraction for each sliding-window HRV trace
+### HRV coverage fields
+
+Coverage fields answer a different question than the summary metrics themselves:
+
+- not "what is the value?"
+- but "how much valid data contributed to this value?"
+
+This is important because a metric can have a plausible value but still be based on limited valid coverage.
+
+- `selected_hrv_rmssd_clean_valid_pct`
+  - percentage of valid points in the final clean RMSSD series
+
+- `selected_hrv_rmssd_clean_valid_min`
+  - valid coverage in minutes for the final clean RMSSD series
+
+- `selected_hrv_rmssd_raw_valid_pct`
+  - percentage of valid points in the pre-exclusion RMSSD series
+
+- `selected_hrv_rmssd_raw_valid_min`
+  - valid coverage in minutes for the pre-exclusion RMSSD series
+
+- `hrv_tv_*_valid_pct`
+  - valid coverage percentage for each sliding-window HRV trace
+
+- `hrv_tv_*_valid_min`
+  - valid coverage in minutes for each sliding-window HRV trace
+
+Current sliding-window naming uses explicit stage wording, for example:
+
+- `hrv_tv_sdnn_pre_exclusion_valid_pct`
+- `hrv_tv_sdnn_clean_valid_pct`
+- `hrv_tv_hf_pre_exclusion_valid_min`
+- `hrv_tv_hf_clean_valid_min`
 
 ### Sliding-window HRV series
 
@@ -205,6 +333,14 @@ Some exports also include raw/pre-event-exclusion versions:
 - `hf_raw`
 - `lf_hf_raw`
 
+Interpretation:
+
+- `*_pre_exclusion_*`
+  - after sleep-stage selection only
+
+- `*_clean_*`
+  - after the final selected-policy combined mask
+
 ### HRV CSV export
 
 - `__HRV_Features_1Hz.csv`
@@ -212,6 +348,26 @@ Some exports also include raw/pre-event-exclusion versions:
   - `rmssd_clean_ms`
   - `rmssd_raw_ms`
   - optional sliding-window HRV columns
+
+- `__HRV_Mask_1Hz.csv`
+  - `time_sec`
+  - `sleep_keep`
+  - `apnea_keep`
+  - `quality_keep`
+  - `event_keep`
+  - `desat_keep`
+  - `combined_keep`
+
+- `__Sleep_Timing.csv`
+  - `sleep_onset_rel_sec`
+  - `sleep_onset_rel_h`
+  - `sleep_onset_rel_hhmm`
+  - `sleep_midpoint_rel_sec`
+  - `sleep_midpoint_rel_h`
+  - `sleep_midpoint_rel_hhmm`
+  - `sleep_end_rel_sec`
+  - `sleep_end_rel_h`
+  - `sleep_end_rel_hhmm`
 
 ### Sleep-combo HRV fields
 
@@ -223,13 +379,86 @@ For each subset you may see:
 - `combo_*_lf_n_segments_used`
 - `combo_*_lf_hf_fixed_n_windows_valid`
 
+- `combo_*_lf_hf_fixed_n_windows_total`
+
+- `combo_*_lf_hf_fixed_valid_pct`
+
+- `combo_*_lf_hf_fixed_valid_min`
+
+- `combo_*_lf_hf_fixed_total_min`
+
 These are the subset-specific HRV summaries after applying the subset sleep policy and event logic.
+
+Important note:
+
+- the subset-table `LF`, `HF`, and `LF/HF` values are now also fixed-window means
+- they are not the legacy global segmented subset values anymore
+
+### Sleep timing and midpoint-half HRV fields
+
+- `sleep_onset_h_from_start`
+  - sleep onset in hours from recording start
+
+- `sleep_onset_hhmm_from_start`
+  - sleep onset as `HH:MM` from recording start
+
+- `sleep_midpoint_h_from_start`
+  - sleep midpoint in hours from recording start
+
+- `sleep_midpoint_hhmm_from_start`
+  - sleep midpoint as `HH:MM` from recording start
+
+- `sleep_end_h_from_start`
+  - sleep end in hours from recording start
+
+- `sleep_end_hhmm_from_start`
+  - sleep end as `HH:MM` from recording start
+
+The grouped summary CSV also now exports selected-policy HRV summaries split by sleep midpoint:
+
+- `selected_first_half_*`
+  - selected-policy clean HRV summary for `sleep onset -> sleep midpoint`
+
+- `selected_second_half_*`
+  - selected-policy clean HRV summary for `sleep midpoint -> sleep end`
+
+These midpoint-half summaries use the same conventions as the main selected-policy HRV summary:
+
+- `RMSSD mean`
+  - mean over valid clean RMSSD windows in that half
+
+- `SDNN`
+  - overall clean-RR SDNN in that half
+
+- `LF`, `HF`, `LF/HF`
+  - fixed-window means across valid windows inside that half
+
+Current midpoint-half fields are:
+
+- `selected_first_half_rmssd_mean_ms`
+- `selected_first_half_sdnn_ms`
+- `selected_first_half_lf_ms2`
+- `selected_first_half_hf_ms2`
+- `selected_first_half_lf_hf_ratio`
+- `selected_first_half_lf_hf_fixed_mean`
+- `selected_first_half_lf_hf_fixed_median`
+- `selected_first_half_lf_hf_fixed_n_windows_valid`
+- `selected_second_half_rmssd_mean_ms`
+- `selected_second_half_sdnn_ms`
+- `selected_second_half_lf_ms2`
+- `selected_second_half_hf_ms2`
+- `selected_second_half_lf_hf_ratio`
+- `selected_second_half_lf_hf_fixed_mean`
+- `selected_second_half_lf_hf_fixed_median`
+- `selected_second_half_lf_hf_fixed_n_windows_valid`
 
 ## PSD Feature
 
 The PSD feature computes spectral summaries from the RR/tachogram signal.
 
 ### Main PSD fields
+
+These PSD features are separate from the HRV fixed-window LF/HF summary. They come from the PSD pipeline, not from the sliding HRV TV series.
 
 - `mayer_peak_hz`
   - dominant peak frequency in the Mayer-wave band
@@ -318,6 +547,23 @@ Optional desaturation-aware extension:
 - `event_windows_used`
   - event windows that remained valid after the missing-data and overlap rules
 
+Interpretation detail:
+
+- `event_windows_total`
+  - number of candidate event-centered windows
+
+- `event_windows_used`
+  - number of windows that survived overlap and data-availability checks
+
+- this is a count of windows, not minutes of signal
+
+The grouped summary CSV uses the selected-policy prefix for the current analysis setting:
+
+- `selected_trough_to_peak_response_mean`
+- `selected_mean_to_peak_response_mean`
+- `selected_event_windows_total`
+- `selected_event_windows_used`
+
 ### Sleep-combo event-response fields
 
 For each subset you may see:
@@ -366,6 +612,16 @@ The PAT burden feature works on PAT amplitude around events/desaturations.
 
 - `pat_burden_nan_pct`
   - invalid fraction inside the burden-related signal region
+
+In the grouped summary CSV these appear as selected-policy fields such as:
+
+- `selected_pat_burden`
+- `selected_pat_burden_sleep_hours`
+- `selected_pat_burden_total_area_min`
+- `selected_pat_burden_n_episodes`
+- `selected_pat_burden_n_episodes_used`
+- `selected_pat_burden_relative`
+- `selected_pat_burden_nan_pct`
 
 ### Sleep-combo PAT burden fields
 
@@ -436,6 +692,31 @@ The final grouped summary CSV also contains several descriptive fields from the 
 - `sleep_deep_n`, `sleep_deep_pct`
 - `sleep_rem_n`, `sleep_rem_pct`
 
+### Selected-policy exclusion breakdown fields
+
+These quantify mask-based loss within the selected-policy interval:
+
+- `selected_hrv_selected_policy_min`
+- `selected_hrv_clean_kept_min`
+- `selected_hrv_clean_kept_pct_of_selected`
+- `selected_hrv_mask_excluded_total_min`
+- `selected_hrv_mask_excluded_total_pct_of_selected`
+- `selected_hrv_excluded_apnea_only_min`
+- `selected_hrv_excluded_apnea_only_pct_of_selected`
+- `selected_hrv_excluded_quality_only_min`
+- `selected_hrv_excluded_quality_only_pct_of_selected`
+- `selected_hrv_excluded_desat_only_min`
+- `selected_hrv_excluded_desat_only_pct_of_selected`
+- `selected_hrv_excluded_overlap_min`
+- `selected_hrv_excluded_overlap_pct_of_selected`
+
+Important note:
+
+- these are mask-based exclusions only
+- they do not include upstream RR-cleaning / PAT-artifact loss before the final mask is applied
+
+So if a recording has poor PAT peak detection or poor physiologic RR quality before masking, that loss is not fully represented by these selected-policy exclusion rows.
+
 ## Common Output Files
 
 Typical outputs for one recording are:
@@ -445,6 +726,12 @@ Typical outputs for one recording are:
 
 - HRV CSV
   - `__HRV_Features_1Hz.csv`
+
+- HRV mask CSV
+  - `__HRV_Mask_1Hz.csv`
+
+- sleep timing CSV
+  - `__Sleep_Timing.csv`
 
 - PAT burden episode CSV
   - `__PAT_Burden_Episodes.csv`
@@ -463,6 +750,7 @@ If you only want the core summary meaning:
 
 - `HRV` fields
   - variability/autonomic-style summaries derived from clean RR intervals
+  - for `LF`, `HF`, and `LF/HF`, the main reported values now come from fixed-window means
 
 - `PSD` fields
   - spectral organization of the RR/tachogram signal
@@ -477,6 +765,40 @@ If you only want the per-subset interpretation:
 
 - `combo_*_...`
   - the same type of summary, but restricted to that sleep subset
+
+## Current Main CSV Interpretation
+
+For the grouped summary CSV, the most common selected-policy fields should currently be read as follows:
+
+- `selected_rmssd_mean_ms`
+  - mean clean RMSSD over valid sliding RMSSD windows
+
+- `selected_rmssd_median_ms`
+  - median clean RMSSD over valid sliding RMSSD windows
+
+- `selected_sdnn_ms`
+  - overall clean-RR SDNN
+
+- `selected_lf`
+  - fixed-window LF mean across valid windows
+
+- `selected_hf`
+  - fixed-window HF mean across valid windows
+
+- `selected_lf_hf`
+  - fixed-window LF/HF mean across valid windows
+
+- `selected_lf_hf_fixed_median`
+  - fixed-window LF/HF median across valid windows
+
+- `selected_lf_hf_fixed_n_windows_valid`
+  - number of valid fixed windows contributing to the fixed-window frequency summary
+
+- `selected_hr_valid_pct`
+  - valid PAT-derived HR coverage after the selected-policy combined mask
+
+- `selected_hrv_rmssd_clean_valid_pct`
+  - valid clean RMSSD coverage after the selected-policy combined mask
 
 ## Important Note About Legacy Naming
 
