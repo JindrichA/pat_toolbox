@@ -4,6 +4,23 @@ This file explains the main features in the pipeline and the meaning of the most
 
 It is meant as a practical guide for anyone reading the PDF reports, per-feature CSV exports, or the final grouped summary CSV.
 
+## Selected-Policy Naming
+
+In the final grouped summary CSV, global policy-dependent fields now use the prefix `selected_`.
+
+This means:
+
+- `selected_*`
+  - summary computed under the currently active sleep-stage policy from `pat_toolbox/config.py`
+  - for example the current `SLEEP_STAGE_POLICY` and shared event exclusion settings
+
+- `combo_*`
+  - fixed sleep-subset summaries computed separately for predefined subsets such as all sleep, NREM, deep, or REM
+
+- raw aux/event count fields without `selected_`
+  - descriptive whole-recording counts from the auxiliary CSV
+  - not filtered by the currently selected sleep policy
+
 ## Feature Toggles
 
 The main feature switches live in `pat_toolbox/config.py` under `FEATURES`.
@@ -278,6 +295,12 @@ The event is skipped if:
 
 - there is insufficient valid HR in either window
 - another event starts before the recovery window ends
+
+Optional desaturation-aware extension:
+
+- if `HR_EVENT_USE_DESAT_EXTENSION = True`
+  - the event window is extended to the end of any overlapping EVENT-gated desaturation window
+  - the recovery window then starts after that extended event end
 
 ### Main response metrics
 

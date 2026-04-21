@@ -47,6 +47,33 @@ def _smooth_hr_signal(t_hr: np.ndarray, hr_bpm: np.ndarray, smooth_sec: float) -
     return out
 
 
+def _extend_event_end_with_desat(
+    start_t: float,
+    fixed_event_end_t: float,
+    gated_desat_windows: tuple[tuple[float, float], ...],
+    *,
+    max_desat_start_t: float,
+) -> tuple[float, bool]:
+    if not gated_desat_windows:
+        return fixed_event_end_t, False
+
+    event_end_t = float(fixed_event_end_t)
+    used_extension = False
+    changed = True
+    while changed:
+        changed = False
+        for a, b in gated_desat_windows:
+            if not (np.isfinite(a) and np.isfinite(b) and b > a):
+                continue
+            starts_close_enough = a <= max_desat_start_t
+            overlaps = starts_close_enough and (b >= start_t)
+            if overlaps and b > event_end_t:
+                event_end_t = float(b)
+                used_extension = True
+                changed = True
+    return event_end_t, used_extension
+
+
 def extract_event_hr_windows(
     t_hr: np.ndarray,
     hr_bpm: np.ndarray,
@@ -64,6 +91,7 @@ def extract_event_hr_windows(
     recovery_end_sec = float(getattr(config, "HR_EVENT_RECOVERY_END_SEC", 45.0))
     min_samples = int(getattr(config, "HR_EVENT_MIN_SAMPLES", 3))
     hr_smooth = _smooth_hr_signal(t_hr, hr, smooth_sec)
+    use_desat_extension = bool(getattr(config, "HR_EVENT_USE_DESAT_EXTENSION", False))
 
     if include_set is None:
         policy = masking.policy_from_config()
@@ -76,23 +104,35 @@ def extract_event_hr_windows(
         | (~np.asarray(bundle.desat_keep, dtype=bool))
     )
     runs = _contiguous_true_runs(inside_event)
-    if not runs:
+    if not runs and bundle.active_event_times_sec.size == 0:
         return []
 
     windows: list[dict[str, float]] = []
     event_starts = [float(t_hr[start_idx]) for start_idx, _end_idx in runs]
+    recovery_duration_sec = max(0.0, float(recovery_end_sec - event_window_sec))
+    sleep_keep = np.asarray(bundle.sleep_keep, dtype=bool)
 
     for i, start_t in enumerate(event_starts):
         next_event_t = event_starts[i + 1] if i + 1 < len(event_starts) else np.inf
-        event_end_t = float(start_t + event_window_sec)
+        fixed_event_end_t = float(start_t + event_window_sec)
+        nominal_recovery_end_t = float(start_t + recovery_end_sec)
+        event_end_t = fixed_event_end_t
+        used_desat_extension = False
+        if use_desat_extension:
+            event_end_t, used_desat_extension = _extend_event_end_with_desat(
+                start_t,
+                fixed_event_end_t,
+                bundle.gated_desat_windows,
+                max_desat_start_t=nominal_recovery_end_t,
+            )
         recovery_start_t = float(event_end_t)
-        recovery_end_t = float(start_t + recovery_end_sec)
+        recovery_end_t = float(recovery_start_t + recovery_duration_sec)
 
         if next_event_t <= recovery_end_t:
             continue
 
-        event_mask = (t_hr >= start_t) & (t_hr <= event_end_t) & np.isfinite(hr_smooth)
-        recovery_mask = (t_hr >= recovery_start_t) & (t_hr <= recovery_end_t) & np.isfinite(hr_smooth)
+        event_mask = (t_hr >= start_t) & (t_hr <= event_end_t) & sleep_keep & np.isfinite(hr_smooth)
+        recovery_mask = (t_hr >= recovery_start_t) & (t_hr <= recovery_end_t) & sleep_keep & np.isfinite(hr_smooth)
         if np.count_nonzero(event_mask) < min_samples or np.count_nonzero(recovery_mask) < min_samples:
             continue
 
@@ -114,9 +154,11 @@ def extract_event_hr_windows(
         windows.append(
             {
                 "event_start_t": start_t,
+                "fixed_event_end_t": fixed_event_end_t,
                 "event_end_t": event_end_t,
                 "recovery_start_t": recovery_start_t,
                 "recovery_end_t": recovery_end_t,
+                "used_desat_extension": bool(used_desat_extension),
                 "event_min_t": event_min_t,
                 "event_min_hr": event_min,
                 "event_mean_hr": event_mean,

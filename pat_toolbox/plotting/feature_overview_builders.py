@@ -50,7 +50,7 @@ def _overview_header_text(title: str) -> str:
         )
     elif title == "Event-Response HR Overview":
         parts.append(
-            f"Event-response HR view using smooth={float(getattr(config, 'HR_EVENT_SMOOTH_SEC', 5.0)):.0f}s, event={float(getattr(config, 'HR_EVENT_WINDOW_SEC', 15.0)):.0f}s, recovery end={float(getattr(config, 'HR_EVENT_RECOVERY_END_SEC', 45.0)):.0f}s."
+            f"Event-response HR view using smooth={float(getattr(config, 'HR_EVENT_SMOOTH_SEC', 5.0)):.0f}s, event={float(getattr(config, 'HR_EVENT_WINDOW_SEC', 15.0)):.0f}s, recovery end={float(getattr(config, 'HR_EVENT_RECOVERY_END_SEC', 45.0)):.0f}s, desat extension={'ON' if bool(getattr(config, 'HR_EVENT_USE_DESAT_EXTENSION', False)) else 'OFF'}."
         )
     elif title == "PAT-Burden Overview":
         parts.append(

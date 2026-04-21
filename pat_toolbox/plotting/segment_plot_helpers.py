@@ -444,38 +444,63 @@ def _overlay_events_on_axes(
     amp_ymin, amp_ymax = amp_ylim if amp_ylim is not None else (None, None)
     delta_ymin, delta_ymax = delta_ylim if delta_ylim is not None else (None, None)
 
+    def _event_runs(t_evt_sec: np.ndarray) -> list[tuple[float, float]]:
+        if t_evt_sec.size == 0:
+            return []
+        if t_evt_sec.size == 1:
+            return [(float(t_evt_sec[0]), float(t_evt_sec[0]))]
+        diffs = np.diff(t_evt_sec)
+        pos = diffs[np.isfinite(diffs) & (diffs > 0)]
+        step = float(np.median(pos)) if pos.size else 1.0
+        gap_thr = 1.5 * step
+        cuts = np.where(diffs > gap_thr)[0] + 1
+        groups = np.split(t_evt_sec, cuts)
+        return [(float(g[0]), float(g[-1] + step)) for g in groups if g.size > 0]
+
+    def _draw_desat_runs(ax, runs: list[tuple[float, float]], color: str, label: str, *, alpha: float) -> None:
+        first = label != "_nolegend_"
+        for x0_sec, x1_sec in runs:
+            ax.axvspan(x0_sec / 3600.0, x1_sec / 3600.0, color=color, alpha=alpha, label=label if first else "_nolegend_", zorder=4)
+            first = False
+
     for spec in event_spec:
         if spec.col not in seg.columns:
             continue
         m = seg[spec.col] == 1
         if not m.any():
             continue
+        t_evt_sec = seg.loc[m, time_col].to_numpy(float)
         t_evt_h = seg.loc[m, time_col].to_numpy(float) / 3600.0
+        desat_runs = _event_runs(t_evt_sec) if spec.col == "desat_flag" else []
         if ax_hr is not None:
             label_hr = spec.label if spec.label not in used_hr else "_nolegend_"; used_hr.add(spec.label)
-            first = label_hr != "_nolegend_"
-            for x in t_evt_h:
-                line_alpha = 0.55 if spec.col == "desat_flag" else 0.9
-                line_width = 1.3 if spec.col == "desat_flag" else 2.0
-                ax_hr.axvline(x, color=spec.color, linestyle="-", linewidth=line_width, alpha=line_alpha, label=spec.label if first else "_nolegend_", zorder=5); first = False
+            if spec.col == "desat_flag":
+                _draw_desat_runs(ax_hr, desat_runs, spec.color, label_hr, alpha=0.14)
+            else:
+                first = label_hr != "_nolegend_"
+                for x in t_evt_h:
+                    ax_hr.axvline(x, color=spec.color, linestyle="-", linewidth=2.0, alpha=0.9, label=spec.label if first else "_nolegend_", zorder=5); first = False
         if ax_hrv is not None and hrv_ymin is not None and hrv_ymax is not None:
             label_hrv = spec.label if spec.label not in used_hrv else "_nolegend_"; used_hrv.add(spec.label)
-            first = label_hrv != "_nolegend_"
-            for x in t_evt_h:
-                line_alpha = 0.45 if spec.col == "desat_flag" else 0.85
-                line_width = 1.0 if spec.col == "desat_flag" else 1.8
-                ax_hrv.axvline(x, color=spec.color, linestyle="-", linewidth=line_width, alpha=line_alpha, label=spec.label if first else "_nolegend_", zorder=5); first = False
+            if spec.col == "desat_flag":
+                _draw_desat_runs(ax_hrv, desat_runs, spec.color, label_hrv, alpha=0.10)
+            else:
+                first = label_hrv != "_nolegend_"
+                for x in t_evt_h:
+                    ax_hrv.axvline(x, color=spec.color, linestyle="-", linewidth=1.8, alpha=0.85, label=spec.label if first else "_nolegend_", zorder=5); first = False
         if ax_amp is not None and amp_ymin is not None and amp_ymax is not None:
             label_amp = spec.label if spec.label not in used_amp else "_nolegend_"; used_amp.add(spec.label)
-            first = label_amp != "_nolegend_"
-            for x in t_evt_h:
-                line_alpha = 0.45 if spec.col == "desat_flag" else 0.85
-                line_width = 1.0 if spec.col == "desat_flag" else 1.8
-                ax_amp.axvline(x, color=spec.color, linestyle="-", linewidth=line_width, alpha=line_alpha, label=spec.label if first else "_nolegend_", zorder=5); first = False
+            if spec.col == "desat_flag":
+                _draw_desat_runs(ax_amp, desat_runs, spec.color, label_amp, alpha=0.10)
+            else:
+                first = label_amp != "_nolegend_"
+                for x in t_evt_h:
+                    ax_amp.axvline(x, color=spec.color, linestyle="-", linewidth=1.8, alpha=0.85, label=spec.label if first else "_nolegend_", zorder=5); first = False
         if ax_delta is not None and delta_ymin is not None and delta_ymax is not None:
             label_delta = spec.label if spec.label not in used_delta else "_nolegend_"; used_delta.add(spec.label)
-            first = label_delta != "_nolegend_"
-            for x in t_evt_h:
-                line_alpha = 0.45 if spec.col == "desat_flag" else 0.85
-                line_width = 1.0 if spec.col == "desat_flag" else 1.8
-                ax_delta.axvline(x, color=spec.color, linestyle="-", linewidth=line_width, alpha=line_alpha, label=spec.label if first else "_nolegend_", zorder=5); first = False
+            if spec.col == "desat_flag":
+                _draw_desat_runs(ax_delta, desat_runs, spec.color, label_delta, alpha=0.10)
+            else:
+                first = label_delta != "_nolegend_"
+                for x in t_evt_h:
+                    ax_delta.axvline(x, color=spec.color, linestyle="-", linewidth=1.8, alpha=0.85, label=spec.label if first else "_nolegend_", zorder=5); first = False
