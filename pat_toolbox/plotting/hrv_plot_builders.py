@@ -11,7 +11,6 @@ from .hrv_plot_utils import (
     _add_mean_median_lines,
     _add_metric_legend,
     _bin_series_mean_ci,
-    _format_nrem_legend_label,
     _overlay_events_on_single_axis_whole_night,
     _plot_sleep_stagegram_on_ax,
     _shade_hrv_mask_layers,
@@ -45,7 +44,8 @@ def _build_hrv_overview_figure(
     if n_panels == 1:
         axes = [axes]
     fig.suptitle(f"{edf_base} - HRV Overview", fontsize=11, y=0.985)
-    use_raw = hrv_raw is not None and np.size(hrv_raw) == np.size(hrv_clean)
+    show_raw_debug = bool(getattr(config, "PLOT_SHOW_RAW_DEBUG_OVERLAYS", False))
+    use_raw = show_raw_debug and hrv_raw is not None and np.size(hrv_raw) == np.size(hrv_clean)
 
     for p, ax in enumerate(axes):
         start_sec = p * panel_sec
@@ -194,22 +194,22 @@ def _build_stagegram_and_hrv_tv_figure(
 
     panels: List[dict] = []
     if hrv_rmssd is not None and np.size(hrv_rmssd) == np.size(t_hrv):
-        panels.append({"kind": "single", "key": "rmssd", "ylabel": "RMSSD [ms]", "series": [(_format_nrem_legend_label("RMSSD", "rmssd_mean", sleep_combo_summaries), np.asarray(hrv_rmssd, dtype=float), "tab:green")]})
+        panels.append({"kind": "single", "key": "rmssd", "ylabel": "RMSSD [ms]", "series": [("RMSSD", np.asarray(hrv_rmssd, dtype=float), "tab:green")]})
     y_sdnn = hrv_tv.get("sdnn_ms", None) if hrv_tv is not None else None
     if y_sdnn is not None and np.size(y_sdnn) == np.size(t_hrv):
-        panels.append({"kind": "single", "key": "sdnn_ms", "ylabel": "SDNN [ms]", "series": [(_format_nrem_legend_label("SDNN", "sdnn", sleep_combo_summaries), np.asarray(y_sdnn, dtype=float), "tab:green")]})
+        panels.append({"kind": "single", "key": "sdnn_ms", "ylabel": "SDNN [ms]", "series": [("SDNN", np.asarray(y_sdnn, dtype=float), "tab:green")]})
     y_lf = hrv_tv.get("lf", None) if hrv_tv is not None else None
     y_hf = hrv_tv.get("hf", None) if hrv_tv is not None else None
     lf_hf_series = []
     if y_lf is not None and np.size(y_lf) == np.size(t_hrv):
-        lf_hf_series.append((_format_nrem_legend_label("LF", "lf", sleep_combo_summaries), np.asarray(y_lf, dtype=float), "tab:orange"))
+        lf_hf_series.append(("LF", np.asarray(y_lf, dtype=float), "tab:orange"))
     if y_hf is not None and np.size(y_hf) == np.size(t_hrv):
-        lf_hf_series.append((_format_nrem_legend_label("HF", "hf", sleep_combo_summaries), np.asarray(y_hf, dtype=float), "tab:blue"))
+        lf_hf_series.append(("HF", np.asarray(y_hf, dtype=float), "tab:blue"))
     if lf_hf_series:
-        panels.append({"kind": "multi", "key": "lf_hf_power", "ylabel": "LF / HF [ms²] (log10)", "yscale": "log", "series": lf_hf_series})
+        panels.append({"kind": "multi", "key": "lf_hf_power", "ylabel": "LF & HF [ms²] (log10)", "yscale": "log", "series": lf_hf_series})
     y_ratio = hrv_tv.get("lf_hf", None) if hrv_tv is not None else None
     if y_ratio is not None and np.size(y_ratio) == np.size(t_hrv):
-        panels.append({"kind": "single", "key": "lf_hf", "ylabel": "LF/HF [-]", "series": [(_format_nrem_legend_label("LF/HF", "lf_hf", sleep_combo_summaries), np.asarray(y_ratio, dtype=float), "tab:purple")]})
+        panels.append({"kind": "single", "key": "lf_hf", "ylabel": "LF/HF [-]", "series": [("LF/HF", np.asarray(y_ratio, dtype=float), "tab:purple")]})
     if not panels:
         return None
 
@@ -230,7 +230,7 @@ def _build_stagegram_and_hrv_tv_figure(
     plot_bin_sec = float(getattr(config, "HRV_PLOT_BIN_SEC", 10.0 * 60.0))
     fig.suptitle(f"{edf_base} - Hypnogram + HRV ({tv_win/60.0:.1f} min window)" if tv_win is not None and tv_win > 0 else f"{edf_base} - Hypnogram + HRV", fontsize=11, y=0.988)
     step_sec = 1.0 / hrv_step_hz if hrv_step_hz > 0 else np.nan
-    fig.text(0.5, 0.948, f"PAT-derived HRV. Sliding {hrv_window_sec/60.0:.1f} min window, evaluated every {step_sec:.0f} s; displayed as {plot_bin_sec/60.0:.0f} min binned mean +/- 95% CI.\nDashed lines show displayed-series mean. Legend NREM mean is a post-hoc NREM-only reference.\nTop markers indicate active exclusion events.", ha="center", va="top", fontsize=8)
+    fig.text(0.5, 0.948, f"PAT-derived HRV. Sliding {hrv_window_sec/60.0:.1f} min window, evaluated every {step_sec:.0f} s; displayed as {plot_bin_sec/60.0:.0f} min binned mean +/- 95% CI.\nNREM mean is a post-hoc NREM-only reference.\nTop markers indicate active exclusion events.", ha="center", va="top", fontsize=8)
     _add_colored_event_key(fig, event_spec)
 
     t_h = t_hrv / 3600.0

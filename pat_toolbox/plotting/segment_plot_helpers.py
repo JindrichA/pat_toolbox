@@ -245,12 +245,17 @@ def _plot_segment_hr(
         seg_hr_min = y0 if seg_hr_min is None else min(seg_hr_min, y0)
         seg_hr_max = y1 if seg_hr_max is None else max(seg_hr_max, y1)
 
+    show_raw_debug = bool(getattr(config, "PLOT_SHOW_RAW_DEBUG_OVERLAYS", False))
+
     if t_hr_calc_raw is None:
         t_hr_calc_raw = t_hr_calc
     if hr_calc_raw is None:
         hr_calc_raw = hr_calc
 
-    if t_hr_calc_raw is not None and hr_calc_raw is not None:
+    y_clean = None
+    t_sec_seg = None
+
+    if show_raw_debug and t_hr_calc_raw is not None and hr_calc_raw is not None:
         mask_calc = (t_hr_calc_raw >= seg_start_sec) & (t_hr_calc_raw <= seg_end_sec)
         if np.any(mask_calc):
             t_sec_seg = t_hr_calc_raw[mask_calc]
@@ -264,9 +269,16 @@ def _plot_segment_hr(
                     y_clean = _apply_global_mask_to_series(t_sec_seg, y_raw, aux_df)
             else:
                 y_clean = _apply_global_mask_to_series(t_sec_seg, y_raw, aux_df)
-            if np.any(np.isfinite(y_clean)):
-                _plot_no_bridge(ax, x_sec=t_sec_seg, y=y_clean, label="HR used", linestyle="-", linewidth=1.4, color="tab:blue", alpha=0.95, zorder=3)
-            _update_limits(y_clean)
+
+    if y_clean is None and t_hr_calc is not None and hr_calc is not None:
+        mask_clean = (t_hr_calc >= seg_start_sec) & (t_hr_calc <= seg_end_sec)
+        if np.any(mask_clean):
+            t_sec_seg = t_hr_calc[mask_clean]
+            y_clean = hr_calc[mask_clean].astype(float)
+
+    if y_clean is not None and t_sec_seg is not None and np.any(np.isfinite(y_clean)):
+        _plot_no_bridge(ax, x_sec=t_sec_seg, y=y_clean, label="HR used", linestyle="-", linewidth=1.4, color="tab:blue", alpha=0.95, zorder=3)
+        _update_limits(y_clean)
 
     ax.set_ylabel("HR [bpm]")
     ax.grid(True)
@@ -292,7 +304,8 @@ def _plot_segment_hrv(
     _add_exclusion_spans(ax, exclusion_zones, t_seg_h_start, t_seg_h_end, label_once=True)
     hrv_ymin = hrv_ymax = None
     legend_patches: List[Patch] = []
-    use_raw = hrv_raw is not None and np.size(hrv_raw) == np.size(hrv_clean)
+    show_raw_debug = bool(getattr(config, "PLOT_SHOW_RAW_DEBUG_OVERLAYS", False))
+    use_raw = show_raw_debug and hrv_raw is not None and np.size(hrv_raw) == np.size(hrv_clean)
     mask = (t_hrv >= seg_start_sec) & (t_hrv <= seg_end_sec)
     if np.any(mask):
         t_sec_seg = t_hrv[mask].astype(float)
@@ -323,9 +336,9 @@ def _plot_segment_hrv(
             hrv_raw_arr = cast(np.ndarray, hrv_raw)
             yr = hrv_raw_arr[mask].astype(float)
             if np.any(np.isfinite(yr)):
-                _plot_no_bridge(ax, x_sec=t_sec_seg, y=yr, label="HRV RMSSD (raw)", linestyle="--", linewidth=1.1, color="tab:green", alpha=0.45, zorder=1)
+                _plot_no_bridge(ax, x_sec=t_sec_seg, y=yr, label="HRV RMSSD (pre-final exclusion)", linestyle="--", linewidth=1.1, color="tab:green", alpha=0.45, zorder=1)
         if np.any(np.isfinite(yc)):
-            _plot_no_bridge(ax, x_sec=t_sec_seg, y=yc, label="HRV RMSSD (used)", linestyle="-", linewidth=1.8, color="tab:green", alpha=0.95, zorder=3)
+            _plot_no_bridge(ax, x_sec=t_sec_seg, y=yc, label="HRV RMSSD (final-analysis)", linestyle="-", linewidth=1.8, color="tab:green", alpha=0.95, zorder=3)
             y0 = float(np.nanmin(yc[np.isfinite(yc)]))
             y1 = float(np.nanmax(yc[np.isfinite(yc)]))
             if np.isfinite(y0) and np.isfinite(y1) and y1 > y0:
@@ -367,8 +380,9 @@ def _plot_segment_delta_hr(
 ) -> tuple[Optional[float], Optional[float]]:
     t_hr_edf = None
     y_min = y_max = None
+    show_raw_debug = bool(getattr(config, "PLOT_SHOW_RAW_DEBUG_OVERLAYS", False))
 
-    if t_hr_calc is not None and hr_calc_raw is not None:
+    if show_raw_debug and t_hr_calc is not None and hr_calc_raw is not None:
         mask_seg = (t_hr_calc >= seg_start_sec) & (t_hr_calc <= seg_end_sec)
         if np.any(mask_seg):
             t_sec_seg = t_hr_calc[mask_seg]

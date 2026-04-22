@@ -238,7 +238,7 @@ def _build_feature_overview_figures(
             fig = _build_multi_series_overview_figure(
                 edf_base=edf_base,
                 title="HRV-LF-HF Overview",
-                ylabel="LF / HF [ms²]",
+                ylabel="LF & HF [ms²]",
                 t_sec=t_hrv,
                 series=lf_hf_series,
                 aux_df=aux_df,

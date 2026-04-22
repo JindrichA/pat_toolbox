@@ -65,50 +65,61 @@ def _event_marker_text() -> str:
     return (
         "Event markers: blue=desaturation, red=central A/H 3%, "
         "brown dashed=obstructive A/H 3%, green dotted=unclassified A/H 3%, "
-        "purple=HR excluded, olive=PAT excluded."
+        "Signal quality: PAT excluded = olive."
     )
 
 
 def _overview_header_legend(title: str) -> list[Line2D]:
+    show_raw_debug = bool(getattr(config, "PLOT_SHOW_RAW_DEBUG_OVERLAYS", False))
     if title == "HR Overview":
-        return [
+        handles = [
             Line2D([0], [0], color="tab:blue", linewidth=1.2, label="HR used"),
-            Line2D([0], [0], color="tab:gray", linewidth=0.7, alpha=0.6, label="HR raw"),
             Line2D([0], [0], color="tab:blue", linewidth=1.4, alpha=0.55, label="Event/desaturation markers"),
         ]
+        if show_raw_debug:
+            handles.insert(1, Line2D([0], [0], color="tab:gray", linewidth=0.7, alpha=0.6, label="HR raw"))
+        return handles
     if title == "HRV-RMSSD Overview":
-        return [
-            Line2D([0], [0], color="tab:green", linewidth=1.2, label="Clean RMSSD"),
-            Line2D([0], [0], color="tab:gray", linewidth=0.6, alpha=0.6, label="Pre-event-exclusion RMSSD"),
+        handles = [
+            Line2D([0], [0], color="tab:green", linewidth=1.2, label="Final-analysis RMSSD"),
             Line2D([0], [0], color="#6c757d", linewidth=6, alpha=0.10, label="Stage-policy excluded"),
             Line2D([0], [0], color="#c1121f", linewidth=6, alpha=0.08, label="Event-excluded"),
             Line2D([0], [0], color="#d4a017", linewidth=6, alpha=0.22, label="Metric invalid"),
         ]
+        if show_raw_debug:
+            handles.insert(1, Line2D([0], [0], color="tab:gray", linewidth=0.6, alpha=0.6, label="Pre-final-exclusion RMSSD"))
+        return handles
     if title == "HRV-SDNN Overview":
-        return [
-            Line2D([0], [0], color="tab:gray", linewidth=0.7, alpha=0.6, label="Pre-event-exclusion SDNN"),
-            Line2D([0], [0], color="tab:green", linewidth=1.2, label="Clean SDNN"),
+        handles = [
+            Line2D([0], [0], color="tab:green", linewidth=1.2, label="Final-analysis SDNN"),
             Line2D([0], [0], color="#6c757d", linewidth=6, alpha=0.10, label="Stage-policy excluded"),
             Line2D([0], [0], color="#c1121f", linewidth=6, alpha=0.08, label="Event-excluded"),
             Line2D([0], [0], color="#d4a017", linewidth=6, alpha=0.22, label="Metric invalid"),
         ]
+        if show_raw_debug:
+            handles.insert(0, Line2D([0], [0], color="tab:gray", linewidth=0.7, alpha=0.6, label="Pre-final-exclusion SDNN"))
+        return handles
     if title == "HRV-LF-HF Overview":
-        return [
-            Line2D([0], [0], color="tab:gray", linewidth=0.7, alpha=0.35, label="Pre-event-exclusion LF/HF traces"),
+        handles = [
             Line2D([0], [0], color="tab:orange", linewidth=1.2, label="LF"),
             Line2D([0], [0], color="tab:blue", linewidth=1.2, label="HF"),
             Line2D([0], [0], color="#6c757d", linewidth=6, alpha=0.10, label="Stage-policy excluded"),
             Line2D([0], [0], color="#c1121f", linewidth=6, alpha=0.08, label="Event-excluded"),
             Line2D([0], [0], color="#d4a017", linewidth=6, alpha=0.22, label="Metric invalid"),
         ]
+        if show_raw_debug:
+            handles.insert(0, Line2D([0], [0], color="tab:gray", linewidth=0.7, alpha=0.35, label="Pre-final-exclusion LF and HF traces"))
+        return handles
     if title == "HRV-LF-HF Ratio Overview":
-        return [
-            Line2D([0], [0], color="tab:gray", linewidth=0.7, alpha=0.6, label="Pre-event-exclusion LF/HF"),
-            Line2D([0], [0], color="tab:purple", linewidth=1.2, label="Clean LF/HF"),
+        handles = [
+            Line2D([0], [0], color="tab:purple", linewidth=1.2, label="Final-analysis LF/HF"),
             Line2D([0], [0], color="#6c757d", linewidth=6, alpha=0.10, label="Stage-policy excluded"),
             Line2D([0], [0], color="#c1121f", linewidth=6, alpha=0.08, label="Event-excluded"),
             Line2D([0], [0], color="#d4a017", linewidth=6, alpha=0.22, label="Metric invalid"),
         ]
+        if show_raw_debug:
+            handles.insert(0, Line2D([0], [0], color="tab:gray", linewidth=0.7, alpha=0.6, label="Pre-final-exclusion LF/HF"))
+        return handles
     if title == "Event-Response HR Overview":
         return [
             Line2D([0], [0], color="tab:blue", linewidth=1.0, alpha=0.7, label="HR raw"),
@@ -228,7 +239,8 @@ def _build_hr_overview_figure(
     fig, axes = _init_overview_figure(edf_base, title, len(bounds))
     _decorate_overview_figure(fig, title)
     _add_colored_event_key(fig, list(event_spec))
-    use_raw = hr_raw is not None and np.size(hr_raw) == np.size(hr_clean)
+    show_raw_debug = bool(getattr(config, "PLOT_SHOW_RAW_DEBUG_OVERLAYS", False))
+    use_raw = show_raw_debug and hr_raw is not None and np.size(hr_raw) == np.size(hr_clean)
 
     for idx, (ax, (start_sec, end_sec)) in enumerate(zip(axes, bounds)):
         _prepare_panel(ax, start_sec, end_sec, exclusion_zones, aux_df, event_spec, show_exclusion_spans=False)
@@ -271,7 +283,8 @@ def _build_hrv_rmssd_overview_figure(
     fig, axes = _init_overview_figure(edf_base, title, len(bounds))
     _decorate_overview_figure(fig, title)
     _add_colored_event_key(fig, list(event_spec))
-    use_raw = hrv_raw is not None and np.size(hrv_raw) == np.size(hrv_clean)
+    show_raw_debug = bool(getattr(config, "PLOT_SHOW_RAW_DEBUG_OVERLAYS", False))
+    use_raw = show_raw_debug and hrv_raw is not None and np.size(hrv_raw) == np.size(hrv_clean)
 
     for idx, (ax, (start_sec, end_sec)) in enumerate(zip(axes, bounds)):
         _prepare_panel(ax, start_sec, end_sec, exclusion_zones, aux_df, event_spec)
@@ -291,7 +304,7 @@ def _build_hrv_rmssd_overview_figure(
         if use_raw:
             yr = np.asarray(hrv_raw)[mask].astype(float)
             if np.any(np.isfinite(yr)):
-                ax.plot(th, np.ma.masked_invalid(yr), label="Pre-event-exclusion RMSSD", linewidth=0.6, color="tab:gray", alpha=0.6, zorder=1)
+                ax.plot(th, np.ma.masked_invalid(yr), label="Pre-final-exclusion RMSSD", linewidth=0.6, color="tab:gray", alpha=0.6, zorder=1)
         yc = hrv_clean[mask].astype(float)
         _shade_metric_invalid_regions(
             ax,
@@ -300,7 +313,7 @@ def _build_hrv_rmssd_overview_figure(
             hrv_mask_info=panel_hrv_mask_info,
         )
         if np.any(np.isfinite(yc)):
-            ax.plot(th, np.ma.masked_invalid(yc), label="Clean RMSSD", linewidth=1.2, color="tab:green", zorder=2)
+            ax.plot(th, np.ma.masked_invalid(yc), label="Final-analysis RMSSD", linewidth=1.2, color="tab:green", zorder=2)
         if idx == 0:
             ax.legend(loc="lower right", fontsize=5)
 
@@ -347,7 +360,8 @@ def _build_single_series_overview_figure(
             _shade_hrv_mask_layers(ax, np.asarray(t_sec)[mask], mask_slice)
         th = np.asarray(t_sec)[mask] / 3600.0
         yy_raw = None
-        if y_raw is not None and np.size(y_raw) == np.size(t_sec):
+        show_raw_debug = bool(getattr(config, "PLOT_SHOW_RAW_DEBUG_OVERLAYS", False))
+        if show_raw_debug and y_raw is not None and np.size(y_raw) == np.size(t_sec):
             yy_raw = np.asarray(y_raw)[mask].astype(float)
             if np.any(np.isfinite(yy_raw)):
                 ax.plot(th, np.ma.masked_invalid(yy_raw), linewidth=0.7, color="tab:gray", alpha=0.6, zorder=1)
@@ -425,7 +439,8 @@ def _build_multi_series_overview_figure(
             mask = (t_sec >= start_sec) & (t_sec <= end_sec)
             if not np.any(mask):
                 continue
-            if y_raw is not None and np.size(y_raw) == np.size(t_sec):
+            show_raw_debug = bool(getattr(config, "PLOT_SHOW_RAW_DEBUG_OVERLAYS", False))
+            if show_raw_debug and y_raw is not None and np.size(y_raw) == np.size(t_sec):
                 yy_raw = np.asarray(y_raw)[mask].astype(float)
                 if np.any(np.isfinite(yy_raw)):
                     th = np.asarray(t_sec)[mask] / 3600.0
@@ -470,7 +485,8 @@ def _build_event_response_overview_figure(
     duration_sec_fallback: float,
     event_spec: Sequence[EventSpec] = DEFAULT_EVENT_PLOT_SPEC,
 ) -> Optional[Any]:
-    if t_hr is None or hr_raw is None or np.size(t_hr) == 0 or np.size(hr_raw) != np.size(t_hr):
+    show_raw_debug = bool(getattr(config, "PLOT_SHOW_RAW_DEBUG_OVERLAYS", False))
+    if (not show_raw_debug) or t_hr is None or hr_raw is None or np.size(t_hr) == 0 or np.size(hr_raw) != np.size(t_hr):
         return None
 
     bounds = _panel_bounds(np.asarray(t_hr), duration_sec_fallback)

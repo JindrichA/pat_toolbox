@@ -150,10 +150,58 @@ def _subset_rr_by_sleep_and_events(
     return rr_mid_sleep, rr_ms_sleep, rr_mid_clean, rr_ms_clean
 
 
+def _calculate_sdnn_series(
+    t_grid: np.ndarray,
+    rr_mid: np.ndarray,
+    rr_ms: np.ndarray,
+    window_sec: float,
+    *,
+    min_span_sec: float,
+    max_gap_sec: float,
+) -> np.ndarray:
+    out = np.full_like(t_grid, np.nan, dtype=float)
+    if rr_mid.size == 0 or rr_ms.size == 0 or t_grid.size == 0:
+        return out
+
+    half = 0.5 * float(window_sec)
+    left = 0
+    right = 0
+    n = rr_mid.size
+    min_intervals_td = int(getattr(config, "HRV_MIN_INTERVALS_PER_WINDOW", 0))
+    min_cov_td = float(getattr(config, "HRV_MIN_WINDOW_COVERAGE", 0.0))
+    min_span_td = float(getattr(config, "HRV_RMSSD_MIN_SPAN_SEC", min_span_sec))
+    max_gap_td = float(getattr(config, "HRV_MAX_RR_GAP_SEC", max_gap_sec))
+
+    for i, t in enumerate(t_grid):
+        start = t - half
+        end = t + half
+        while left < n and rr_mid[left] < start:
+            left += 1
+        if right < left:
+            right = left
+        while right < n and rr_mid[right] < end:
+            right += 1
+
+        rr_win_ms = rr_ms[left:right]
+        rr_mid_win = rr_mid[left:right]
+        if not passes_time_domain_window_gate(
+            rr_mid_win,
+            window_sec=float(window_sec),
+            min_intervals=min_intervals_td,
+            max_gap_sec=max_gap_td,
+            min_span_sec=min_span_td,
+            min_cov=min_cov_td,
+        ):
+            continue
+        out[i] = _sdnn(rr_win_ms)
+    return out
+
+
 def _build_summary_from_clean_rr_and_times(
     rr_mid_clean: np.ndarray,
     rr_ms_clean: np.ndarray,
     rmssd_windows_list_clean: list[float],
+    sdnn_series_clean: np.ndarray,
     *,
     fs_resample: float,
     max_gap_sec: float,
@@ -171,9 +219,13 @@ def _build_summary_from_clean_rr_and_times(
 
     if len(rmssd_windows_list_clean) > 0:
         rmssd_arr = np.asarray(rmssd_windows_list_clean, dtype=float)
+        sdnn_arr = np.asarray(sdnn_series_clean, dtype=float)
+        sdnn_arr = sdnn_arr[np.isfinite(sdnn_arr)]
         summary: Dict[str, float] = {
             "rmssd_mean": float(np.nanmean(rmssd_arr)),
             "rmssd_median": float(np.nanmedian(rmssd_arr)),
+            "sdnn_mean": float(np.nanmean(sdnn_arr)) if sdnn_arr.size else float(sdnn_ms),
+            "sdnn_median": float(np.nanmedian(sdnn_arr)) if sdnn_arr.size else float(sdnn_ms),
             "sdnn": float(sdnn_ms),
             "lf": float(lf),
             "hf": float(hf),
@@ -181,9 +233,13 @@ def _build_summary_from_clean_rr_and_times(
             "lf_n_segments_used": int(lf_info["n_segments_used"]),
         }
     else:
+        sdnn_arr = np.asarray(sdnn_series_clean, dtype=float)
+        sdnn_arr = sdnn_arr[np.isfinite(sdnn_arr)]
         summary = {
             "rmssd_mean": float(_rmssd(rr_ms_clean)),
             "rmssd_median": float(np.nan),
+            "sdnn_mean": float(np.nanmean(sdnn_arr)) if sdnn_arr.size else float(sdnn_ms),
+            "sdnn_median": float(np.nanmedian(sdnn_arr)) if sdnn_arr.size else float(sdnn_ms),
             "sdnn": float(sdnn_ms),
             "lf": float(lf),
             "hf": float(hf),
@@ -381,6 +437,14 @@ def summarize_hrv_from_rr(
         max_gap_sec=max_gap_sec,
         min_span_sec=rmssd_min_span_sec,
     )
+    sdnn_clean = _calculate_sdnn_series(
+        t_hrv,
+        rr_mid_clean,
+        rr_ms_clean,
+        float(window_sec),
+        min_span_sec=rmssd_min_span_sec,
+        max_gap_sec=max_gap_sec,
+    )
 
     summary: Dict[str, float] = {
         "rr_n_sleep": int(rr_ms_sleep.size),
@@ -394,10 +458,16 @@ def summarize_hrv_from_rr(
             {
                 "rmssd_mean": np.nan,
                 "rmssd_median": np.nan,
+                "sdnn_mean": np.nan,
+                "sdnn_median": np.nan,
                 "sdnn": np.nan,
                 "lf": np.nan,
                 "hf": np.nan,
                 "lf_hf": np.nan,
+                "lf_fixed_mean": np.nan,
+                "lf_fixed_median": np.nan,
+                "hf_fixed_mean": np.nan,
+                "hf_fixed_median": np.nan,
                 "lf_n_segments_used": 0,
                 "lf_hf_fixed_median": np.nan,
                 "lf_hf_fixed_mean": np.nan,
@@ -417,6 +487,7 @@ def summarize_hrv_from_rr(
             rr_mid_clean,
             rr_ms_clean,
             rmssd_windows_list_clean,
+            sdnn_clean,
             fs_resample=fs_resample_global,
             max_gap_sec=max_gap_sec,
             min_freq_span_sec=min_freq_span_sec,
@@ -475,6 +546,14 @@ def summarize_hrv_from_clean_rr(
         max_gap_sec=max_gap_sec,
         min_span_sec=rmssd_min_span_sec,
     )
+    sdnn_clean = _calculate_sdnn_series(
+        t_hrv,
+        rr_mid_times_sec,
+        rr_ms,
+        float(window_sec),
+        min_span_sec=rmssd_min_span_sec,
+        max_gap_sec=max_gap_sec,
+    )
 
     summary: Dict[str, float] = {
         "rr_n_clean": int(rr_ms.size),
@@ -486,10 +565,16 @@ def summarize_hrv_from_clean_rr(
             {
                 "rmssd_mean": np.nan,
                 "rmssd_median": np.nan,
+                "sdnn_mean": np.nan,
+                "sdnn_median": np.nan,
                 "sdnn": np.nan,
                 "lf": np.nan,
                 "hf": np.nan,
                 "lf_hf": np.nan,
+                "lf_fixed_mean": np.nan,
+                "lf_fixed_median": np.nan,
+                "hf_fixed_mean": np.nan,
+                "hf_fixed_median": np.nan,
                 "lf_n_segments_used": 0,
                 "lf_hf_fixed_median": np.nan,
                 "lf_hf_fixed_mean": np.nan,
@@ -509,6 +594,7 @@ def summarize_hrv_from_clean_rr(
             rr_mid_times_sec,
             rr_ms,
             rmssd_windows_list_clean,
+            sdnn_clean,
             fs_resample=fs_resample_global,
             max_gap_sec=max_gap_sec,
             min_freq_span_sec=min_freq_span_sec,
@@ -657,11 +743,20 @@ def compute_hrv_from_pat_signal_with_tv_metrics(
         max_gap_sec=max_gap_sec,
         min_span_sec=rmssd_min_span_sec,
     )
+    sdnn_clean = _calculate_sdnn_series(
+        t_hrv,
+        rr_mid_for_calc,
+        rr_ms_for_calc,
+        float(window_sec),
+        min_span_sec=rmssd_min_span_sec,
+        max_gap_sec=max_gap_sec,
+    )
 
     summary = _build_summary_from_clean_rr_and_times(
         rr_mid_for_calc,
         rr_ms_for_calc,
         rmssd_windows_list_clean,
+        sdnn_clean,
         fs_resample=fs_resample_global,
         max_gap_sec=max_gap_sec,
         min_freq_span_sec=min_freq_span_sec,
@@ -682,26 +777,12 @@ def compute_hrv_from_pat_signal_with_tv_metrics(
         max_gap_sec=max_gap_sec,
         min_rr=fixed_min_rr,
     )
-
-    valid = lfhf_fixed.get("valid_mask", np.array([], dtype=bool))
-    n_total = int(valid.size)
-    n_valid = int(np.sum(valid)) if n_total > 0 else 0
-
-    if n_valid > 0:
-        lfhf_vals = np.asarray(lfhf_fixed["lf_hf"], dtype=float)[valid]
-        summary["lf_hf_fixed_median"] = float(np.nanmedian(lfhf_vals))
-        summary["lf_hf_fixed_mean"] = float(np.nanmean(lfhf_vals))
-    else:
-        summary["lf_hf_fixed_median"] = float(np.nan)
-        summary["lf_hf_fixed_mean"] = float(np.nan)
-
-    summary["lf_hf_fixed_n_windows_valid"] = n_valid
-    summary["lf_hf_fixed_n_windows_total"] = n_total
-    summary["lf_hf_fixed_valid_pct"] = float(100.0 * n_valid / n_total) if n_total > 0 else np.nan
-    summary["lf_hf_fixed_valid_min"] = float(n_valid * fixed_win_sec / 60.0)
-    summary["lf_hf_fixed_total_min"] = float(n_total * fixed_win_sec / 60.0)
-    summary["lf_hf_fixed_window_sec"] = float(fixed_win_sec)
-    summary["lf_hf_fixed_hop_sec"] = float(fixed_hop_sec)
+    summary = _apply_fixed_window_frequency_summary(
+        summary,
+        lfhf_fixed,
+        fixed_win_sec=fixed_win_sec,
+        fixed_hop_sec=fixed_hop_sec,
+    )
 
     if rr_mid_for_calc.size == 0:
         tv = {

@@ -27,6 +27,9 @@ FIXED_SLEEP_STAGE_LABELS = {
     "rem": "REM only",
 }
 
+PRE_SLEEP_WAKE_KEY = "pre_sleep_wake"
+PRE_SLEEP_WAKE_LABEL = "Pre-sleep wake"
+
 
 # -----------------------------------------------------------------------------
 # helpers
@@ -44,6 +47,10 @@ def fixed_sleep_stage_policies() -> list[tuple[str, str, set[int]]]:
         (key, FIXED_SLEEP_STAGE_LABELS[key], set(FIXED_SLEEP_STAGE_SETS[key]))
         for key in ["all_sleep", "wake_sleep", "nrem", "deep", "rem"]
     ]
+
+
+def pre_sleep_wake_policy() -> tuple[str, str, set[int]]:
+    return PRE_SLEEP_WAKE_KEY, PRE_SLEEP_WAKE_LABEL, {0}
 
 
 def _resolve_include_set(include_set: Optional[set[int]] = None) -> set[int]:
@@ -266,6 +273,45 @@ def compute_sleep_hours_from_aux(
     return float(np.sum(dt[keep_interval]) / 3600.0)
 
 
+def build_pre_sleep_wake_aux_df(aux_df: Optional["pd.DataFrame"]) -> Optional["pd.DataFrame"]:
+    if aux_df is None:
+        return None
+
+    time_col = getattr(config, "AUX_CSV_TIME_SEC_COLUMN", "time_sec")
+    stage_col = getattr(config, "AUX_CSV_STAGE_CODE_COLUMN", "stage_code")
+    if time_col not in aux_df.columns:
+        return None
+
+    aux_df = ensure_stage_code_column(aux_df)
+    if stage_col not in aux_df.columns:
+        return None
+
+    t_aux = aux_df[time_col].to_numpy(dtype=float)
+    s_aux = aux_df[stage_col].to_numpy(dtype=float)
+    ok = np.isfinite(t_aux) & np.isfinite(s_aux)
+    if np.count_nonzero(ok) < 2:
+        return None
+
+    t_ok = t_aux[ok]
+    s_ok = np.round(s_aux[ok]).astype(int)
+    sleep_idx = np.flatnonzero(np.isin(s_ok, [1, 2, 3]))
+    if sleep_idx.size == 0:
+        return None
+
+    onset_sec = float(t_ok[sleep_idx[0]])
+    out = aux_df.copy()
+    post_onset = np.asarray(out[time_col], dtype=float) >= onset_sec
+    out.loc[post_onset, stage_col] = 999.0
+    return out
+
+
+def compute_pre_sleep_wake_hours(aux_df: Optional["pd.DataFrame"]) -> float:
+    subset_aux = build_pre_sleep_wake_aux_df(aux_df)
+    if subset_aux is None:
+        return float("nan")
+    return compute_sleep_hours_from_aux(subset_aux, include_set={0})
+
+
 # -----------------------------------------------------------------------------
 # apply helper
 # -----------------------------------------------------------------------------
@@ -341,5 +387,9 @@ __all__ = [
     "ensure_stage_code_column",
     "build_sleep_include_mask",
     "build_sleep_include_mask_for_times",
+    "build_pre_sleep_wake_aux_df",
     "apply_sleep_mask_inplace",
+    "compute_pre_sleep_wake_hours",
+    "fixed_sleep_stage_policies",
+    "pre_sleep_wake_policy",
 ]

@@ -43,6 +43,65 @@ def _hr_summary_for_subset(
     }
 
 
+def _compute_single_sleep_combo_summary(
+    *,
+    key: str,
+    label: str,
+    include_set: set[int],
+    aux_df,
+    rr_mid: np.ndarray,
+    rr_ms: np.ndarray,
+    duration_sec: float,
+    t_hr_subset,
+    hr_raw_subset,
+    ctx: RecordingContext,
+) -> dict[str, object]:
+    sleep_hours = sleep_mask.compute_sleep_hours_from_aux(aux_df, include_set=include_set)
+
+    hrv_summary = None
+    if features.is_enabled("hrv"):
+        hrv_summary = hrv_metrics.summarize_hrv_from_rr(rr_mid, rr_ms, duration_sec, aux_df, include_set=include_set)
+
+    hr_summary = None
+    if features.is_enabled("hr") and t_hr_subset is not None and hr_raw_subset is not None and aux_df is not None:
+        hr_summary = _hr_summary_for_subset(hr_raw_subset, t_hr_subset, aux_df, include_set)
+
+    psd_features = None
+    if features.is_enabled("psd"):
+        psd_features = psd_metrics.compute_psd_features_from_rr(rr_mid, rr_ms, duration_sec, aux_df, include_set=include_set)
+
+    burden = np.nan
+    burden_diag = None
+    if features.is_enabled("pat_burden") and ctx.t_pat_amp is not None and ctx.pat_amp is not None and aux_df is not None:
+        burden, burden_diag, _episodes = pat_burden_metrics.compute_pat_burden_from_pat_amp(
+            t_sec=ctx.t_pat_amp,
+            pat_amp=ctx.pat_amp,
+            aux_df=aux_df,
+            include_set=include_set,
+        )
+
+    hr_event_response_summary = None
+    if features.is_enabled("delta_hr") and t_hr_subset is not None and hr_raw_subset is not None and aux_df is not None:
+        hr_event_response_summary = summarize_event_hr_response(
+            t_hr_subset,
+            hr_raw_subset,
+            aux_df,
+            include_set=include_set,
+        )
+
+    return {
+        "label": label,
+        "include_set": set(include_set),
+        "sleep_hours": sleep_hours,
+        "hr_summary": hr_summary,
+        "hrv_summary": hrv_summary,
+        "psd_features": psd_features,
+        "hr_event_response_summary": hr_event_response_summary,
+        "pat_burden": burden,
+        "pat_burden_diag": burden_diag,
+    }
+
+
 def compute_pat_burden_step(ctx: RecordingContext) -> None:
     if not features.is_enabled("pat_burden"):
         ctx.pat_burden = None
@@ -95,45 +154,34 @@ def compute_sleep_combo_summaries_step(ctx: RecordingContext) -> None:
             t_hr_subset, hr_raw_subset = None, None
 
     for key, label, include_set in sleep_mask.fixed_sleep_stage_policies():
-        sleep_hours = sleep_mask.compute_sleep_hours_from_aux(ctx.aux_df, include_set=include_set)
+        summaries[key] = _compute_single_sleep_combo_summary(
+            key=key,
+            label=label,
+            include_set=include_set,
+            aux_df=ctx.aux_df,
+            rr_mid=rr_mid,
+            rr_ms=ctx.rr_ms_clean,
+            duration_sec=duration_sec,
+            t_hr_subset=t_hr_subset,
+            hr_raw_subset=hr_raw_subset,
+            ctx=ctx,
+        )
 
-        hrv_summary = None
-        if features.is_enabled("hrv"):
-            hrv_summary = hrv_metrics.summarize_hrv_from_rr(rr_mid, ctx.rr_ms_clean, duration_sec, ctx.aux_df, include_set=include_set)
-
-        hr_summary = None
-        if features.is_enabled("hr") and t_hr_subset is not None and hr_raw_subset is not None and ctx.aux_df is not None:
-            hr_summary = _hr_summary_for_subset(hr_raw_subset, t_hr_subset, ctx.aux_df, include_set)
-
-        psd_features = None
-        if features.is_enabled("psd"):
-            psd_features = psd_metrics.compute_psd_features_from_rr(rr_mid, ctx.rr_ms_clean, duration_sec, ctx.aux_df, include_set=include_set)
-
-        burden = np.nan
-        burden_diag = None
-        if features.is_enabled("pat_burden") and ctx.t_pat_amp is not None and ctx.pat_amp is not None and ctx.aux_df is not None:
-            burden, burden_diag, _episodes = pat_burden_metrics.compute_pat_burden_from_pat_amp(t_sec=ctx.t_pat_amp, pat_amp=ctx.pat_amp, aux_df=ctx.aux_df, include_set=include_set)
-
-        hr_event_response_summary = None
-        if features.is_enabled("delta_hr") and t_hr_subset is not None and hr_raw_subset is not None and ctx.aux_df is not None:
-            hr_event_response_summary = summarize_event_hr_response(
-                t_hr_subset,
-                hr_raw_subset,
-                ctx.aux_df,
-                include_set=include_set,
-            )
-
-        summaries[key] = {
-            "label": label,
-            "include_set": set(include_set),
-            "sleep_hours": sleep_hours,
-            "hr_summary": hr_summary,
-            "hrv_summary": hrv_summary,
-            "psd_features": psd_features,
-            "hr_event_response_summary": hr_event_response_summary,
-            "pat_burden": burden,
-            "pat_burden_diag": burden_diag,
-        }
+    pre_key, pre_label, pre_include_set = sleep_mask.pre_sleep_wake_policy()
+    pre_aux_df = sleep_mask.build_pre_sleep_wake_aux_df(ctx.aux_df)
+    if pre_aux_df is not None:
+        summaries[pre_key] = _compute_single_sleep_combo_summary(
+            key=pre_key,
+            label=pre_label,
+            include_set=pre_include_set,
+            aux_df=pre_aux_df,
+            rr_mid=rr_mid,
+            rr_ms=ctx.rr_ms_clean,
+            duration_sec=duration_sec,
+            t_hr_subset=t_hr_subset,
+            hr_raw_subset=hr_raw_subset,
+            ctx=ctx,
+        )
     ctx.sleep_combo_summaries = summaries
 
 
@@ -205,7 +253,7 @@ def compute_hrv_step(ctx: RecordingContext) -> None:
                 split_sec = float(ctx.sleep_timing.get("sleep_midpoint_rel_sec", np.nan))
                 end_sec = float(ctx.sleep_timing.get("sleep_end_rel_sec", np.nan))
                 if np.isfinite(onset_sec) and np.isfinite(split_sec) and np.isfinite(end_sec) and onset_sec < split_sec < end_sec:
-                    include_set = set(config.sleep_include_numeric()) if bool(getattr(config, "ENABLE_SLEEP_STAGE_MASKING", False)) else None
+                    include_set = {1, 2}
                     _rr_mid_sleep, _rr_ms_sleep, rr_mid_clean, rr_ms_clean = hrv_metrics._subset_rr_by_sleep_and_events(
                         rr_mid,
                         rr_ms,

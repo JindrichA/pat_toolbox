@@ -54,36 +54,6 @@ def _shade_hrv_mask_layers(
         )
 
 
-def _format_nrem_legend_label(
-    label: str,
-    metric_key: str,
-    sleep_combo_summaries: Optional[Dict[str, Dict[str, object]]],
-) -> str:
-    if not isinstance(sleep_combo_summaries, dict):
-        return label
-
-    nrem_item = sleep_combo_summaries.get("nrem")
-    if not isinstance(nrem_item, dict):
-        return label
-
-    hrv_summary = nrem_item.get("hrv_summary")
-    if not isinstance(hrv_summary, dict):
-        return label
-
-    value = hrv_summary.get(metric_key)
-    if value is None or not np.isfinite(value):
-        return label
-
-    if metric_key in {"rmssd_mean", "sdnn"}:
-        value_str = f"{float(value):.1f} ms"
-    elif metric_key in {"lf", "hf"}:
-        value_str = f"{float(value):.2f}"
-    else:
-        value_str = f"{float(value):.2f}"
-
-    return f"{label} (NREM mean: {value_str})"
-
-
 def _bin_series_mean_ci(
     t_sec: np.ndarray,
     y: np.ndarray,
@@ -169,7 +139,7 @@ def _add_metric_legend(
     handles, labels = ax.get_legend_handles_labels()
     usable = [(h, lab) for h, lab in zip(handles, labels) if lab and (not str(lab).startswith("_"))]
     if include_summary_lines:
-        usable.append((Line2D([0], [0], color=summary_color, linestyle="--", linewidth=1.6), "Dashed line = displayed-series mean"))
+        usable.append((Line2D([0], [0], color=summary_color, linestyle="--", linewidth=1.6), "NREM mean"))
         if include_median_line:
             usable.append((Line2D([0], [0], color=summary_color, linestyle=":", linewidth=1.6), "Dotted line = displayed-series median"))
     if not usable:
@@ -187,24 +157,38 @@ def _add_colored_event_key(fig: Any, event_spec: List[EventSpec]) -> None:
         "evt_central_3": "red",
         "evt_obstructive_3": "brown dashed",
         "evt_unclassified_3": "green dotted",
-        "exclude_hr_flag": "purple",
         "exclude_pat_flag": "olive",
     }
     lines: List[Any] = []
+    event_specs = [spec for spec in event_spec if spec.col != "exclude_pat_flag"]
+    quality_specs = [spec for spec in event_spec if spec.col == "exclude_pat_flag"]
+
     chunk: List[Any] = [TextArea("Event markers: ", textprops=textprops)]
-    for idx, spec in enumerate(event_spec):
+    for idx, spec in enumerate(event_specs):
         desc = style_desc.get(spec.col, spec.color)
         chunk.extend([
             TextArea(spec.label, textprops={**textprops, "color": spec.color}),
             TextArea(f" = {desc}", textprops=textprops),
         ])
-        if idx != len(event_spec) - 1:
+        if idx != len(event_specs) - 1:
             chunk.append(TextArea(" | ", textprops=textprops))
-        if (idx + 1) % 3 == 0 and idx != len(event_spec) - 1:
+        if (idx + 1) % 3 == 0 and idx != len(event_specs) - 1:
             lines.append(HPacker(children=chunk, align="center", pad=0, sep=0))
             chunk = []
-    if chunk:
+    if len(chunk) > 1:
         lines.append(HPacker(children=chunk, align="center", pad=0, sep=0))
+
+    quality_chunk: List[Any] = [TextArea("Signal quality: ", textprops=textprops)]
+    for idx, spec in enumerate(quality_specs):
+        desc = style_desc.get(spec.col, spec.color)
+        quality_chunk.extend([
+            TextArea(spec.label, textprops={**textprops, "color": spec.color}),
+            TextArea(f" = {desc}", textprops=textprops),
+        ])
+        if idx != len(quality_specs) - 1:
+            quality_chunk.append(TextArea(" | ", textprops=textprops))
+    if len(quality_chunk) > 1:
+        lines.append(HPacker(children=quality_chunk, align="center", pad=0, sep=0))
 
     packed = VPacker(children=lines, align="center", pad=0, sep=2)
     anchored = AnchoredOffsetbox(

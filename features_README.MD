@@ -6,7 +6,7 @@ It is meant as a practical guide for anyone reading the PDF reports, per-feature
 
 ## Selected-Policy Naming
 
-In the final grouped summary CSV, global policy-dependent fields now use the prefix `selected_`.
+In the final grouped summary CSV, policy-dependent fields use the prefix `selected_`.
 
 This means:
 
@@ -100,7 +100,7 @@ In this repository, the main provenance terms are:
 - `clean`
   - after the final selected-policy combined mask
 
-- `fixed-window`
+- `window-based`
   - value computed in repeated fixed-duration windows, then summarized across valid windows
 
 - `selected-policy`
@@ -186,12 +186,12 @@ The HRV feature computes both scalar HRV metrics and sliding-window HRV series.
 
 Important change:
 
-- the main exported `LF`, `HF`, and `LF/HF` values now follow the fixed-window analysis
-- they are no longer the legacy global segmented spectral values
+- the main exported `LF`, `HF`, and `LF/HF` values now follow the window-based analysis
+- they are no longer the legacy segmented spectral values
 - in other words:
   - `selected_lf`, `selected_hf`, `selected_lf_hf`
   - `combo_*_lf`, `combo_*_hf`, `combo_*_lf_hf`
-  now represent fixed-window means across valid windows
+  now represent means across valid windows
 
 - `rmssd_mean_ms`
   - mean RMSSD over valid clean windows
@@ -201,7 +201,7 @@ Important change:
 
 - `sdnn_ms`
   - SDNN from the clean RR series
-  - this is still an overall clean-RR time-domain summary, not a fixed-window mean
+  - this is still an overall clean-RR time-domain summary, not a window-based mean
 
 - `lf`
   - low-frequency HRV power represented by the mean across valid fixed windows
@@ -214,10 +214,6 @@ Important change:
 - `lf_hf`
   - LF/HF ratio represented by the mean across valid fixed windows
   - unitless
-
-- `lf_n_segments_used`
-  - legacy count from the older segmented frequency-domain calculation
-  - kept as reference only; it is no longer the primary source of the reported LF/HF values
 
 ### Time-domain versus frequency-domain summary style
 
@@ -236,7 +232,7 @@ The main selected-policy HRV summary now mixes two styles by design:
 
 So if you compare `SDNN` and `LF`, they are not coming from exactly the same style of aggregation.
 
-### Fixed-window LF/HF summary fields
+### LF/HF Summary Fields
 
 These are computed on the selected-policy clean RR signal using:
 
@@ -245,28 +241,28 @@ These are computed on the selected-policy clean RR signal using:
 
 If `hop_sec == window_sec`, windows do not overlap.
 
-The current main exported frequency-domain values use this same fixed-window engine.
+The current main exported frequency-domain values use this same window-based engine.
 
 - `lf_hf_fixed_median`
-  - median LF/HF across valid fixed windows
+  - median LF/HF across valid windows
 
 - `lf_hf_fixed_mean`
-  - mean LF/HF across valid fixed windows
+  - mean LF/HF across valid windows
 
 - `lf_hf_fixed_n_windows_valid`
-  - number of valid fixed windows used for LF/HF
+  - number of valid windows used for LF/HF
 
 - `lf_hf_fixed_n_windows_total`
   - total number of fixed windows considered
 
 - `lf_hf_fixed_valid_pct`
-  - percentage of valid fixed windows
+  - percentage of valid windows
 
 - `lf_hf_fixed_valid_min`
-  - total valid fixed-window coverage in minutes
+  - total valid coverage in minutes
 
 - `lf_hf_fixed_total_min`
-  - total fixed-window span considered in minutes
+  - total span considered in minutes
 
 - `lf_hf_fixed_window_sec`
   - fixed-window duration in seconds
@@ -274,7 +270,7 @@ The current main exported frequency-domain values use this same fixed-window eng
 - `lf_hf_fixed_hop_sec`
   - hop size between fixed windows in seconds
 
-Internally the fixed-window engine also computes per-window:
+Internally the window-based engine also computes per-window:
 
 - `lf_ms2`
 - `hf_ms2`
@@ -291,17 +287,17 @@ Coverage fields answer a different question than the summary metrics themselves:
 
 This is important because a metric can have a plausible value but still be based on limited valid coverage.
 
-- `selected_hrv_rmssd_clean_valid_pct`
-  - percentage of valid points in the final clean RMSSD series
+- `selected_hrv_rmssd_final_analysis_valid_pct`
+  - percentage of valid points in the final-analysis RMSSD series
 
-- `selected_hrv_rmssd_clean_valid_min`
-  - valid coverage in minutes for the final clean RMSSD series
+- `selected_hrv_rmssd_final_analysis_valid_min`
+  - valid coverage in minutes for the final-analysis RMSSD series
 
-- `selected_hrv_rmssd_raw_valid_pct`
-  - percentage of valid points in the pre-exclusion RMSSD series
+- `selected_hrv_rmssd_pre_final_exclusion_valid_pct`
+  - percentage of valid points in the pre-final-exclusion RMSSD series
 
-- `selected_hrv_rmssd_raw_valid_min`
-  - valid coverage in minutes for the pre-exclusion RMSSD series
+- `selected_hrv_rmssd_pre_final_exclusion_valid_min`
+  - valid coverage in minutes for the pre-final-exclusion RMSSD series
 
 - `hrv_tv_*_valid_pct`
   - valid coverage percentage for each sliding-window HRV trace
@@ -311,10 +307,10 @@ This is important because a metric can have a plausible value but still be based
 
 Current sliding-window naming uses explicit stage wording, for example:
 
-- `hrv_tv_sdnn_pre_exclusion_valid_pct`
-- `hrv_tv_sdnn_clean_valid_pct`
-- `hrv_tv_hf_pre_exclusion_valid_min`
-- `hrv_tv_hf_clean_valid_min`
+- `hrv_tv_sdnn_pre_final_exclusion_valid_pct`
+- `hrv_tv_sdnn_final_analysis_valid_pct`
+- `hrv_tv_hf_pre_final_exclusion_valid_min`
+- `hrv_tv_hf_final_analysis_valid_min`
 
 ### Sliding-window HRV series
 
@@ -391,8 +387,8 @@ These are the subset-specific HRV summaries after applying the subset sleep poli
 
 Important note:
 
-- the subset-table `LF`, `HF`, and `LF/HF` values are now also fixed-window means
-- they are not the legacy global segmented subset values anymore
+- the subset-table `LF`, `HF`, and `LF/HF` values are now also window-based means
+- they are not the legacy segmented subset values anymore
 
 ### Sleep timing and midpoint-half HRV fields
 
@@ -431,7 +427,7 @@ These midpoint-half summaries use the same conventions as the main selected-poli
   - overall clean-RR SDNN in that half
 
 - `LF`, `HF`, `LF/HF`
-  - fixed-window means across valid windows inside that half
+  - means across valid windows inside that half
 
 Current midpoint-half fields are:
 
@@ -458,7 +454,7 @@ The PSD feature computes spectral summaries from the RR/tachogram signal.
 
 ### Main PSD fields
 
-These PSD features are separate from the HRV fixed-window LF/HF summary. They come from the PSD pipeline, not from the sliding HRV TV series.
+These PSD features are separate from the HRV LF/HF summary. They come from the PSD pipeline, not from the sliding HRV TV series.
 
 - `mayer_peak_hz`
   - dominant peak frequency in the Mayer-wave band
@@ -750,7 +746,7 @@ If you only want the core summary meaning:
 
 - `HRV` fields
   - variability/autonomic-style summaries derived from clean RR intervals
-  - for `LF`, `HF`, and `LF/HF`, the main reported values now come from fixed-window means
+  - for `LF`, `HF`, and `LF/HF`, the main reported values now come from window-based means
 
 - `PSD` fields
   - spectral organization of the RR/tachogram signal
@@ -780,19 +776,19 @@ For the grouped summary CSV, the most common selected-policy fields should curre
   - overall clean-RR SDNN
 
 - `selected_lf`
-  - fixed-window LF mean across valid windows
+  - LF mean across valid windows
 
 - `selected_hf`
-  - fixed-window HF mean across valid windows
+  - HF mean across valid windows
 
 - `selected_lf_hf`
-  - fixed-window LF/HF mean across valid windows
+  - LF/HF mean across valid windows
 
 - `selected_lf_hf_fixed_median`
-  - fixed-window LF/HF median across valid windows
+  - LF/HF median across valid windows
 
 - `selected_lf_hf_fixed_n_windows_valid`
-  - number of valid fixed windows contributing to the fixed-window frequency summary
+  - number of valid windows contributing to the frequency summary
 
 - `selected_hr_valid_pct`
   - valid PAT-derived HR coverage after the selected-policy combined mask
