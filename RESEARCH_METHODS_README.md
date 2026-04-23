@@ -529,16 +529,3 @@ For the current configuration, the main selected-policy HRV workflow can be summ
 14. Derive LF, HF, and LF/HF on non-overlapping fixed `2 min` windows using RR-tachogram Welch PSD.
 15. Summarize the surviving values over the selected-policy valid windows.
 16. Recompute the same family of metrics for fixed subsets such as all sleep, NREM, deep, REM, wake+sleep, and pre-sleep wake.
-
-## Recommended Citation Style For Methods Sections
-
-If you want to convert this into manuscript text, the cleanest wording is usually:
-
-1. Describe PAT preprocessing and RR extraction.
-2. Describe low-level RR cleaning.
-3. Describe sleep-stage selection and event/desaturation masking.
-4. Describe time-domain HRV windows.
-5. Describe fixed-window spectral HRV analysis.
-6. Describe subset-specific summaries such as NREM halves or sleep-combo analyses.
-
-If you want, this file can be turned into a manuscript-style Methods section next, with full prose instead of the current engineering-style step-by-step format.
