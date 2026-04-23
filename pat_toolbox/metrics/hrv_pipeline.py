@@ -299,6 +299,18 @@ def _apply_fixed_window_frequency_summary(
     return summary
 
 
+def _fixed_window_plot_series(
+    lfhf_fixed: Dict[str, np.ndarray],
+) -> Dict[str, np.ndarray]:
+    centers = np.asarray(lfhf_fixed.get("t_win_center_sec", np.array([], dtype=float)), dtype=float)
+    return {
+        "spectral_t_sec": centers,
+        "lf_fixed": np.asarray(lfhf_fixed.get("lf_ms2", np.array([], dtype=float)), dtype=float),
+        "hf_fixed": np.asarray(lfhf_fixed.get("hf_ms2", np.array([], dtype=float)), dtype=float),
+        "lf_hf_fixed": np.asarray(lfhf_fixed.get("lf_hf", np.array([], dtype=float)), dtype=float),
+    }
+
+
 def compute_hrv_from_pat_signal(
     pat_signal: np.ndarray,
     fs: float,
@@ -783,6 +795,16 @@ def compute_hrv_from_pat_signal_with_tv_metrics(
         fixed_win_sec=fixed_win_sec,
         fixed_hop_sec=fixed_hop_sec,
     )
+    lfhf_fixed_raw = _calculate_lfhf_fixed_windows(
+        rr_mid=rr_mid_sleep,
+        rr_ms=rr_ms_sleep,
+        duration_sec=duration_sec,
+        window_sec=fixed_win_sec,
+        hop_sec=fixed_hop_sec,
+        fs_resample=fs_resample_fixed,
+        max_gap_sec=max_gap_sec,
+        min_rr=fixed_min_rr,
+    )
 
     if rr_mid_for_calc.size == 0:
         tv = {
@@ -795,6 +817,15 @@ def compute_hrv_from_pat_signal_with_tv_metrics(
             "hf": np.full_like(t_hrv, np.nan, dtype=float),
             "lf_hf_raw": np.full_like(t_hrv, np.nan, dtype=float),
             "lf_hf": np.full_like(t_hrv, np.nan, dtype=float),
+            "spectral_t_sec": np.array([], dtype=float),
+            "lf_fixed_raw": np.array([], dtype=float),
+            "lf_fixed": np.array([], dtype=float),
+            "hf_fixed_raw": np.array([], dtype=float),
+            "hf_fixed": np.array([], dtype=float),
+            "lf_hf_fixed_raw": np.array([], dtype=float),
+            "lf_hf_fixed": np.array([], dtype=float),
+            "spectral_window_sec": np.array([float(fixed_win_sec)], dtype=float),
+            "spectral_hop_sec": np.array([float(fixed_hop_sec)], dtype=float),
             "tv_window_sec": np.array([float(tv_window_sec)], dtype=float),
         }
         return t_hrv, rmssd_1hz_raw, rmssd_1hz_clean, summary, tv
@@ -831,6 +862,13 @@ def compute_hrv_from_pat_signal_with_tv_metrics(
         "lf_hf_raw": np.asarray(tv_raw.get("lf_hf", np.full_like(t_hrv, np.nan, dtype=float)), dtype=float),
         "lf_hf": np.asarray(tv_clean.get("lf_hf", np.full_like(t_hrv, np.nan, dtype=float)), dtype=float),
     }
+    tv.update(_fixed_window_plot_series(lfhf_fixed_raw))
+    tv["lf_fixed_raw"] = np.asarray(tv.pop("lf_fixed"), dtype=float)
+    tv["hf_fixed_raw"] = np.asarray(tv.pop("hf_fixed"), dtype=float)
+    tv["lf_hf_fixed_raw"] = np.asarray(tv.pop("lf_hf_fixed"), dtype=float)
+    tv.update(_fixed_window_plot_series(lfhf_fixed))
+    tv["spectral_window_sec"] = np.array([float(fixed_win_sec)], dtype=float)
+    tv["spectral_hop_sec"] = np.array([float(fixed_hop_sec)], dtype=float)
     tv["tv_window_sec"] = np.array([float(tv_window_sec)], dtype=float)
 
     return t_hrv, rmssd_1hz_raw, rmssd_1hz_clean, summary, tv

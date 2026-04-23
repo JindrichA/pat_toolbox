@@ -111,27 +111,29 @@ def _build_hrv_tv_metrics_figure(
     panels: List[dict] = []
     y_sdnn = hrv_tv.get("sdnn_ms", None)
     if y_sdnn is not None and np.size(y_sdnn) == np.size(t_hrv):
-        panels.append({"kind": "single", "key": "sdnn_ms", "ylabel": "SDNN [ms]", "series": [("SDNN", np.asarray(y_sdnn, dtype=float), "tab:green")]})
-    y_lf = hrv_tv.get("lf", None)
-    y_hf = hrv_tv.get("hf", None)
+        panels.append({"kind": "single", "key": "sdnn_ms", "ylabel": "SDNN [ms]", "series": [("SDNN", np.asarray(t_hrv, dtype=float), np.asarray(y_sdnn, dtype=float), "tab:green")]})
+    t_spectral = hrv_tv.get("spectral_t_sec", None)
+    y_lf = hrv_tv.get("lf_fixed", None)
+    y_hf = hrv_tv.get("hf_fixed", None)
     lf_hf_series = []
-    if y_lf is not None and np.size(y_lf) == np.size(t_hrv):
-        lf_hf_series.append(("LF", np.asarray(y_lf, dtype=float), "tab:orange"))
-    if y_hf is not None and np.size(y_hf) == np.size(t_hrv):
-        lf_hf_series.append(("HF", np.asarray(y_hf, dtype=float), "tab:blue"))
+    if t_spectral is not None and y_lf is not None and np.size(y_lf) == np.size(t_spectral):
+        lf_hf_series.append(("LF", np.asarray(t_spectral, dtype=float), np.asarray(y_lf, dtype=float), "tab:orange"))
+    if t_spectral is not None and y_hf is not None and np.size(y_hf) == np.size(t_spectral):
+        lf_hf_series.append(("HF", np.asarray(t_spectral, dtype=float), np.asarray(y_hf, dtype=float), "tab:blue"))
     if lf_hf_series:
         panels.append({"kind": "multi", "key": "lf_hf_power", "ylabel": "LF / HF [ms²] (log10)", "yscale": "log", "series": lf_hf_series})
-    y_ratio = hrv_tv.get("lf_hf", None)
-    if y_ratio is not None and np.size(y_ratio) == np.size(t_hrv):
-        panels.append({"kind": "single", "key": "lf_hf", "ylabel": "LF/HF [-]", "series": [("LF/HF", np.asarray(y_ratio, dtype=float), "tab:purple")]})
+    y_ratio = hrv_tv.get("lf_hf_fixed", None)
+    if t_spectral is not None and y_ratio is not None and np.size(y_ratio) == np.size(t_spectral):
+        panels.append({"kind": "single", "key": "lf_hf", "ylabel": "LF/HF [-]", "series": [("LF/HF", np.asarray(t_spectral, dtype=float), np.asarray(y_ratio, dtype=float), "tab:purple")]})
     if not panels:
         return None
 
     fig, axes = plt.subplots(len(panels), 1, figsize=(11.69, 8.27), sharex=True)
     if len(panels) == 1:
         axes = [axes]
-    tv_win = getattr(config, "HRV_TV_WINDOW_SEC", None)
-    title = f"{edf_base} - HRV TV ({tv_win/60.0:.1f} min window)" if tv_win is not None and tv_win > 0 else f"{edf_base} - HRV TV (sliding window)"
+    tv_win = float(getattr(config, "HRV_WINDOW_SEC", 300.0))
+    spectral_window_sec = float(np.asarray(hrv_tv.get("spectral_window_sec", np.array([getattr(config, "HRV_LFHF_FIXED_WINDOW_SEC", 120.0)])), dtype=float)[0])
+    title = f"{edf_base} - HRV TV (RMSSD/SDNN {tv_win/60.0:.1f} min sliding; spectral {spectral_window_sec/60.0:.1f} min fixed)"
     fig.suptitle(title, fontsize=11, y=0.985)
 
     t_h = t_hrv / 3600.0
@@ -144,13 +146,13 @@ def _build_hrv_tv_metrics_figure(
     for ax, panel in zip(axes, panels):
         _add_exclusion_spans(ax, exclusion_zones, start_h, end_h, label_once=False)
         plotted_any = False
-        for label, y, color in panel["series"]:
+        for label, t_plot_sec, y, color in panel["series"]:
             ok = np.isfinite(y)
             if not np.any(ok):
                 continue
             p = np.nanpercentile(y, 99)
             y_plot = np.clip(y, None, p)
-            t_bin_h, y_bin, y_ci = _bin_series_mean_ci(t_hrv, y_plot, bin_sec=float(getattr(config, "HRV_PLOT_BIN_SEC", 15.0 * 60.0)))
+            t_bin_h, y_bin, y_ci = _bin_series_mean_ci(np.asarray(t_plot_sec, dtype=float), y_plot, bin_sec=float(getattr(config, "HRV_PLOT_BIN_SEC", 15.0 * 60.0)))
             okb = np.isfinite(y_bin)
             if not np.any(okb):
                 continue
@@ -169,7 +171,7 @@ def _build_hrv_tv_metrics_figure(
         if legend_ax is None and plotted_any:
             legend_ax = ax
     if legend_ax is not None:
-        _add_metric_legend(legend_ax, loc="lower right", fontsize=5, include_summary_lines=True, summary_color=panels[0]["series"][0][2])
+        _add_metric_legend(legend_ax, loc="lower right", fontsize=5, include_summary_lines=True, summary_color=panels[0]["series"][0][3])
     axes[-1].set_xlabel("Time (hours from recording start)")
     fig.tight_layout(rect=(0.04, 0.05, 0.98, 0.94))
     fig.subplots_adjust(hspace=0.22)
@@ -194,22 +196,23 @@ def _build_stagegram_and_hrv_tv_figure(
 
     panels: List[dict] = []
     if hrv_rmssd is not None and np.size(hrv_rmssd) == np.size(t_hrv):
-        panels.append({"kind": "single", "key": "rmssd", "ylabel": "RMSSD [ms]", "series": [("RMSSD", np.asarray(hrv_rmssd, dtype=float), "tab:green")]})
+        panels.append({"kind": "single", "key": "rmssd", "ylabel": "RMSSD [ms]", "series": [("RMSSD", t_hrv, np.asarray(hrv_rmssd, dtype=float), "tab:green")]})
     y_sdnn = hrv_tv.get("sdnn_ms", None) if hrv_tv is not None else None
     if y_sdnn is not None and np.size(y_sdnn) == np.size(t_hrv):
-        panels.append({"kind": "single", "key": "sdnn_ms", "ylabel": "SDNN [ms]", "series": [("SDNN", np.asarray(y_sdnn, dtype=float), "tab:green")]})
-    y_lf = hrv_tv.get("lf", None) if hrv_tv is not None else None
-    y_hf = hrv_tv.get("hf", None) if hrv_tv is not None else None
+        panels.append({"kind": "single", "key": "sdnn_ms", "ylabel": "SDNN [ms]", "series": [("SDNN", t_hrv, np.asarray(y_sdnn, dtype=float), "tab:green")]})
+    t_spectral = hrv_tv.get("spectral_t_sec", None) if hrv_tv is not None else None
+    y_lf = hrv_tv.get("lf_fixed", None) if hrv_tv is not None else None
+    y_hf = hrv_tv.get("hf_fixed", None) if hrv_tv is not None else None
     lf_hf_series = []
-    if y_lf is not None and np.size(y_lf) == np.size(t_hrv):
-        lf_hf_series.append(("LF", np.asarray(y_lf, dtype=float), "tab:orange"))
-    if y_hf is not None and np.size(y_hf) == np.size(t_hrv):
-        lf_hf_series.append(("HF", np.asarray(y_hf, dtype=float), "tab:blue"))
+    if t_spectral is not None and y_lf is not None and np.size(y_lf) == np.size(t_spectral):
+        lf_hf_series.append(("LF", np.asarray(t_spectral, dtype=float), np.asarray(y_lf, dtype=float), "tab:orange"))
+    if t_spectral is not None and y_hf is not None and np.size(y_hf) == np.size(t_spectral):
+        lf_hf_series.append(("HF", np.asarray(t_spectral, dtype=float), np.asarray(y_hf, dtype=float), "tab:blue"))
     if lf_hf_series:
         panels.append({"kind": "multi", "key": "lf_hf_power", "ylabel": "LF & HF [ms²] (log10)", "yscale": "log", "series": lf_hf_series})
-    y_ratio = hrv_tv.get("lf_hf", None) if hrv_tv is not None else None
-    if y_ratio is not None and np.size(y_ratio) == np.size(t_hrv):
-        panels.append({"kind": "single", "key": "lf_hf", "ylabel": "LF/HF [-]", "series": [("LF/HF", np.asarray(y_ratio, dtype=float), "tab:purple")]})
+    y_ratio = hrv_tv.get("lf_hf_fixed", None) if hrv_tv is not None else None
+    if t_spectral is not None and y_ratio is not None and np.size(y_ratio) == np.size(t_spectral):
+        panels.append({"kind": "single", "key": "lf_hf", "ylabel": "LF/HF [-]", "series": [("LF/HF", np.asarray(t_spectral, dtype=float), np.asarray(y_ratio, dtype=float), "tab:purple")]})
     if not panels:
         return None
 
@@ -226,11 +229,12 @@ def _build_stagegram_and_hrv_tv_figure(
 
     tv_win = getattr(config, "HRV_TV_WINDOW_SEC", None)
     hrv_window_sec = float(getattr(config, "HRV_WINDOW_SEC", 300.0))
+    spectral_window_sec = float(np.asarray(hrv_tv.get("spectral_window_sec", np.array([getattr(config, "HRV_LFHF_FIXED_WINDOW_SEC", 120.0)])), dtype=float)[0])
     hrv_step_hz = float(getattr(config, "HRV_TARGET_FS_HZ", 1.0))
     plot_bin_sec = float(getattr(config, "HRV_PLOT_BIN_SEC", 10.0 * 60.0))
-    fig.suptitle(f"{edf_base} - Hypnogram + HRV ({tv_win/60.0:.1f} min window)" if tv_win is not None and tv_win > 0 else f"{edf_base} - Hypnogram + HRV", fontsize=11, y=0.988)
+    fig.suptitle(f"{edf_base} - Hypnogram + HRV" if tv_win is None or tv_win <= 0 else f"{edf_base} - Hypnogram + HRV", fontsize=11, y=0.988)
     step_sec = 1.0 / hrv_step_hz if hrv_step_hz > 0 else np.nan
-    fig.text(0.5, 0.948, f"PAT-derived HRV. Sliding {hrv_window_sec/60.0:.1f} min window, evaluated every {step_sec:.0f} s; displayed as {plot_bin_sec/60.0:.0f} min binned mean +/- 95% CI.\nNREM mean is a post-hoc NREM-only reference.\nTop markers indicate active exclusion events.", ha="center", va="top", fontsize=8)
+    fig.text(0.5, 0.948, f"PAT-derived HRV. RMSSD/SDNN use a sliding {hrv_window_sec/60.0:.1f} min window, evaluated every {step_sec:.0f} s.\nSpectral LF & HF / LF/HF ratio use fixed {spectral_window_sec/60.0:.1f} min windows. Displayed as {plot_bin_sec/60.0:.0f} min binned mean +/- 95% CI.\nDashed lines show the displayed-series mean.\nTop markers indicate active exclusion events.", ha="center", va="top", fontsize=8)
     _add_colored_event_key(fig, event_spec)
 
     t_h = t_hrv / 3600.0
@@ -242,13 +246,13 @@ def _build_stagegram_and_hrv_tv_figure(
 
     for ax, panel in zip(data_axes, panels):
         plotted_any = False
-        for label, y, color in panel["series"]:
+        for label, t_plot_sec, y, color in panel["series"]:
             ok = np.isfinite(y)
             if not np.any(ok):
                 continue
             p = np.nanpercentile(y, 99)
             y_plot = np.clip(y, None, p)
-            t_bin_h, y_bin, y_ci = _bin_series_mean_ci(t_hrv, y_plot, bin_sec=float(getattr(config, "HRV_PLOT_BIN_SEC", 15.0 * 60.0)))
+            t_bin_h, y_bin, y_ci = _bin_series_mean_ci(np.asarray(t_plot_sec, dtype=float), y_plot, bin_sec=float(getattr(config, "HRV_PLOT_BIN_SEC", 15.0 * 60.0)))
             okb = np.isfinite(y_bin)
             if not np.any(okb):
                 continue
@@ -265,7 +269,7 @@ def _build_stagegram_and_hrv_tv_figure(
             ax.set_yscale("log")
         ax.grid(True, alpha=0.75)
         if plotted_any:
-            _add_metric_legend(ax, loc="lower right", fontsize=6, include_summary_lines=plotted_any, summary_color=panel["series"][0][2], include_median_line=False)
+            _add_metric_legend(ax, loc="lower right", fontsize=6, include_summary_lines=plotted_any, summary_color=panel["series"][0][3], include_median_line=False)
 
     if data_axes:
         data_axes[-1].set_xlabel("Time (hours from recording start)")

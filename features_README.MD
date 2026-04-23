@@ -4,6 +4,8 @@ This file explains the main features in the pipeline and the meaning of the most
 
 It is meant as a practical guide for anyone reading the PDF reports, per-feature CSV exports, or the final grouped summary CSV.
 
+For a full research-style, step-by-step methods description with the current configuration values and processing thresholds, see `RESEARCH_METHODS_README.md`.
+
 ## Selected-Policy Naming
 
 In the final grouped summary CSV, policy-dependent fields use the prefix `selected_`.
@@ -94,7 +96,7 @@ In this repository, the main provenance terms are:
 - `combined_keep`
   - final clean analysis mask after sleep policy plus event/quality/desaturation exclusion
 
-- `pre-exclusion`
+- `pre-final exclusion`
   - after sleep-stage selection, before the final event/quality/desaturation exclusion
 
 - `clean`
@@ -108,6 +110,12 @@ In this repository, the main provenance terms are:
 
 - `combo_*`
   - same kind of value, recomputed separately for a predefined subset such as all sleep, NREM, deep, REM, or wake+sleep
+
+Important clarification:
+
+- `combo_*` summaries are not sliced from the already computed `selected_*` outputs
+- they are recomputed separately for each subset using the same upstream RR cleaning and the same event/quality/desaturation rejection logic
+- what changes across subsets is the sleep-stage inclusion set
 
 ## Sleep And Exclusion Terms
 
@@ -123,7 +131,7 @@ You will see several kinds of masking/exclusion in the report.
   - the region was allowed by stage and event rules, but the metric still could not be computed there
   - examples: too few RR intervals, too large RR gaps, or insufficient valid data for spectral estimation
 
-- `Pre-event-exclusion`
+- `Pre-final-exclusion`
   - a gray line shown in some plots before the final event exclusion is applied
   - this helps visualize what existed before the clean analysis signal was formed
 
@@ -199,9 +207,11 @@ Important change:
 - `rmssd_median_ms`
   - median RMSSD over valid clean windows
 
-- `sdnn_ms`
-  - SDNN from the clean RR series
-  - this is still an overall clean-RR time-domain summary, not a window-based mean
+- `sdnn_mean_ms`
+  - mean SDNN over valid clean sliding windows
+
+- `sdnn_median_ms`
+  - median SDNN over valid clean sliding windows
 
 - `lf`
   - low-frequency HRV power represented by the mean across valid fixed windows
@@ -222,15 +232,15 @@ The main selected-policy HRV summary now mixes two styles by design:
 - time-domain
   - `RMSSD mean`, `RMSSD median`
     - derived from valid sliding RMSSD windows on the clean RR signal
-  - `SDNN`
-    - derived from the clean RR series as a whole
+  - `SDNN mean`, `SDNN median`
+    - derived from valid sliding SDNN windows on the clean RR signal
 
 - frequency-domain
   - `LF`, `HF`, `LF/HF`
     - derived from repeated fixed windows on the clean RR signal
     - then summarized across valid windows
 
-So if you compare `SDNN` and `LF`, they are not coming from exactly the same style of aggregation.
+So if you compare `RMSSD`/`SDNN` and `LF`/`HF`, they are both window-based summaries, but they use different window definitions.
 
 ### LF/HF Summary Fields
 
@@ -314,10 +324,13 @@ Current sliding-window naming uses explicit stage wording, for example:
 
 ### Sliding-window HRV series
 
-These are the time-varying HRV features:
+These are the time-varying HRV features on the regular HRV time grid:
 
 - `rmssd_ms`
 - `sdnn_ms`
+
+The grouped summary CSV also exports coverage fields for the HRV spectral traces:
+
 - `lf`
 - `hf`
 - `lf_hf`
@@ -331,11 +344,17 @@ Some exports also include raw/pre-event-exclusion versions:
 
 Interpretation:
 
-- `*_pre_exclusion_*`
+- `*_pre_final_exclusion_*`
   - after sleep-stage selection only
 
-- `*_clean_*`
+- `*_final_analysis_*`
   - after the final selected-policy combined mask
+
+Important distinction:
+
+- the time-varying `lf`, `hf`, and `lf_hf` arrays are mainly used for coverage reporting and some plots
+- the main selected-policy summary values `selected_lf`, `selected_hf`, and `selected_lf_hf` follow the fixed-window spectral summary engine
+- the report spectral plots have now been aligned to that fixed-window spectral analysis as well
 
 ### HRV CSV export
 
@@ -370,18 +389,21 @@ Interpretation:
 For each subset you may see:
 
 - `combo_*_rmssd_mean_ms`
-- `combo_*_sdnn_ms`
+- `combo_*_rmssd_median_ms`
+- `combo_*_sdnn_mean_ms`
+- `combo_*_sdnn_median_ms`
+- `combo_*_lf`
+- `combo_*_hf`
 - `combo_*_lf_hf`
-- `combo_*_lf_n_segments_used`
+- `combo_*_lf_hf_fixed_mean`
+- `combo_*_lf_hf_fixed_median`
 - `combo_*_lf_hf_fixed_n_windows_valid`
-
 - `combo_*_lf_hf_fixed_n_windows_total`
-
 - `combo_*_lf_hf_fixed_valid_pct`
-
 - `combo_*_lf_hf_fixed_valid_min`
-
 - `combo_*_lf_hf_fixed_total_min`
+- `combo_*_lf_hf_fixed_window_sec`
+- `combo_*_lf_hf_fixed_hop_sec`
 
 These are the subset-specific HRV summaries after applying the subset sleep policy and event logic.
 
@@ -389,6 +411,7 @@ Important note:
 
 - the subset-table `LF`, `HF`, and `LF/HF` values are now also window-based means
 - they are not the legacy segmented subset values anymore
+- they use the same rejection logic as the main selected-policy analysis, but with a different subset-specific sleep-stage include set
 
 ### Sleep timing and midpoint-half HRV fields
 
@@ -410,43 +433,59 @@ Important note:
 - `sleep_end_hhmm_from_start`
   - sleep end as `HH:MM` from recording start
 
-The grouped summary CSV also now exports selected-policy HRV summaries split by sleep midpoint:
+The grouped summary CSV also now exports NREM sleep midpoint-half HRV summaries:
 
-- `selected_first_half_*`
-  - selected-policy clean HRV summary for `sleep onset -> sleep midpoint`
+- `nrem_first_half_*`
+  - NREM-only clean HRV summary for `sleep onset -> sleep midpoint`
 
-- `selected_second_half_*`
-  - selected-policy clean HRV summary for `sleep midpoint -> sleep end`
+- `nrem_second_half_*`
+  - NREM-only clean HRV summary for `sleep midpoint -> sleep end`
 
 These midpoint-half summaries use the same conventions as the main selected-policy HRV summary:
 
 - `RMSSD mean`
   - mean over valid clean RMSSD windows in that half
 
-- `SDNN`
-  - overall clean-RR SDNN in that half
+- `RMSSD median`
+  - median over valid clean RMSSD windows in that half
+
+- `SDNN mean`
+  - mean over valid clean sliding-window SDNN values in that half
+
+- `SDNN median`
+  - median over valid clean sliding-window SDNN values in that half
 
 - `LF`, `HF`, `LF/HF`
   - means across valid windows inside that half
 
 Current midpoint-half fields are:
 
-- `selected_first_half_rmssd_mean_ms`
-- `selected_first_half_sdnn_ms`
-- `selected_first_half_lf_ms2`
-- `selected_first_half_hf_ms2`
-- `selected_first_half_lf_hf_ratio`
-- `selected_first_half_lf_hf_fixed_mean`
-- `selected_first_half_lf_hf_fixed_median`
-- `selected_first_half_lf_hf_fixed_n_windows_valid`
-- `selected_second_half_rmssd_mean_ms`
-- `selected_second_half_sdnn_ms`
-- `selected_second_half_lf_ms2`
-- `selected_second_half_hf_ms2`
-- `selected_second_half_lf_hf_ratio`
-- `selected_second_half_lf_hf_fixed_mean`
-- `selected_second_half_lf_hf_fixed_median`
-- `selected_second_half_lf_hf_fixed_n_windows_valid`
+- `nrem_first_half_rmssd_mean_ms`
+- `nrem_first_half_rmssd_median_ms`
+- `nrem_first_half_sdnn_mean_ms`
+- `nrem_first_half_sdnn_median_ms`
+- `nrem_first_half_lf_ms2`
+- `nrem_first_half_lf_fixed_median_ms2`
+- `nrem_first_half_hf_ms2`
+- `nrem_first_half_hf_fixed_median_ms2`
+- `nrem_first_half_lf_hf_ratio`
+- `nrem_first_half_lf_hf_fixed_mean`
+- `nrem_first_half_lf_hf_fixed_median`
+- `nrem_first_half_lf_hf_fixed_n_windows_valid`
+- `nrem_first_half_lf_hf_fixed_valid_min`
+- `nrem_second_half_rmssd_mean_ms`
+- `nrem_second_half_rmssd_median_ms`
+- `nrem_second_half_sdnn_mean_ms`
+- `nrem_second_half_sdnn_median_ms`
+- `nrem_second_half_lf_ms2`
+- `nrem_second_half_lf_fixed_median_ms2`
+- `nrem_second_half_hf_ms2`
+- `nrem_second_half_hf_fixed_median_ms2`
+- `nrem_second_half_lf_hf_ratio`
+- `nrem_second_half_lf_hf_fixed_mean`
+- `nrem_second_half_lf_hf_fixed_median`
+- `nrem_second_half_lf_hf_fixed_n_windows_valid`
+- `nrem_second_half_lf_hf_fixed_valid_min`
 
 ## PSD Feature
 
@@ -636,6 +675,7 @@ When `sleep_combo_summary` is enabled, the pipeline repeats summaries across pre
 
 Common subsets are:
 
+- `pre_sleep_wake`
 - `all_sleep`
 - `wake_sleep`
 - `nrem`
@@ -645,6 +685,7 @@ Common subsets are:
 The prefix used in the grouped summary CSV is:
 
 - `combo_all_sleep_*`
+- `combo_pre_sleep_wake_*`
 - `combo_wake_sleep_*`
 - `combo_nrem_*`
 - `combo_deep_*`
@@ -772,8 +813,11 @@ For the grouped summary CSV, the most common selected-policy fields should curre
 - `selected_rmssd_median_ms`
   - median clean RMSSD over valid sliding RMSSD windows
 
-- `selected_sdnn_ms`
-  - overall clean-RR SDNN
+- `selected_sdnn_mean_ms`
+  - mean clean SDNN over valid sliding SDNN windows
+
+- `selected_sdnn_median_ms`
+  - median clean SDNN over valid sliding SDNN windows
 
 - `selected_lf`
   - LF mean across valid windows
@@ -793,7 +837,7 @@ For the grouped summary CSV, the most common selected-policy fields should curre
 - `selected_hr_valid_pct`
   - valid PAT-derived HR coverage after the selected-policy combined mask
 
-- `selected_hrv_rmssd_clean_valid_pct`
+- `selected_hrv_rmssd_final_analysis_valid_pct`
   - valid clean RMSSD coverage after the selected-policy combined mask
 
 ## Important Note About Legacy Naming

@@ -41,9 +41,14 @@ def _overview_header_text(title: str) -> str:
     overview_hours = float(getattr(config, "OVERVIEW_PANEL_HOURS", 2.0))
     parts = [f"Overview page: {title}.", f"Panels are split into {overview_hours:.0f} h windows."]
     if "HRV" in title:
-        parts.append(
-            f"HRV uses current stage filtering first, then event exclusion for the clean signal (window={float(getattr(config, 'HRV_WINDOW_SEC', 300.0)) / 60.0:.1f} min)."
-        )
+        if title in {"HRV-LF-HF Overview", "HRV-LF-HF Ratio Overview"}:
+            parts.append(
+                f"Spectral traces use fixed {float(getattr(config, 'HRV_LFHF_FIXED_WINDOW_SEC', 120.0)) / 60.0:.1f} min windows after stage/event exclusion."
+            )
+        else:
+            parts.append(
+                f"HRV uses current stage filtering first, then event exclusion for the clean signal (window={float(getattr(config, 'HRV_WINDOW_SEC', 300.0)) / 60.0:.1f} min)."
+            )
     elif title == "HR Overview":
         parts.append(
             f"HR uses PAT-derived RR extraction and current HR settings (target fs={float(getattr(config, 'HR_TARGET_FS_HZ', 1.0)):.1f} Hz)."

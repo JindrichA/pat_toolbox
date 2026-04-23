@@ -213,6 +213,7 @@ def _build_feature_overview_figures(
             figs.append(fig)
 
         if isinstance(hrv_tv, dict):
+            t_spectral = hrv_tv.get("spectral_t_sec")
             fig = _build_single_series_overview_figure(
                 edf_base=edf_base,
                 title="HRV-SDNN Overview",
@@ -231,15 +232,15 @@ def _build_feature_overview_figures(
                 figs.append(fig)
 
             lf_hf_series = []
-            if hrv_tv.get("lf") is not None:
-                lf_hf_series.append({"label": "LF", "y": hrv_tv.get("lf"), "y_raw": hrv_tv.get("lf_raw"), "color": "tab:orange"})
-            if hrv_tv.get("hf") is not None:
-                lf_hf_series.append({"label": "HF", "y": hrv_tv.get("hf"), "y_raw": hrv_tv.get("hf_raw"), "color": "tab:blue"})
+            if t_spectral is not None and hrv_tv.get("lf_fixed") is not None:
+                lf_hf_series.append({"label": "LF", "y": hrv_tv.get("lf_fixed"), "y_raw": hrv_tv.get("lf_fixed_raw"), "color": "tab:orange"})
+            if t_spectral is not None and hrv_tv.get("hf_fixed") is not None:
+                lf_hf_series.append({"label": "HF", "y": hrv_tv.get("hf_fixed"), "y_raw": hrv_tv.get("hf_fixed_raw"), "color": "tab:blue"})
             fig = _build_multi_series_overview_figure(
                 edf_base=edf_base,
                 title="HRV-LF-HF Overview",
                 ylabel="LF & HF [ms²]",
-                t_sec=t_hrv,
+                t_sec=t_spectral,
                 series=lf_hf_series,
                 aux_df=aux_df,
                 exclusion_zones=exclusion_zones,
@@ -255,9 +256,9 @@ def _build_feature_overview_figures(
                 edf_base=edf_base,
                 title="HRV-LF-HF Ratio Overview",
                 ylabel="LF/HF [-]",
-                t_sec=t_hrv,
-                y=hrv_tv.get("lf_hf"),
-                y_raw=hrv_tv.get("lf_hf_raw"),
+                t_sec=t_spectral,
+                y=hrv_tv.get("lf_hf_fixed"),
+                y_raw=hrv_tv.get("lf_hf_fixed_raw"),
                 color="tab:purple",
                 aux_df=aux_df,
                 exclusion_zones=exclusion_zones,

@@ -223,6 +223,8 @@ def append_hr_hrv_summary(
 
     def _finite_stats(x: Optional[np.ndarray]) -> Dict[str, float]:
         out = {
+            "min": np.nan,
+            "max": np.nan,
             "mean": np.nan,
             "median": np.nan,
             "std": np.nan,
@@ -242,6 +244,8 @@ def append_hr_hrv_summary(
         if not np.any(ok):
             return out
         arr_ok = arr[ok]
+        out["min"] = float(np.min(arr_ok))
+        out["max"] = float(np.max(arr_ok))
         out["mean"] = float(np.mean(arr_ok))
         out["median"] = float(np.median(arr_ok))
         out["std"] = float(np.std(arr_ok))
@@ -439,11 +443,17 @@ def append_hr_hrv_summary(
 
     if features.is_enabled("hrv") and isinstance(hrv_tv, dict):
         for k, v in hrv_tv.items():
-            if v is None or k == "tv_window_sec":
+            if v is None or k in {"tv_window_sec", "spectral_window_sec", "spectral_hop_sec"}:
+                continue
+            try:
+                arr = np.asarray(v)
+            except Exception:
+                continue
+            if arr.ndim == 0 or np.size(arr) != np.size(t_hrv):
                 continue
             try:
                 cov = _coverage_stats(
-                    np.asarray(v),
+                    arr,
                     t=t_hrv,
                     default_fs=float(getattr(config, "HRV_TARGET_FS_HZ", 1.0)),
                 )

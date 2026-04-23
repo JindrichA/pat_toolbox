@@ -139,7 +139,7 @@ def _add_metric_legend(
     handles, labels = ax.get_legend_handles_labels()
     usable = [(h, lab) for h, lab in zip(handles, labels) if lab and (not str(lab).startswith("_"))]
     if include_summary_lines:
-        usable.append((Line2D([0], [0], color=summary_color, linestyle="--", linewidth=1.6), "NREM mean"))
+        usable.append((Line2D([0], [0], color=summary_color, linestyle="--", linewidth=1.6), "Dashed line = displayed-series mean"))
         if include_median_line:
             usable.append((Line2D([0], [0], color=summary_color, linestyle=":", linewidth=1.6), "Dotted line = displayed-series median"))
     if not usable:

@@ -20,14 +20,14 @@ EDF_FOLDER = Path(
 )
 
 # Set to an integer for short debug runs, or keep None to process everything.
-MAX_FILES = 5
+MAX_FILES = None
 
 # RUN_ID is generated automatically at import time.
 RUN_ID = datetime.now().strftime("%Y%m%d_%H%M%S")
 
 # RUN_TAG is the human-readable label to help distinguish parameter sweeps.
 # Changing it affects output folder names only; it does not change calculations.
-RUN_TAG = "leg_impr"
+RUN_TAG = "READY"
 
 # Top-level feature selection. These switches are meant to answer the question
 # "what should this run produce?". If a feature is disabled here, the goal is to
