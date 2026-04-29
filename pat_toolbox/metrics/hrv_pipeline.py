@@ -764,6 +764,17 @@ def compute_hrv_from_pat_signal_with_tv_metrics(
         max_gap_sec=max_gap_sec,
     )
 
+    # Keep clean time-domain traces visible only where the center timepoint itself
+    # survives the final-analysis mask, rather than allowing window support from
+    # nearby included data to populate excluded center times.
+    center_time_bundle = masking.build_mask_bundle(t_hrv, aux_df)
+    center_keep = np.asarray(center_time_bundle.combined_keep, dtype=bool)
+    if center_keep.size == t_hrv.size:
+        rmssd_1hz_clean = np.asarray(rmssd_1hz_clean, dtype=float)
+        sdnn_clean = np.asarray(sdnn_clean, dtype=float)
+        rmssd_1hz_clean[~center_keep] = np.nan
+        sdnn_clean[~center_keep] = np.nan
+
     summary = _build_summary_from_clean_rr_and_times(
         rr_mid_for_calc,
         rr_ms_for_calc,
@@ -851,10 +862,14 @@ def compute_hrv_from_pat_signal_with_tv_metrics(
         min_span_sec=float(min_freq_span_sec_tv),
         max_gap_sec=float(max_gap_sec_tv),
     )
+    sdnn_tv_clean = np.asarray(tv_clean.get("sdnn_ms", np.full_like(t_hrv, np.nan, dtype=float)), dtype=float)
+    if center_keep.size == t_hrv.size:
+        sdnn_tv_clean[~center_keep] = np.nan
+
     tv = {
         "rmssd_ms": np.asarray(rmssd_1hz_clean, dtype=float),
         "sdnn_ms_raw": np.asarray(tv_raw.get("sdnn_ms", np.full_like(t_hrv, np.nan, dtype=float)), dtype=float),
-        "sdnn_ms": np.asarray(tv_clean.get("sdnn_ms", np.full_like(t_hrv, np.nan, dtype=float)), dtype=float),
+        "sdnn_ms": sdnn_tv_clean,
         "lf_raw": np.asarray(tv_raw.get("lf", np.full_like(t_hrv, np.nan, dtype=float)), dtype=float),
         "lf": np.asarray(tv_clean.get("lf", np.full_like(t_hrv, np.nan, dtype=float)), dtype=float),
         "hf_raw": np.asarray(tv_raw.get("hf", np.full_like(t_hrv, np.nan, dtype=float)), dtype=float),

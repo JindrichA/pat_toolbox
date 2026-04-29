@@ -282,7 +282,9 @@ def _plot_segment_hr(
 
     ax.set_ylabel("HR [bpm]")
     ax.grid(True)
-    ax.legend(loc="upper right", fontsize=8, framealpha=0.9)
+    handles, labels = ax.get_legend_handles_labels()
+    if any(label and label != "_nolegend_" for label in labels):
+        ax.legend(loc="upper right", fontsize=8, framealpha=0.9)
     if seg_hr_min is not None and seg_hr_max is not None:
         margin = 0.1 * (seg_hr_max - seg_hr_min + 1e-6)
         ax.set_ylim(seg_hr_min - margin, seg_hr_max + margin)
@@ -300,6 +302,11 @@ def _plot_segment_hrv(
     t_seg_h_start: float,
     t_seg_h_end: float,
     aux_df: Optional["pd.DataFrame"],
+    *,
+    ylabel: str,
+    empty_text: str,
+    clean_label: str,
+    raw_label: str,
 ) -> tuple[Optional[float], Optional[float]]:
     _add_exclusion_spans(ax, exclusion_zones, t_seg_h_start, t_seg_h_end, label_once=True)
     hrv_ymin = hrv_ymax = None
@@ -336,9 +343,9 @@ def _plot_segment_hrv(
             hrv_raw_arr = cast(np.ndarray, hrv_raw)
             yr = hrv_raw_arr[mask].astype(float)
             if np.any(np.isfinite(yr)):
-                _plot_no_bridge(ax, x_sec=t_sec_seg, y=yr, label="HRV RMSSD (pre-final exclusion)", linestyle="--", linewidth=1.1, color="tab:green", alpha=0.45, zorder=1)
+                _plot_no_bridge(ax, x_sec=t_sec_seg, y=yr, label=raw_label, linestyle="--", linewidth=1.1, color="tab:green", alpha=0.45, zorder=1)
         if np.any(np.isfinite(yc)):
-            _plot_no_bridge(ax, x_sec=t_sec_seg, y=yc, label="HRV RMSSD (final-analysis)", linestyle="-", linewidth=1.8, color="tab:green", alpha=0.95, zorder=3)
+            _plot_no_bridge(ax, x_sec=t_sec_seg, y=yc, label=clean_label, linestyle="-", linewidth=1.8, color="tab:green", alpha=0.95, zorder=3)
             y0 = float(np.nanmin(yc[np.isfinite(yc)]))
             y1 = float(np.nanmax(yc[np.isfinite(yc)]))
             if np.isfinite(y0) and np.isfinite(y1) and y1 > y0:
@@ -346,8 +353,8 @@ def _plot_segment_hrv(
                 ax.set_ylim(y0 - m, y1 + m)
             hrv_ymin, hrv_ymax = ax.get_ylim()
         else:
-            ax.text(0.01, 0.92, "HRV: no valid RMSSD windows in this segment", transform=ax.transAxes, fontsize=9, va="top")
-    ax.set_ylabel("RMSSD [ms]")
+            ax.text(0.01, 0.92, empty_text, transform=ax.transAxes, fontsize=9, va="top")
+    ax.set_ylabel(ylabel)
     ax.grid(True)
     handles, labels = ax.get_legend_handles_labels()
     seen = set()
@@ -362,7 +369,8 @@ def _plot_segment_hrv(
             h2.append(patch)
             l2.append(patch.get_label())
             seen.add(patch.get_label())
-    ax.legend(h2, l2, loc="upper right", fontsize=8, framealpha=0.9)
+    if h2:
+        ax.legend(h2, l2, loc="upper right", fontsize=8, framealpha=0.9)
     return hrv_ymin, hrv_ymax
 
 
@@ -419,7 +427,9 @@ def _plot_segment_delta_hr(
 
     ax.set_ylabel("Event HR [bpm]")
     ax.grid(True)
-    ax.legend(loc="upper right", fontsize=8, framealpha=0.9)
+    handles, labels = ax.get_legend_handles_labels()
+    if any(label and label != "_nolegend_" for label in labels):
+        ax.legend(loc="upper right", fontsize=8, framealpha=0.9)
     if y_min is not None and y_max is not None:
         margin = 0.15 * (y_max - y_min + 1e-6)
         ax.set_ylim(y_min - margin, y_max + margin)
@@ -432,10 +442,12 @@ def _overlay_events_on_axes(
     seg_end_sec: float,
     ax_hr,
     ax_hrv,
+    ax_hrv_sdnn,
     ax_amp,
     ax_delta,
     hr_ylim: Optional[tuple[float, float]],
     hrv_ylim,
+    hrv_sdnn_ylim,
     amp_ylim,
     delta_ylim,
     event_spec: List[EventSpec] = DEFAULT_EVENT_PLOT_SPEC,
@@ -449,12 +461,13 @@ def _overlay_events_on_axes(
     if not mask.any():
         return
     seg = aux_df.loc[mask]
-    used_hr = set(); used_hrv = set(); used_amp = set(); used_delta = set()
+    used_hr = set(); used_hrv = set(); used_hrv_sdnn = set(); used_amp = set(); used_delta = set()
     if hr_ylim is None:
         hr_ymin, hr_ymax = (0.0, 1.0)
     else:
         hr_ymin, hr_ymax = hr_ylim
     hrv_ymin, hrv_ymax = hrv_ylim if hrv_ylim is not None else (None, None)
+    hrv_sdnn_ymin, hrv_sdnn_ymax = hrv_sdnn_ylim if hrv_sdnn_ylim is not None else (None, None)
     amp_ymin, amp_ymax = amp_ylim if amp_ylim is not None else (None, None)
     delta_ymin, delta_ymax = delta_ylim if delta_ylim is not None else (None, None)
 
@@ -502,6 +515,14 @@ def _overlay_events_on_axes(
                 first = label_hrv != "_nolegend_"
                 for x in t_evt_h:
                     ax_hrv.axvline(x, color=spec.color, linestyle="-", linewidth=1.8, alpha=0.85, label=spec.label if first else "_nolegend_", zorder=5); first = False
+        if ax_hrv_sdnn is not None and hrv_sdnn_ymin is not None and hrv_sdnn_ymax is not None:
+            label_hrv_sdnn = spec.label if spec.label not in used_hrv_sdnn else "_nolegend_"; used_hrv_sdnn.add(spec.label)
+            if spec.col == "desat_flag":
+                _draw_desat_runs(ax_hrv_sdnn, desat_runs, spec.color, label_hrv_sdnn, alpha=0.10)
+            else:
+                first = label_hrv_sdnn != "_nolegend_"
+                for x in t_evt_h:
+                    ax_hrv_sdnn.axvline(x, color=spec.color, linestyle="-", linewidth=1.8, alpha=0.85, label=spec.label if first else "_nolegend_", zorder=5); first = False
         if ax_amp is not None and amp_ymin is not None and amp_ymax is not None:
             label_amp = spec.label if spec.label not in used_amp else "_nolegend_"; used_amp.add(spec.label)
             if spec.col == "desat_flag":

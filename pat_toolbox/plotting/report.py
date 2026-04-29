@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Dict, Optional, TYPE_CHECKING
 
+import matplotlib.pyplot as plt
 import numpy as np
 
 from .. import config
@@ -61,31 +62,32 @@ def plot_pat_and_hr_segments_to_pdf(
     context = _build_report_context(signal_raw, sfreq, pdf_path, aux_df)
     duration_sec = n_samples / sfreq
 
-    figures = _build_report_figures(
-        edf_base=context["edf_base"],
-        duration_sec=duration_sec,
-        exclusion_zones=context["exclusion_zones"],
-        event_spec=context["event_spec"],
-        psd_features=context["psd_features"],
-        mayer_peak_freq=context["mayer_peak_freq"],
-        resp_peak_freq=context["resp_peak_freq"],
-        t_hr_calc=t_hr_calc,
-        hr_calc=hr_calc,
-        t_hrv=t_hrv,
-        hrv_rmssd=hrv_rmssd,
-        hrv_rmssd_raw=hrv_rmssd_raw,
-        hrv_tv=hrv_tv,
-        hrv_summary=hrv_summary,
-        aux_df=aux_df,
-        pat_burden=pat_burden,
-        pat_burden_diag=pat_burden_diag,
-        sleep_combo_summaries=sleep_combo_summaries,
-        hrv_mask_info=hrv_mask_info,
-        hrv_midpoint_halves=hrv_midpoint_halves,
-        hr_calc_raw=hr_calc_raw,
-        t_pat_amp=t_pat_amp,
-        pat_amp=pat_amp,
-    )
+    with plt.rc_context({"figure.max_open_warning": 0}):
+        figures = _build_report_figures(
+            edf_base=context["edf_base"],
+            duration_sec=duration_sec,
+            exclusion_zones=context["exclusion_zones"],
+            event_spec=context["event_spec"],
+            psd_features=context["psd_features"],
+            mayer_peak_freq=context["mayer_peak_freq"],
+            resp_peak_freq=context["resp_peak_freq"],
+            t_hr_calc=t_hr_calc,
+            hr_calc=hr_calc,
+            t_hrv=t_hrv,
+            hrv_rmssd=hrv_rmssd,
+            hrv_rmssd_raw=hrv_rmssd_raw,
+            hrv_tv=hrv_tv,
+            hrv_summary=hrv_summary,
+            aux_df=aux_df,
+            pat_burden=pat_burden,
+            pat_burden_diag=pat_burden_diag,
+            sleep_combo_summaries=sleep_combo_summaries,
+            hrv_mask_info=hrv_mask_info,
+            hrv_midpoint_halves=hrv_midpoint_halves,
+            hr_calc_raw=hr_calc_raw,
+            t_pat_amp=t_pat_amp,
+            pat_amp=pat_amp,
+        )
 
     segment_kwargs = dict(
         signal_raw=signal_raw,
@@ -101,6 +103,8 @@ def plot_pat_and_hr_segments_to_pdf(
         t_hrv=t_hrv,
         hrv_clean=hrv_rmssd,
         hrv_raw=hrv_rmssd_raw,
+        hrv_sdnn_clean=None if not isinstance(hrv_tv, dict) else hrv_tv.get("sdnn_ms"),
+        hrv_sdnn_raw=None if not isinstance(hrv_tv, dict) else hrv_tv.get("sdnn_ms_raw"),
         aux_df=aux_df,
         exclusion_zones=context["exclusion_zones"],
         event_spec=context["event_spec"],

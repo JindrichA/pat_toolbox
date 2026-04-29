@@ -53,7 +53,7 @@ FEATURES = {
     "pat_burden": False,
     "sleep_combo_summary": True,
     "report_pdf": True,
-    "peaks_debug_pdf": False,
+    "peaks_debug_pdf": True,
 }
 
 
@@ -99,7 +99,7 @@ ENABLE_SLEEP_STAGE_MASKING = True
 #   "deep_only"               -> include only deep sleep
 #   "nrem_light_only"         -> include only light sleep
 #   "custom"                  -> use SLEEP_INCLUDE_LABELS / SLEEP_INCLUDE_NUMERIC
-SLEEP_STAGE_POLICY = "nrem_only"
+SLEEP_STAGE_POLICY = "all_sleep_incluidng_wake"
 
 # Used only when SLEEP_STAGE_POLICY == "custom".
 # Numeric codes take priority; labels are a fallback convenience.
@@ -230,7 +230,7 @@ HRV_EXCLUSION_POST_SEC = 30.0
 HRV_EXCLUSION_USE_DESAT_WINDOWS = True
 HRV_EXCLUSION_DESAT_COLUMN_KEY = "desat_flag"
 HRV_EXCLUSION_DESAT_START_PAD_SEC = 15
-HRV_EXCLUSION_DESAT_END_PAD_SEC = 0
+HRV_EXCLUSION_DESAT_END_PAD_SEC = 30
 HRV_EXCLUSION_DESAT_MIN_RUN_SEC = 5.0
 HRV_EXCLUSION_DESAT_LOOKBACK_SEC = 0.0
 HRV_EXCLUSION_DESAT_LOOKAHEAD_SEC = 0.0

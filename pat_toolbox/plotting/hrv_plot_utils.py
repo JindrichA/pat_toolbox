@@ -127,6 +127,24 @@ def _add_mean_median_lines(
         ax.axhline(float(np.nanmedian(y)), linestyle=":", linewidth=1.0, color=color, alpha=alpha, label="_nolegend_", zorder=1)
 
 
+def _add_summary_line(
+    ax: Any,
+    value: Optional[float],
+    *,
+    color: str = "black",
+    alpha: float = 0.5,
+) -> None:
+    if value is None:
+        return
+    try:
+        v = float(value)
+    except Exception:
+        return
+    if not np.isfinite(v):
+        return
+    ax.axhline(v, linestyle="--", linewidth=1.0, color=color, alpha=alpha, label="_nolegend_", zorder=1)
+
+
 def _add_metric_legend(
     ax: Any,
     *,
@@ -134,12 +152,17 @@ def _add_metric_legend(
     fontsize: int = 6,
     include_summary_lines: bool = False,
     summary_color: str = "black",
+    summary_items: Optional[List[Tuple[str, str]]] = None,
     include_median_line: bool = True,
 ) -> None:
     handles, labels = ax.get_legend_handles_labels()
     usable = [(h, lab) for h, lab in zip(handles, labels) if lab and (not str(lab).startswith("_"))]
     if include_summary_lines:
-        usable.append((Line2D([0], [0], color=summary_color, linestyle="--", linewidth=1.6), "Dashed line = displayed-series mean"))
+        if summary_items:
+            for label, color in summary_items:
+                usable.append((Line2D([0], [0], color=color, linestyle="--", linewidth=1.6), label))
+        else:
+            usable.append((Line2D([0], [0], color=summary_color, linestyle="--", linewidth=1.6), "NREM mean"))
         if include_median_line:
             usable.append((Line2D([0], [0], color=summary_color, linestyle=":", linewidth=1.6), "Dotted line = displayed-series median"))
     if not usable:

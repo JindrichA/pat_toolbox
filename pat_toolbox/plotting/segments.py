@@ -44,6 +44,8 @@ def _add_segment_pages_to_pdf(
     t_hrv: Optional[np.ndarray],
     hrv_clean: Optional[np.ndarray],
     hrv_raw: Optional[np.ndarray],
+    hrv_sdnn_clean: Optional[np.ndarray],
+    hrv_sdnn_raw: Optional[np.ndarray],
     aux_df: Optional["pd.DataFrame"],
     exclusion_zones: List[Tuple[float, float, str]],
     event_spec: List[EventSpec],
@@ -59,6 +61,7 @@ def _add_segment_pages_to_pdf(
     segment_index = 0
     use_hr = features.segment_plot_requested("hr") and t_hr_calc is not None and hr_calc is not None
     use_hrv = features.segment_plot_requested("hrv") and t_hrv is not None and hrv_clean is not None and np.size(hrv_clean) > 0
+    use_hrv_sdnn = use_hrv and hrv_sdnn_clean is not None and np.size(hrv_sdnn_clean) == np.size(t_hrv)
     use_pat_amp = features.segment_plot_requested("pat_burden") and t_pat_amp is not None and pat_amp is not None and np.size(pat_amp) > 0
 
     for start in range(0, n_samples, samples_per_segment):
@@ -76,7 +79,7 @@ def _add_segment_pages_to_pdf(
         has_any_delta = hr_calc_raw is not None and t_hr_calc is not None
         use_delta_subplot = enable_delta and (delta_mode == "subplot") and has_any_delta
 
-        n_rows = (1 if use_hr else 0) + (1 if use_delta_subplot else 0) + (1 if use_hrv else 0) + (1 if use_pat_amp else 0)
+        n_rows = (1 if use_hr else 0) + (1 if use_delta_subplot else 0) + (1 if use_hrv else 0) + (1 if use_hrv_sdnn else 0) + (1 if use_pat_amp else 0)
         if n_rows == 0:
             continue
         height_ratios: List[float] = []
@@ -85,6 +88,8 @@ def _add_segment_pages_to_pdf(
         if use_delta_subplot:
             height_ratios.append(1.0)
         if use_hrv:
+            height_ratios.append(1.0)
+        if use_hrv_sdnn:
             height_ratios.append(1.0)
         if use_pat_amp:
             height_ratios.append(1.0)
@@ -104,6 +109,9 @@ def _add_segment_pages_to_pdf(
         ax_hrv = axes[idx] if use_hrv else None
         if use_hrv:
             idx += 1
+        ax_hrv_sdnn = axes[idx] if use_hrv_sdnn else None
+        if use_hrv_sdnn:
+            idx += 1
         ax_pat_amp = axes[idx] if use_pat_amp else None
 
         hr_ylim = None
@@ -118,17 +126,24 @@ def _add_segment_pages_to_pdf(
 
         hrv_ylim = None
         if ax_hrv is not None and t_hrv is not None and hrv_clean is not None:
-            _plot_segment_hrv(ax_hrv, t_hrv, hrv_clean, hrv_raw, seg_start_sec, seg_end_sec, exclusion_zones, t_h_start, t_h_end, aux_df=aux_df)
+            _plot_segment_hrv(ax_hrv, t_hrv, hrv_clean, hrv_raw, seg_start_sec, seg_end_sec, exclusion_zones, t_h_start, t_h_end, aux_df=aux_df, ylabel="RMSSD [ms]", empty_text="HRV: no valid RMSSD windows in this segment", clean_label="HRV RMSSD (final-analysis)", raw_label="HRV RMSSD (pre-final exclusion)")
             hrv_ylim = ax_hrv.get_ylim()
+
+        hrv_sdnn_ylim = None
+        if ax_hrv_sdnn is not None and t_hrv is not None and hrv_sdnn_clean is not None:
+            _plot_segment_hrv(ax_hrv_sdnn, t_hrv, hrv_sdnn_clean, hrv_sdnn_raw, seg_start_sec, seg_end_sec, exclusion_zones, t_h_start, t_h_end, aux_df=aux_df, ylabel="SDNN [ms]", empty_text="HRV: no valid SDNN windows in this segment", clean_label="HRV SDNN (final-analysis)", raw_label="HRV SDNN (pre-final exclusion)")
+            hrv_sdnn_ylim = ax_hrv_sdnn.get_ylim()
 
         amp_ylim = None
         if ax_pat_amp is not None and t_pat_amp is not None and pat_amp is not None:
             amp_ylim = _plot_segment_pat_amp(ax_pat_amp, t_pat_amp, pat_amp, seg_start_sec, seg_end_sec, exclusion_zones, t_h_start, t_h_end, aux_df=aux_df)
 
-        _overlay_events_on_axes(aux_df, seg_start_sec, seg_end_sec, ax_hr=ax_hr, ax_hrv=ax_hrv if use_hrv else None, ax_amp=ax_pat_amp if use_pat_amp else None, ax_delta=ax_delta if use_delta_subplot else None, hr_ylim=hr_ylim, hrv_ylim=hrv_ylim, amp_ylim=amp_ylim, delta_ylim=delta_ylim, event_spec=event_spec)
+        _overlay_events_on_axes(aux_df, seg_start_sec, seg_end_sec, ax_hr=ax_hr, ax_hrv=ax_hrv if use_hrv else None, ax_hrv_sdnn=ax_hrv_sdnn if use_hrv_sdnn else None, ax_amp=ax_pat_amp if use_pat_amp else None, ax_delta=ax_delta if use_delta_subplot else None, hr_ylim=hr_ylim, hrv_ylim=hrv_ylim, hrv_sdnn_ylim=hrv_sdnn_ylim, amp_ylim=amp_ylim, delta_ylim=delta_ylim, event_spec=event_spec)
 
         if ax_pat_amp is not None:
             ax_pat_amp.set_xlabel("Time (hours from recording start)")
+        elif ax_hrv_sdnn is not None:
+            ax_hrv_sdnn.set_xlabel("Time (hours from recording start)")
         elif ax_hrv is not None:
             ax_hrv.set_xlabel("Time (hours from recording start)")
         elif ax_delta is not None:

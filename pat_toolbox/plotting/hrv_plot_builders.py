@@ -10,6 +10,7 @@ from .hrv_plot_utils import (
     _add_colored_event_key,
     _add_mean_median_lines,
     _add_metric_legend,
+    _add_summary_line,
     _bin_series_mean_ci,
     _overlay_events_on_single_axis_whole_night,
     _plot_sleep_stagegram_on_ax,
@@ -213,6 +214,22 @@ def _build_stagegram_and_hrv_tv_figure(
     y_ratio = hrv_tv.get("lf_hf_fixed", None) if hrv_tv is not None else None
     if t_spectral is not None and y_ratio is not None and np.size(y_ratio) == np.size(t_spectral):
         panels.append({"kind": "single", "key": "lf_hf", "ylabel": "LF/HF [-]", "series": [("LF/HF", np.asarray(t_spectral, dtype=float), np.asarray(y_ratio, dtype=float), "tab:purple")]})
+
+    nrem_hrv_summary = None
+    if isinstance(sleep_combo_summaries, dict):
+        nrem_item = sleep_combo_summaries.get("nrem")
+        if isinstance(nrem_item, dict):
+            summary_obj = nrem_item.get("hrv_summary")
+            if isinstance(summary_obj, dict):
+                nrem_hrv_summary = summary_obj
+
+    panel_summary_keys = {
+        "rmssd": [("RMSSD", "rmssd_mean")],
+        "sdnn_ms": [("SDNN", "sdnn_mean")],
+        "lf_hf_power": [("LF", "lf"), ("HF", "hf")],
+        "lf_hf": [("LF/HF", "lf_hf")],
+    }
+
     if not panels:
         return None
 
@@ -234,7 +251,7 @@ def _build_stagegram_and_hrv_tv_figure(
     plot_bin_sec = float(getattr(config, "HRV_PLOT_BIN_SEC", 10.0 * 60.0))
     fig.suptitle(f"{edf_base} - Hypnogram + HRV" if tv_win is None or tv_win <= 0 else f"{edf_base} - Hypnogram + HRV", fontsize=11, y=0.988)
     step_sec = 1.0 / hrv_step_hz if hrv_step_hz > 0 else np.nan
-    fig.text(0.5, 0.948, f"PAT-derived HRV. RMSSD/SDNN use a sliding {hrv_window_sec/60.0:.1f} min window, evaluated every {step_sec:.0f} s.\nSpectral LF & HF / LF/HF ratio use fixed {spectral_window_sec/60.0:.1f} min windows. Displayed as {plot_bin_sec/60.0:.0f} min binned mean +/- 95% CI.\nDashed lines show the displayed-series mean.\nTop markers indicate active exclusion events.", ha="center", va="top", fontsize=8)
+    fig.text(0.5, 0.948, f"PAT-derived HRV. RMSSD/SDNN use a sliding {hrv_window_sec/60.0:.1f} min window, evaluated every {step_sec:.0f} s.\nSpectral LF & HF & LF/HF ratio use fixed {spectral_window_sec/60.0:.1f} min windows. Displayed as {plot_bin_sec/60.0:.0f} min binned mean +/- 95% CI.\nTop markers indicate active exclusion events.", ha="center", va="top", fontsize=8)
     _add_colored_event_key(fig, event_spec)
 
     t_h = t_hrv / 3600.0
@@ -259,7 +276,13 @@ def _build_stagegram_and_hrv_tv_figure(
             plotted_any = True
             ax.plot(t_bin_h[okb], y_bin[okb], linewidth=1.3, label=label, color=color, zorder=2)
             ax.errorbar(t_bin_h[okb], y_bin[okb], yerr=y_ci[okb], fmt="none", elinewidth=0.9, capsize=2, alpha=0.45, color=color, zorder=2)
-            _add_mean_median_lines(ax, y_bin[okb], color=color, include_median=False)
+            summary_key = None
+            for series_label, candidate_key in panel_summary_keys.get(panel["key"], []):
+                if series_label == label:
+                    summary_key = candidate_key
+                    break
+            nrem_value = None if not isinstance(nrem_hrv_summary, dict) or summary_key is None else nrem_hrv_summary.get(summary_key)
+            _add_summary_line(ax, nrem_value, color=color)
         ax.relim()
         ax.autoscale_view()
         _overlay_events_on_single_axis_whole_night(ax=ax, aux_df=aux_df, start_sec=start_sec, end_sec=end_sec, event_spec=event_spec, show_legend_labels=False, event_style="short")
@@ -269,7 +292,13 @@ def _build_stagegram_and_hrv_tv_figure(
             ax.set_yscale("log")
         ax.grid(True, alpha=0.75)
         if plotted_any:
-            _add_metric_legend(ax, loc="lower right", fontsize=6, include_summary_lines=plotted_any, summary_color=panel["series"][0][3], include_median_line=False)
+            summary_items = None
+            if panel["key"] == "lf_hf_power":
+                summary_items = [
+                    ("LF NREM mean", "tab:orange"),
+                    ("HF NREM mean", "tab:blue"),
+                ]
+            _add_metric_legend(ax, loc="lower right", fontsize=6, include_summary_lines=plotted_any, summary_color=panel["series"][0][3], summary_items=summary_items, include_median_line=False)
 
     if data_axes:
         data_axes[-1].set_xlabel("Time (hours from recording start)")

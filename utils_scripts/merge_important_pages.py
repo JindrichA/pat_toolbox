@@ -2,7 +2,7 @@ import os
 from PyPDF2 import PdfReader, PdfWriter
 
 # Folder containing the PDFs
-PDF_FOLDER = "/Users/jindrich/Projects/PAT_022026_output_data/ViewPatPlotsOverlay__20260422_182418__nrem_only__ready/"
+PDF_FOLDER = "/Users/jindrich/Projects/PAT_022026_output_data/ViewPatPlotsOverlay__20260423_140346__nrem_only__ready/"
 
 # Output names by page number (0-based index)
 OUTPUTS = {
