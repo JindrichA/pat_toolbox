@@ -4,7 +4,7 @@ import pandas as pd
 # ----------------------------
 # File paths
 # ----------------------------
-csv_path = "/Users/jindrich/Projects/PAT_022026_output_data/HR__20260423_140346__nrem_only__ready/HR_HRV_SLEEP_COMBO_summary__multi_sleep_summary__20260423_140346.csv"
+csv_path = "/Users/jindrich/Projects/PAT_022026_output_data/HR__20260423_140346__nrem_only__ready/HR_PRV_SLEEP_COMBO_summary__multi_sleep_summary__20260423_140346.csv"
 xlsx_path = "/Users/jindrich/Projects/mayo_sleep_pat/SmallDataset21Oct25/Data/20251020_parsed_last_deindentified.xlsx"
 
 output_dir = "/Users/jindrich/Projects/pat_toolbox/experiments/merged_tables_output"

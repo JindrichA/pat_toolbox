@@ -77,7 +77,7 @@ def _iter_valid_fixed_rr_windows(
         yield rr_mid_win, rr_win_ms
 
 
-def _compute_hrv_matched_psd(
+def _compute_prv_matched_psd(
     pat_signal: np.ndarray,
     fs_pat: float,
     aux_df: Optional["pd.DataFrame"],
@@ -99,11 +99,11 @@ def _compute_hrv_matched_psd(
     if rr_ms_clean.size < 4:
         return np.array([]), np.array([]), 0, {"reason": "rr_removed_by_event_mask"}
 
-    window_sec = float(getattr(config, "HRV_LFHF_FIXED_WINDOW_SEC", 300.0))
-    hop_sec = float(getattr(config, "HRV_LFHF_FIXED_HOP_SEC", window_sec))
-    max_gap_sec = float(getattr(config, "HRV_MAX_RR_GAP_SEC", 4.0))
-    min_rr = int(getattr(config, "HRV_LFHF_FIXED_MIN_RR", 0))
-    fs_resample = float(getattr(config, "HRV_TACHO_RESAMPLE_HZ", 4.0))
+    window_sec = float(getattr(config, "PRV_LFHF_FIXED_WINDOW_SEC", 300.0))
+    hop_sec = float(getattr(config, "PRV_LFHF_FIXED_HOP_SEC", window_sec))
+    max_gap_sec = float(getattr(config, "PRV_MAX_RR_GAP_SEC", 4.0))
+    min_rr = int(getattr(config, "PRV_LFHF_FIXED_MIN_RR", 0))
+    fs_resample = float(getattr(config, "PRV_TACHO_RESAMPLE_HZ", 4.0))
 
     centers = np.arange(0.5 * window_sec, max(0.5 * window_sec, float(duration_sec) - 0.5 * window_sec) + 1e-9, hop_sec)
     if centers.size == 0:
@@ -173,11 +173,11 @@ def compute_psd_features_from_rr(
     if rr_ms_clean.size < 4:
         return _empty_psd_features("rr_removed_by_event_mask")
 
-    window_sec = float(getattr(config, "HRV_LFHF_FIXED_WINDOW_SEC", 300.0))
-    hop_sec = float(getattr(config, "HRV_LFHF_FIXED_HOP_SEC", window_sec))
-    max_gap_sec = float(getattr(config, "HRV_MAX_RR_GAP_SEC", 4.0))
-    min_rr = int(getattr(config, "HRV_LFHF_FIXED_MIN_RR", 0))
-    fs_resample = float(getattr(config, "HRV_TACHO_RESAMPLE_HZ", 4.0))
+    window_sec = float(getattr(config, "PRV_LFHF_FIXED_WINDOW_SEC", 300.0))
+    hop_sec = float(getattr(config, "PRV_LFHF_FIXED_HOP_SEC", window_sec))
+    max_gap_sec = float(getattr(config, "PRV_MAX_RR_GAP_SEC", 4.0))
+    min_rr = int(getattr(config, "PRV_LFHF_FIXED_MIN_RR", 0))
+    fs_resample = float(getattr(config, "PRV_TACHO_RESAMPLE_HZ", 4.0))
 
     centers = np.arange(0.5 * window_sec, max(0.5 * window_sec, float(duration_sec) - 0.5 * window_sec) + 1e-9, hop_sec)
     if centers.size == 0:
@@ -257,13 +257,13 @@ def compute_psd_figures_and_peaks(
     psd_png_zoom = psd_folder / f"{edf_base}__PSD_0-0.5Hz.png"
     psd_png_full = psd_folder / f"{edf_base}__PSD_0-5Hz.png"
 
-    f, pxx, n_windows, diag = _compute_hrv_matched_psd(signal_raw, sfreq, aux_df)
+    f, pxx, n_windows, diag = _compute_prv_matched_psd(signal_raw, sfreq, aux_df)
 
     psd_mode = "matched"
     if f.size == 0 or pxx.size == 0 or n_windows == 0:
         rr_sec, rr_mid, _dur = hr_metrics.extract_clean_rr_from_pat(signal_raw, sfreq)
         rr_ms = rr_sec * 1000.0
-        fs_resample = float(getattr(config, "HRV_TACHO_RESAMPLE_HZ", 4.0))
+        fs_resample = float(getattr(config, "PRV_TACHO_RESAMPLE_HZ", 4.0))
         f, pxx = tachogram_psd_from_rr(rr_ms, rr_mid, fs_resample=fs_resample)
         n_windows = 0
         diag = {"reason": "fallback_whole_tachogram"}
@@ -328,7 +328,7 @@ def compute_psd_figures_and_peaks(
         ax_psd_zoom.axvline(resp_peak_hz, linestyle="--", alpha=0.9, linewidth=1.0)
         ax_psd_zoom.text(resp_peak_hz, resp_peak_db, f" {resp_peak_hz:.3f}Hz", fontsize=9, fontweight="bold", va="bottom")
 
-    mask_status = "HRV-matched RR PSD" if (psd_mode == "matched" and aux_df is not None) else ("RR PSD" if psd_mode == "matched" else "Fallback whole-tachogram PSD")
+    mask_status = "PRV-matched RR PSD" if (psd_mode == "matched" and aux_df is not None) else ("RR PSD" if psd_mode == "matched" else "Fallback whole-tachogram PSD")
     ax_psd_zoom.set_title(
         f"{edf_base} - PSD ({mask_status}, N={n_windows} windows)\n"
         f"Mayer Pwr: {pow_mayer:.2e} ({norm_mayer:.1f}%) | Resp Pwr: {pow_resp:.2e} ({norm_resp:.1f}%)",

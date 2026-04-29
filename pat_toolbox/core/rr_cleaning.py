@@ -70,7 +70,7 @@ def extract_clean_rr_from_pat(
     fs: float,
 ) -> Tuple[np.ndarray, np.ndarray, float]:
     """
-    Shared helper for HR + HRV.
+    Shared helper for HR + PRV.
 
     Steps:
       1) Detect peaks on filtered PAT (detect_pat_peaks)

@@ -34,11 +34,11 @@ RUN_TAG = "READY"
 # keep it out of computation, tables, plots, and file outputs.
 # Recommended workflow:
 #   1. decide which features should be part of the run here
-#   2. only then tune the detailed HR / HRV / PSD / burden knobs below
+#   2. only then tune the detailed HR / PRV / PSD / burden knobs below
 #
 # In practice:
 #   - hr                  -> PAT-derived heart-rate series and HR summary outputs
-#   - hrv                 -> RMSSD/SDNN/LF/HF/LF-HF calculations, HRV plots, HRV CSV
+#   - prv                 -> RMSSD/SDNN/LF/HF/LF-HF calculations, PRV plots, PRV CSV
 #   - psd                 -> spectral features and PSD report pages
 #   - delta_hr            -> event-response HR metrics and event-response HR plots
 #   - pat_burden          -> PAT amplitude loading, burden metric, burden subplot/rows
@@ -47,7 +47,7 @@ RUN_TAG = "READY"
 #   - peaks_debug_pdf     -> PAT peak-debug PDF
 FEATURES = {
     "hr": True,
-    "hrv": True,
+    "prv": True,
     "psd": False,
     "delta_hr": False,
     "pat_burden": False,
@@ -70,7 +70,7 @@ def _slug(s: str) -> str:
 # =============================================================================
 # Sleep Stage Mapping And Inclusion Policy
 # =============================================================================
-# These settings decide which sleep stages are considered "included" for HRV,
+# These settings decide which sleep stages are considered "included" for PRV,
 # PSD, PAT burden, and some plotting masks. This is one of the highest-impact
 # groups in the config because it changes which parts of the night contribute.
 
@@ -165,7 +165,7 @@ def run_suffix() -> str:
 # Output subfolders inherit the current run id / sleep policy / tag.
 OUTPUT_SUBFOLDER = f"ViewPatPlotsOverlay__{run_suffix()}"
 HR_OUTPUT_SUBFOLDER = f"HR__{run_suffix()}"
-HRV_OUTPUT_SUBFOLDER = f"HRV__{run_suffix()}"
+PRV_OUTPUT_SUBFOLDER = f"PRV__{run_suffix()}"
 PAT_BURDEN_OUTPUT_SUBFOLDER = f"PATBurden__{run_suffix()}"
 PSD_OUTPUT_SUBFOLDER = f"PSD__{run_suffix()}"
 
@@ -210,8 +210,8 @@ COL_NAMES: Dict[str, str] = {
 # metrics. If a user wants more or less aggressive masking, this is the first
 # place to inspect.
 
-# Shared exclusion inputs used by HR/HRV/PSD/PAT burden plotting and calculations.
-HRV_EXCLUSION_EVENT_COLUMNS = [
+# Shared exclusion inputs used by HR/PRV/PSD/PAT burden plotting and calculations.
+PRV_EXCLUSION_EVENT_COLUMNS = [
     "evt_central_3",
     "evt_obstructive_3",
     "evt_unclassified_3",
@@ -222,18 +222,18 @@ HRV_EXCLUSION_EVENT_COLUMNS = [
 
 # Fixed exclusion windows around events. Increasing these will remove more data
 # around flagged moments; setting them to zero keeps only the event instant logic.
-HRV_EXCLUSION_PRE_SEC = 15.0
-HRV_EXCLUSION_POST_SEC = 30.0
+PRV_EXCLUSION_PRE_SEC = 15.0
+PRV_EXCLUSION_POST_SEC = 30.0
 
 # Desaturation-dependent exclusion windows. When enabled, exclusion windows can
 # be driven by desaturation runs rather than fixed event padding.
-HRV_EXCLUSION_USE_DESAT_WINDOWS = True
-HRV_EXCLUSION_DESAT_COLUMN_KEY = "desat_flag"
-HRV_EXCLUSION_DESAT_START_PAD_SEC = 15
-HRV_EXCLUSION_DESAT_END_PAD_SEC = 30
-HRV_EXCLUSION_DESAT_MIN_RUN_SEC = 5.0
-HRV_EXCLUSION_DESAT_LOOKBACK_SEC = 0.0
-HRV_EXCLUSION_DESAT_LOOKAHEAD_SEC = 0.0
+PRV_EXCLUSION_USE_DESAT_WINDOWS = True
+PRV_EXCLUSION_DESAT_COLUMN_KEY = "desat_flag"
+PRV_EXCLUSION_DESAT_START_PAD_SEC = 15
+PRV_EXCLUSION_DESAT_END_PAD_SEC = 30
+PRV_EXCLUSION_DESAT_MIN_RUN_SEC = 5.0
+PRV_EXCLUSION_DESAT_LOOKBACK_SEC = 0.0
+PRV_EXCLUSION_DESAT_LOOKAHEAD_SEC = 0.0
 
 
 # =============================================================================
@@ -303,7 +303,7 @@ HR_MAX_RR_GAP_SEC = 2.5
 
 
 # =============================================================================
-# RR Cleaning Shared By HR And HRV
+# RR Cleaning Shared By HR And PRV
 # =============================================================================
 # These thresholds define how aggressively RR intervals are filtered after PAT
 # peak detection. Tightening them gives cleaner but shorter RR series; loosening
@@ -319,34 +319,34 @@ HR_RR_MIN_GOOD_RUN = 3
 
 
 # =============================================================================
-# HRV Core Settings
+# PRV Core Settings
 # =============================================================================
 # These control the core RMSSD / SDNN / LF-HF calculations. Window sizes and gap
 # criteria are especially important because they decide how much stable data is
 # required before a value is reported.
 
-HRV_TARGET_FS_HZ = 1.0
-HRV_WINDOW_SEC = 300.0
-HRV_MIN_INTERVALS_PER_WINDOW = 6
-HRV_SMOOTHING_WINDOW_SEC = 5.0
+PRV_TARGET_FS_HZ = 1.0
+PRV_WINDOW_SEC = 300.0
+PRV_MIN_INTERVALS_PER_WINDOW = 6
+PRV_SMOOTHING_WINDOW_SEC = 5.0
 
-# Optional HRV Hampel filtering on the RMSSD series.
-HRV_HAMPEL_WINDOW_SEC = 30.0
-HRV_HAMPEL_SIGMA = 3.0
+# Optional PRV Hampel filtering on the RMSSD series.
+PRV_HAMPEL_WINDOW_SEC = 30.0
+PRV_HAMPEL_SIGMA = 3.0
 
 # Gap handling for RMSSD windows.
-HRV_MAX_RR_GAP_SEC = 8.0
-HRV_RMSSD_MIN_SPAN_SEC = 5.0
+PRV_MAX_RR_GAP_SEC = 8.0
+PRV_RMSSD_MIN_SPAN_SEC = 5.0
 
 # Frequency-domain settings.
-HRV_TACHO_RESAMPLE_HZ = 4.0
-HRV_MIN_FREQ_DOMAIN_SEC = 120.0
-HRV_MAX_TACHO_GAP_SEC = 3.0
+PRV_TACHO_RESAMPLE_HZ = 4.0
+PRV_MIN_FREQ_DOMAIN_SEC = 120.0
+PRV_MAX_TACHO_GAP_SEC = 3.0
 
 # Publication-style fixed LF/HF windows.
-HRV_LFHF_FIXED_WINDOW_SEC = 120.0
-HRV_LFHF_FIXED_HOP_SEC = 120.0
-HRV_LFHF_FIXED_MIN_RR = 0
+PRV_LFHF_FIXED_WINDOW_SEC = 120.0
+PRV_LFHF_FIXED_HOP_SEC = 120.0
+PRV_LFHF_FIXED_MIN_RR = 0
 
 
 # =============================================================================
@@ -355,47 +355,47 @@ HRV_LFHF_FIXED_MIN_RR = 0
 # These tune how aggressively successive RR differences are cleaned before RMSSD
 # is computed. They are useful when PAT detections contain occasional spikes.
 
-HRV_RMSSD_DIFF_HARD_CAP_MS = 400.0
-HRV_RMSSD_DIFF_MAD_SIGMAS = 4.0
-HRV_RMSSD_MIN_DIFFS = 3
-HRV_RMSSD_FLOOR_MS = 2.0
-HRV_MIN_WINDOW_COVERAGE = 0.2
+PRV_RMSSD_DIFF_HARD_CAP_MS = 400.0
+PRV_RMSSD_DIFF_MAD_SIGMAS = 4.0
+PRV_RMSSD_MIN_DIFFS = 3
+PRV_RMSSD_FLOOR_MS = 2.0
+PRV_MIN_WINDOW_COVERAGE = 0.2
 
 # Optional veto for windows dominated by large beat-to-beat jumps.
-HRV_RMSSD_VETO_BIGDIFF = False
-HRV_RMSSD_BIGDIFF_THR_MS = 300.0
-HRV_RMSSD_BIGDIFF_MAX_FRAC = 0.35
+PRV_RMSSD_VETO_BIGDIFF = False
+PRV_RMSSD_BIGDIFF_THR_MS = 300.0
+PRV_RMSSD_BIGDIFF_MAX_FRAC = 0.35
 
 
 # =============================================================================
-# Time-Varying HRV Series For Plotting
+# Time-Varying PRV Series For Plotting
 # =============================================================================
-# These control the sliding-window HRV curves used in reports. They mostly
+# These control the sliding-window PRV curves used in reports. They mostly
 # affect temporal smoothness and how many windows survive for LF/HF-like traces.
 
-HRV_TV_WINDOW_SEC = 300.0
-HRV_TV_STEP_HZ = 1.0
-HRV_TV_TACHO_RESAMPLE_HZ = 4.0
-HRV_TV_MIN_RR_PER_WINDOW = 10
-HRV_TV_MIN_FREQ_DOMAIN_SEC = 60.0
-HRV_TV_MAX_TACHO_GAP_SEC = 6.0
+PRV_TV_WINDOW_SEC = 300.0
+PRV_TV_STEP_HZ = 1.0
+PRV_TV_TACHO_RESAMPLE_HZ = 4.0
+PRV_TV_MIN_RR_PER_WINDOW = 10
+PRV_TV_MIN_FREQ_DOMAIN_SEC = 60.0
+PRV_TV_MAX_TACHO_GAP_SEC = 6.0
 
 # Fixed y-lims are useful when comparing many nights visually.
-HRV_PLOT_USE_FIXED_YLIMS = False
-HRV_PLOT_RMSSD_YLIM = (0.0, 80.0)
-HRV_PLOT_SDNN_YLIM = (0.0, 150.0)
-HRV_PLOT_LFHF_POWER_YLIM = (1.0, 10000.0)
-HRV_PLOT_LFHF_RATIO_YLIM = (0.0, 10.0)
+PRV_PLOT_USE_FIXED_YLIMS = False
+PRV_PLOT_RMSSD_YLIM = (0.0, 80.0)
+PRV_PLOT_SDNN_YLIM = (0.0, 150.0)
+PRV_PLOT_LFHF_POWER_YLIM = (1.0, 10000.0)
+PRV_PLOT_LFHF_RATIO_YLIM = (0.0, 10.0)
 
-# Binning used in cross-night HRV summary plots.
-HRV_PLOT_BIN_SEC = 10.0 * 60.0
-HRV_PLOT_BIN_MIN_COUNT = 3
+# Binning used in cross-night PRV summary plots.
+PRV_PLOT_BIN_SEC = 10.0 * 60.0
+PRV_PLOT_BIN_MIN_COUNT = 3
 
 
 # =============================================================================
 # PSD / Spectral Analysis
 # =============================================================================
-# These bands are used for the PAT/HRV-related PSD summaries. Change them only
+# These bands are used for the PAT/PRV-related PSD summaries. Change them only
 # if you intentionally want different Mayer / respiratory band definitions.
 
 PSD_MAX_FREQ_HZ = 5.0

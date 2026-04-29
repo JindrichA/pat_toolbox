@@ -45,14 +45,14 @@ class RecordingContext:
     # Aux CSV
     aux_df: Optional["pd.DataFrame"] = None
 
-    # HRV
-    t_hrv: Optional[np.ndarray] = None
-    hrv_rmssd_raw: Optional[np.ndarray] = None
-    hrv_rmssd_clean: Optional[np.ndarray] = None
-    hrv_summary: Optional[Dict[str, float]] = None
-    hrv_tv: Optional[Dict[str, np.ndarray]] = None
-    hrv_mask_info: Optional[Dict[str, object]] = None
-    hrv_midpoint_halves: Optional[Dict[str, Dict[str, float]]] = None
+    # PRV
+    t_prv: Optional[np.ndarray] = None
+    prv_rmssd_raw: Optional[np.ndarray] = None
+    prv_rmssd_clean: Optional[np.ndarray] = None
+    prv_summary: Optional[Dict[str, float]] = None
+    prv_tv: Optional[Dict[str, np.ndarray]] = None
+    prv_mask_info: Optional[Dict[str, object]] = None
+    prv_midpoint_halves: Optional[Dict[str, Dict[str, float]]] = None
     rr_mid_clean: Optional[np.ndarray] = None
     rr_ms_clean: Optional[np.ndarray] = None
     rr_duration_sec: Optional[float] = None
@@ -76,8 +76,8 @@ class RecordingContext:
     # Outputs
     pdf_path: Optional[Path] = None
     hr_csv_path: Optional[Path] = None
-    hrv_csv_path: Optional[Path] = None
-    hrv_mask_csv_path: Optional[Path] = None
+    prv_csv_path: Optional[Path] = None
+    prv_mask_csv_path: Optional[Path] = None
     sleep_timing_csv_path: Optional[Path] = None
     pat_burden_csv_path: Optional[Path] = None
     peaks_pdf_path: Optional[Path] = None

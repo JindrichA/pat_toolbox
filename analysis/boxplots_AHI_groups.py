@@ -5,7 +5,7 @@ import re
 # HARD-CODED FILE PATHS
 # =========================
 EXCEL_PATH = r"/Users/jindrich/Projects/mayo_sleep_pat/SmallDataset21Oct25/Data/20251020_parsed_last_deindentified.xlsx"
-CSV_PATH   = r"/Users/jindrich/Projects/mayo_sleep_pat/PAT_outputs012026/HR__20260204_101906__nrem_only__desat_2min_fd_fixed/HR_HRV_summary__nrem_only__20260204_101906.csv"
+CSV_PATH   = r"/Users/jindrich/Projects/mayo_sleep_pat/PAT_outputs012026/HR__20260204_101906__nrem_only__desat_2min_fd_fixed/HR_PRV_summary__nrem_only__20260204_101906.csv"
 OUTPUT_PATH = r"merged_output_22012026.csv"
 
 # =========================

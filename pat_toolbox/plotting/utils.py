@@ -109,13 +109,13 @@ def _compute_exclusion_zones(aux_df: Optional["pd.DataFrame"]) -> List[Tuple[flo
         a = float(t_event - policy.event_pre_sec)
         b = float(t_event + policy.event_post_sec)
         if b > a:
-            zones.append((a, b, "HRV Exclusion (events)"))
+            zones.append((a, b, "PRV Exclusion (events)"))
 
     for a, b in bundle_aux.gated_desat_windows:
-        zones.append((float(a), float(b), "HRV Exclusion (event+desat)"))
+        zones.append((float(a), float(b), "PRV Exclusion (event+desat)"))
 
     zones.sort(key=lambda x: x[0])
-    print(f"  Calculated {len(zones)} HRV exclusion zone(s).")
+    print(f"  Calculated {len(zones)} PRV exclusion zone(s).")
     return zones
 
 

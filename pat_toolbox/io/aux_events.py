@@ -78,15 +78,15 @@ def desat_windows_from_aux(aux_df: pd.DataFrame) -> List[Tuple[float, float]]:
             return cached
 
     time_col = getattr(config, "AUX_CSV_TIME_SEC_COLUMN", "time_sec")
-    key = getattr(config, "HRV_EXCLUSION_DESAT_COLUMN_KEY", "desat_flag")
+    key = getattr(config, "PRV_EXCLUSION_DESAT_COLUMN_KEY", "desat_flag")
 
     desat_col = key if key in aux_df.columns else "desat_flag"
     if desat_col not in aux_df.columns:
         return []
 
-    start_pad = float(getattr(config, "HRV_EXCLUSION_DESAT_START_PAD_SEC", 0.0))
-    end_pad = float(getattr(config, "HRV_EXCLUSION_DESAT_END_PAD_SEC", 0.0))
-    min_run = float(getattr(config, "HRV_EXCLUSION_DESAT_MIN_RUN_SEC", 0.0))
+    start_pad = float(getattr(config, "PRV_EXCLUSION_DESAT_START_PAD_SEC", 0.0))
+    end_pad = float(getattr(config, "PRV_EXCLUSION_DESAT_END_PAD_SEC", 0.0))
+    min_run = float(getattr(config, "PRV_EXCLUSION_DESAT_MIN_RUN_SEC", 0.0))
 
     t = aux_df[time_col].to_numpy(dtype=float)
     f = pd.to_numeric(aux_df[desat_col], errors="coerce").fillna(0).to_numpy(dtype=int)
@@ -251,17 +251,17 @@ def get_rr_exclusion_mask(
     bundle = masking.build_rr_mask_bundle(rr_mid_times_sec, aux_df)
     keep = np.asarray(bundle.combined_keep, dtype=bool)
 
-    if bool(getattr(config, "HRV_EXCLUSION_USE_DESAT_WINDOWS", False)):
+    if bool(getattr(config, "PRV_EXCLUSION_USE_DESAT_WINDOWS", False)):
         n_exc = int(np.sum(~keep))
         if bundle.gated_desat_windows and bundle.active_event_times_sec.size > 0:
             print(
-                f"  HRV RR exclusion (EVENT+DESAT gated): excluded {n_exc}/{keep.size} RR "
+                f"  PRV RR exclusion (EVENT+DESAT gated): excluded {n_exc}/{keep.size} RR "
                 f"({100*n_exc/max(1, keep.size):.1f}%) | "
                 f"gated_desat_windows={len(bundle.gated_desat_windows)}"
             )
         else:
             print(
-                f"  HRV RR exclusion (EVENT+DESAT gated): excluded {n_exc}/{keep.size} RR "
+                f"  PRV RR exclusion (EVENT+DESAT gated): excluded {n_exc}/{keep.size} RR "
                 f"({100*n_exc/max(1, keep.size):.1f}%) | (no events -> desats ignored)"
             )
 
@@ -273,7 +273,7 @@ def build_time_exclusion_mask(
     aux_df: pd.DataFrame,
 ) -> Optional[np.ndarray]:
     """
-    Mask on a regular time grid (typically t_hrv 1 Hz):
+    Mask on a regular time grid (typically t_prv 1 Hz):
       True  = KEEP
       False = EXCLUDE (inside event or desat windows)
 
@@ -296,7 +296,7 @@ def build_event_exclusion_mask(
     """
     Mask on a regular time grid:
       True  = KEEP
-      False = EXCLUDE (inside EVENT windows only, using HRV_EXCLUSION_EVENT_COLUMNS + PRE/POST)
+      False = EXCLUDE (inside EVENT windows only, using PRV_EXCLUSION_EVENT_COLUMNS + PRE/POST)
 
     This is used for plotting (RED shading).
     """

@@ -291,11 +291,11 @@ def _plot_segment_hr(
     return seg_hr_min, seg_hr_max
 
 
-def _plot_segment_hrv(
+def _plot_segment_prv(
     ax,
-    t_hrv: np.ndarray,
-    hrv_clean: np.ndarray,
-    hrv_raw: Optional[np.ndarray],
+    t_prv: np.ndarray,
+    prv_clean: np.ndarray,
+    prv_raw: Optional[np.ndarray],
     seg_start_sec: float,
     seg_end_sec: float,
     exclusion_zones: List[Tuple[float, float, str]],
@@ -309,13 +309,13 @@ def _plot_segment_hrv(
     raw_label: str,
 ) -> tuple[Optional[float], Optional[float]]:
     _add_exclusion_spans(ax, exclusion_zones, t_seg_h_start, t_seg_h_end, label_once=True)
-    hrv_ymin = hrv_ymax = None
+    prv_ymin = prv_ymax = None
     legend_patches: List[Patch] = []
     show_raw_debug = bool(getattr(config, "PLOT_SHOW_RAW_DEBUG_OVERLAYS", False))
-    use_raw = show_raw_debug and hrv_raw is not None and np.size(hrv_raw) == np.size(hrv_clean)
-    mask = (t_hrv >= seg_start_sec) & (t_hrv <= seg_end_sec)
+    use_raw = show_raw_debug and prv_raw is not None and np.size(prv_raw) == np.size(prv_clean)
+    mask = (t_prv >= seg_start_sec) & (t_prv <= seg_end_sec)
     if np.any(mask):
-        t_sec_seg = t_hrv[mask].astype(float)
+        t_sec_seg = t_prv[mask].astype(float)
         if aux_df is not None and bool(getattr(config, "ENABLE_SLEEP_STAGE_MASKING", False)):
             m_sleep_keep = sleep_mask.build_sleep_include_mask_for_times(t_sec_seg, aux_df)
             if m_sleep_keep is not None:
@@ -327,9 +327,9 @@ def _plot_segment_hrv(
                 _shade_masked_regions(ax, t_sec=t_sec_seg, masked=~m_evt_keep, color="tab:red", alpha=0.12)
                 legend_patches.append(Patch(facecolor="tab:red", alpha=0.12, label="Events excluded"))
         if use_raw:
-            hrv_raw_arr = cast(np.ndarray, hrv_raw)
-            yc_seg = hrv_clean[mask]
-            yr_seg = hrv_raw_arr[mask]
+            prv_raw_arr = cast(np.ndarray, prv_raw)
+            yc_seg = prv_clean[mask]
+            yr_seg = prv_raw_arr[mask]
             rr_only_excluded = np.isfinite(yr_seg) & ~np.isfinite(yc_seg)
             if np.any(rr_only_excluded):
                 _shade_masked_regions(ax, t_sec=t_sec_seg, masked=rr_only_excluded, color="tab:blue", alpha=0.22)
@@ -338,10 +338,10 @@ def _plot_segment_hrv(
             if np.any(raw_missing):
                 _shade_masked_regions(ax, t_sec=t_sec_seg, masked=raw_missing, color="gold", alpha=0.45)
                 legend_patches.append(Patch(facecolor="gold", alpha=0.45, label="Metric invalid"))
-        yc = hrv_clean[mask].astype(float)
+        yc = prv_clean[mask].astype(float)
         if use_raw:
-            hrv_raw_arr = cast(np.ndarray, hrv_raw)
-            yr = hrv_raw_arr[mask].astype(float)
+            prv_raw_arr = cast(np.ndarray, prv_raw)
+            yr = prv_raw_arr[mask].astype(float)
             if np.any(np.isfinite(yr)):
                 _plot_no_bridge(ax, x_sec=t_sec_seg, y=yr, label=raw_label, linestyle="--", linewidth=1.1, color="tab:green", alpha=0.45, zorder=1)
         if np.any(np.isfinite(yc)):
@@ -351,7 +351,7 @@ def _plot_segment_hrv(
             if np.isfinite(y0) and np.isfinite(y1) and y1 > y0:
                 m = 0.10 * (y1 - y0)
                 ax.set_ylim(y0 - m, y1 + m)
-            hrv_ymin, hrv_ymax = ax.get_ylim()
+            prv_ymin, prv_ymax = ax.get_ylim()
         else:
             ax.text(0.01, 0.92, empty_text, transform=ax.transAxes, fontsize=9, va="top")
     ax.set_ylabel(ylabel)
@@ -371,7 +371,7 @@ def _plot_segment_hrv(
             seen.add(patch.get_label())
     if h2:
         ax.legend(h2, l2, loc="upper right", fontsize=8, framealpha=0.9)
-    return hrv_ymin, hrv_ymax
+    return prv_ymin, prv_ymax
 
 
 def _plot_segment_delta_hr(
@@ -441,13 +441,13 @@ def _overlay_events_on_axes(
     seg_start_sec: float,
     seg_end_sec: float,
     ax_hr,
-    ax_hrv,
-    ax_hrv_sdnn,
+    ax_prv,
+    ax_prv_sdnn,
     ax_amp,
     ax_delta,
     hr_ylim: Optional[tuple[float, float]],
-    hrv_ylim,
-    hrv_sdnn_ylim,
+    prv_ylim,
+    prv_sdnn_ylim,
     amp_ylim,
     delta_ylim,
     event_spec: List[EventSpec] = DEFAULT_EVENT_PLOT_SPEC,
@@ -461,13 +461,13 @@ def _overlay_events_on_axes(
     if not mask.any():
         return
     seg = aux_df.loc[mask]
-    used_hr = set(); used_hrv = set(); used_hrv_sdnn = set(); used_amp = set(); used_delta = set()
+    used_hr = set(); used_prv = set(); used_prv_sdnn = set(); used_amp = set(); used_delta = set()
     if hr_ylim is None:
         hr_ymin, hr_ymax = (0.0, 1.0)
     else:
         hr_ymin, hr_ymax = hr_ylim
-    hrv_ymin, hrv_ymax = hrv_ylim if hrv_ylim is not None else (None, None)
-    hrv_sdnn_ymin, hrv_sdnn_ymax = hrv_sdnn_ylim if hrv_sdnn_ylim is not None else (None, None)
+    prv_ymin, prv_ymax = prv_ylim if prv_ylim is not None else (None, None)
+    prv_sdnn_ymin, prv_sdnn_ymax = prv_sdnn_ylim if prv_sdnn_ylim is not None else (None, None)
     amp_ymin, amp_ymax = amp_ylim if amp_ylim is not None else (None, None)
     delta_ymin, delta_ymax = delta_ylim if delta_ylim is not None else (None, None)
 
@@ -507,22 +507,22 @@ def _overlay_events_on_axes(
                 first = label_hr != "_nolegend_"
                 for x in t_evt_h:
                     ax_hr.axvline(x, color=spec.color, linestyle="-", linewidth=2.0, alpha=0.9, label=spec.label if first else "_nolegend_", zorder=5); first = False
-        if ax_hrv is not None and hrv_ymin is not None and hrv_ymax is not None:
-            label_hrv = spec.label if spec.label not in used_hrv else "_nolegend_"; used_hrv.add(spec.label)
+        if ax_prv is not None and prv_ymin is not None and prv_ymax is not None:
+            label_prv = spec.label if spec.label not in used_prv else "_nolegend_"; used_prv.add(spec.label)
             if spec.col == "desat_flag":
-                _draw_desat_runs(ax_hrv, desat_runs, spec.color, label_hrv, alpha=0.10)
+                _draw_desat_runs(ax_prv, desat_runs, spec.color, label_prv, alpha=0.10)
             else:
-                first = label_hrv != "_nolegend_"
+                first = label_prv != "_nolegend_"
                 for x in t_evt_h:
-                    ax_hrv.axvline(x, color=spec.color, linestyle="-", linewidth=1.8, alpha=0.85, label=spec.label if first else "_nolegend_", zorder=5); first = False
-        if ax_hrv_sdnn is not None and hrv_sdnn_ymin is not None and hrv_sdnn_ymax is not None:
-            label_hrv_sdnn = spec.label if spec.label not in used_hrv_sdnn else "_nolegend_"; used_hrv_sdnn.add(spec.label)
+                    ax_prv.axvline(x, color=spec.color, linestyle="-", linewidth=1.8, alpha=0.85, label=spec.label if first else "_nolegend_", zorder=5); first = False
+        if ax_prv_sdnn is not None and prv_sdnn_ymin is not None and prv_sdnn_ymax is not None:
+            label_prv_sdnn = spec.label if spec.label not in used_prv_sdnn else "_nolegend_"; used_prv_sdnn.add(spec.label)
             if spec.col == "desat_flag":
-                _draw_desat_runs(ax_hrv_sdnn, desat_runs, spec.color, label_hrv_sdnn, alpha=0.10)
+                _draw_desat_runs(ax_prv_sdnn, desat_runs, spec.color, label_prv_sdnn, alpha=0.10)
             else:
-                first = label_hrv_sdnn != "_nolegend_"
+                first = label_prv_sdnn != "_nolegend_"
                 for x in t_evt_h:
-                    ax_hrv_sdnn.axvline(x, color=spec.color, linestyle="-", linewidth=1.8, alpha=0.85, label=spec.label if first else "_nolegend_", zorder=5); first = False
+                    ax_prv_sdnn.axvline(x, color=spec.color, linestyle="-", linewidth=1.8, alpha=0.85, label=spec.label if first else "_nolegend_", zorder=5); first = False
         if ax_amp is not None and amp_ymin is not None and amp_ymax is not None:
             label_amp = spec.label if spec.label not in used_amp else "_nolegend_"; used_amp.add(spec.label)
             if spec.col == "desat_flag":

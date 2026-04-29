@@ -75,7 +75,7 @@ def main():
     )
     print(f"VIEW_PAT plotting    : {enable_plots}")
     print(f"HR from PAT          : {enable_hr} (target fs = {config.HR_TARGET_FS_HZ} Hz)")
-    print(f"HRV enabled          : {features.is_enabled('hrv')}")
+    print(f"PRV enabled          : {features.is_enabled('prv')}")
     print(f"PSD enabled          : {features.is_enabled('psd')}")
     print(f"PAT burden enabled   : {features.is_enabled('pat_burden')}")
     print(f"PAT peaks debug PDF  : {enable_peak_debug}")
@@ -116,7 +116,7 @@ def main():
         try:
             did_workflow = False
 
-            # If we run the workflow, it already computes HR/HRV and (optionally)
+            # If we run the workflow, it already computes HR/PRV and (optionally)
             # makes the peaks debug PDF based on config.ENABLE_PAT_PEAK_DEBUG_PLOTS.
             if run_workflow:
                 workflows.process_view_pat_overlay_for_file(edf_path)

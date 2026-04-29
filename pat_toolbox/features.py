@@ -14,7 +14,7 @@ class FeatureSpec:
 
 FEATURE_SPECS: Dict[str, FeatureSpec] = {
     "hr": FeatureSpec("hr"),
-    "hrv": FeatureSpec("hrv"),
+    "prv": FeatureSpec("prv"),
     "psd": FeatureSpec("psd"),
     "delta_hr": FeatureSpec("delta_hr", dependencies=("hr",)),
     "pat_burden": FeatureSpec("pat_burden"),
@@ -46,7 +46,7 @@ def any_enabled(*names: str) -> bool:
 
 def workflow_requested() -> bool:
     return any_enabled(
-        "hrv",
+        "prv",
         "psd",
         "delta_hr",
         "pat_burden",
@@ -56,7 +56,7 @@ def workflow_requested() -> bool:
 
 
 def summary_requested() -> bool:
-    return any_enabled("hr", "hrv", "psd", "delta_hr", "pat_burden", "sleep_combo_summary")
+    return any_enabled("hr", "prv", "psd", "delta_hr", "pat_burden", "sleep_combo_summary")
 
 
 def segment_plot_requested(name: str) -> bool:
@@ -68,7 +68,7 @@ def segment_plot_requested(name: str) -> bool:
 def enabled_feature_parts(candidates: Sequence[str]) -> list[str]:
     labels = {
         "hr": "HR",
-        "hrv": "HRV",
+        "prv": "PRV",
         "psd": "PSD",
         "delta_hr": "EVENT_HR",
         "pat_burden": "BURDEN",

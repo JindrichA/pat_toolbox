@@ -7,18 +7,18 @@ import numpy as np
 from .. import config, masking
 from ..core.windows import passes_time_domain_window_gate
 from . import hr as hr_metrics
-from .hrv_frequency_domain import (
+from .prv_frequency_domain import (
     _calculate_lfhf_fixed_windows,
     _lf_hf_from_rr,
     _lf_hf_from_rr_segmented,
 )
-from .hrv_time_domain import _calculate_rmssd_series, _rmssd, _sdnn
+from .prv_time_domain import _calculate_rmssd_series, _rmssd, _sdnn
 
 if TYPE_CHECKING:
     import pandas as pd
 
 
-def _calculate_hrv_windowed_series(
+def _calculate_prv_windowed_series(
     t_grid: np.ndarray,
     rr_mid: np.ndarray,
     rr_ms: np.ndarray,
@@ -30,7 +30,7 @@ def _calculate_hrv_windowed_series(
     max_gap_sec: float = 3.0,
 ) -> Dict[str, np.ndarray]:
     """
-    Compute windowed HRV metrics on a time grid:
+    Compute windowed PRV metrics on a time grid:
       rmssd_ms, sdnn_ms, lf, hf, lf_hf
 
     Includes debug counters for why spectral windows are rejected.
@@ -57,10 +57,10 @@ def _calculate_hrv_windowed_series(
     n_fail_psd = 0
     n_ok = 0
 
-    min_intervals_td = int(getattr(config, "HRV_MIN_INTERVALS_PER_WINDOW", min_rr))
-    min_cov_td = float(getattr(config, "HRV_MIN_WINDOW_COVERAGE", 0.0))
-    min_span_td = float(getattr(config, "HRV_RMSSD_MIN_SPAN_SEC", min_span_sec))
-    max_gap_td = float(getattr(config, "HRV_MAX_RR_GAP_SEC", max_gap_sec))
+    min_intervals_td = int(getattr(config, "PRV_MIN_INTERVALS_PER_WINDOW", min_rr))
+    min_cov_td = float(getattr(config, "PRV_MIN_WINDOW_COVERAGE", 0.0))
+    min_span_td = float(getattr(config, "PRV_RMSSD_MIN_SPAN_SEC", min_span_sec))
+    max_gap_td = float(getattr(config, "PRV_MAX_RR_GAP_SEC", max_gap_sec))
 
     for i, t in enumerate(t_grid):
         n_total += 1
@@ -167,10 +167,10 @@ def _calculate_sdnn_series(
     left = 0
     right = 0
     n = rr_mid.size
-    min_intervals_td = int(getattr(config, "HRV_MIN_INTERVALS_PER_WINDOW", 0))
-    min_cov_td = float(getattr(config, "HRV_MIN_WINDOW_COVERAGE", 0.0))
-    min_span_td = float(getattr(config, "HRV_RMSSD_MIN_SPAN_SEC", min_span_sec))
-    max_gap_td = float(getattr(config, "HRV_MAX_RR_GAP_SEC", max_gap_sec))
+    min_intervals_td = int(getattr(config, "PRV_MIN_INTERVALS_PER_WINDOW", 0))
+    min_cov_td = float(getattr(config, "PRV_MIN_WINDOW_COVERAGE", 0.0))
+    min_span_td = float(getattr(config, "PRV_RMSSD_MIN_SPAN_SEC", min_span_sec))
+    max_gap_td = float(getattr(config, "PRV_MAX_RR_GAP_SEC", max_gap_sec))
 
     for i, t in enumerate(t_grid):
         start = t - half
@@ -311,7 +311,7 @@ def _fixed_window_plot_series(
     }
 
 
-def compute_hrv_from_pat_signal(
+def compute_prv_from_pat_signal(
     pat_signal: np.ndarray,
     fs: float,
     aux_df: Optional["pd.DataFrame"] = None,
@@ -319,18 +319,18 @@ def compute_hrv_from_pat_signal(
     window_sec: Optional[float] = None,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, Optional[Dict[str, float]]]:
     """
-    Compute HRV from PAT signal using the same RR extraction/cleaning as HR.
+    Compute PRV from PAT signal using the same RR extraction/cleaning as HR.
 
     Outputs:
-      - t_hrv
+      - t_prv
       - rmssd_1hz_raw: after sleep masking, before event exclusion
       - rmssd_1hz_clean: after sleep masking + event exclusion
-      - summary: global HRV metrics on clean RR
+      - summary: global PRV metrics on clean RR
     """
     if target_fs is None:
-        target_fs = float(getattr(config, "HRV_TARGET_FS_HZ"))
+        target_fs = float(getattr(config, "PRV_TARGET_FS_HZ"))
     if window_sec is None:
-        window_sec = float(getattr(config, "HRV_WINDOW_SEC"))
+        window_sec = float(getattr(config, "PRV_WINDOW_SEC"))
 
     if fs <= 0:
         raise ValueError("Sampling frequency fs must be positive.")
@@ -339,21 +339,21 @@ def compute_hrv_from_pat_signal(
     if pat_signal.ndim != 1 or n_samples == 0:
         raise ValueError("PAT signal must be a non-empty 1D array.")
 
-    max_gap_sec = float(getattr(config, "HRV_MAX_RR_GAP_SEC"))
-    rmssd_min_span_sec = float(getattr(config, "HRV_RMSSD_MIN_SPAN_SEC"))
-    fs_resample = float(getattr(config, "HRV_TACHO_RESAMPLE_HZ"))
-    min_freq_span_sec = float(getattr(config, "HRV_MIN_FREQ_DOMAIN_SEC"))
+    max_gap_sec = float(getattr(config, "PRV_MAX_RR_GAP_SEC"))
+    rmssd_min_span_sec = float(getattr(config, "PRV_RMSSD_MIN_SPAN_SEC"))
+    fs_resample = float(getattr(config, "PRV_TACHO_RESAMPLE_HZ"))
+    min_freq_span_sec = float(getattr(config, "PRV_MIN_FREQ_DOMAIN_SEC"))
 
     rr_sec_physio_clean, rr_mid_physio_clean, duration_sec = hr_metrics.extract_clean_rr_from_pat(
         pat_signal,
         fs,
     )
 
-    t_hrv = np.arange(0, duration_sec, 1.0 / float(target_fs))
+    t_prv = np.arange(0, duration_sec, 1.0 / float(target_fs))
 
     if rr_sec_physio_clean.size < 1:
-        nan_array = np.full_like(t_hrv, fill_value=np.nan, dtype=float)
-        return t_hrv, nan_array, nan_array, None
+        nan_array = np.full_like(t_prv, fill_value=np.nan, dtype=float)
+        return t_prv, nan_array, nan_array, None
 
     rr_ms_physio_clean = rr_sec_physio_clean * 1000.0
 
@@ -362,7 +362,7 @@ def compute_hrv_from_pat_signal(
     rr_ms_sleep = rr_ms_physio_clean[bundle.sleep_keep]
 
     rmssd_1hz_raw, _rmssd_windows_list_raw = _calculate_rmssd_series(
-        t_hrv,
+        t_prv,
         rr_mid_sleep,
         rr_ms_sleep,
         float(window_sec),
@@ -371,18 +371,18 @@ def compute_hrv_from_pat_signal(
     )
 
     if rr_ms_sleep.size < 1:
-        nan_array = np.full_like(t_hrv, fill_value=np.nan, dtype=float)
-        return t_hrv, rmssd_1hz_raw, nan_array, None
+        nan_array = np.full_like(t_prv, fill_value=np.nan, dtype=float)
+        return t_prv, rmssd_1hz_raw, nan_array, None
 
     rr_mid_for_calc = rr_mid_physio_clean[bundle.combined_keep]
     rr_ms_for_calc = rr_ms_physio_clean[bundle.combined_keep]
 
     if rr_ms_for_calc.size < 1:
-        nan_array = np.full_like(t_hrv, fill_value=np.nan, dtype=float)
-        return t_hrv, rmssd_1hz_raw, nan_array, None
+        nan_array = np.full_like(t_prv, fill_value=np.nan, dtype=float)
+        return t_prv, rmssd_1hz_raw, nan_array, None
 
     rmssd_1hz_clean, rmssd_windows_list_clean = _calculate_rmssd_series(
-        t_hrv,
+        t_prv,
         rr_mid_for_calc,
         rr_ms_for_calc,
         float(window_sec),
@@ -399,10 +399,10 @@ def compute_hrv_from_pat_signal(
         min_freq_span_sec=min_freq_span_sec,
     )
 
-    return t_hrv, rmssd_1hz_raw, rmssd_1hz_clean, summary
+    return t_prv, rmssd_1hz_raw, rmssd_1hz_clean, summary
 
 
-def summarize_hrv_from_rr(
+def summarize_prv_from_rr(
     rr_mid_times_sec: np.ndarray,
     rr_ms: np.ndarray,
     duration_sec: float,
@@ -413,17 +413,17 @@ def summarize_hrv_from_rr(
     window_sec: Optional[float] = None,
 ) -> Dict[str, float]:
     if target_fs is None:
-        target_fs = float(getattr(config, "HRV_TARGET_FS_HZ"))
+        target_fs = float(getattr(config, "PRV_TARGET_FS_HZ"))
     if window_sec is None:
-        window_sec = float(getattr(config, "HRV_WINDOW_SEC"))
+        window_sec = float(getattr(config, "PRV_WINDOW_SEC"))
 
-    max_gap_sec = float(getattr(config, "HRV_MAX_RR_GAP_SEC"))
-    rmssd_min_span_sec = float(getattr(config, "HRV_RMSSD_MIN_SPAN_SEC"))
-    fs_resample_global = float(getattr(config, "HRV_TACHO_RESAMPLE_HZ"))
-    min_freq_span_sec = float(getattr(config, "HRV_MIN_FREQ_DOMAIN_SEC"))
-    fixed_win_sec = float(getattr(config, "HRV_LFHF_FIXED_WINDOW_SEC", 300.0))
-    fixed_hop_sec = float(getattr(config, "HRV_LFHF_FIXED_HOP_SEC", fixed_win_sec))
-    fixed_min_rr = int(getattr(config, "HRV_LFHF_FIXED_MIN_RR", 0))
+    max_gap_sec = float(getattr(config, "PRV_MAX_RR_GAP_SEC"))
+    rmssd_min_span_sec = float(getattr(config, "PRV_RMSSD_MIN_SPAN_SEC"))
+    fs_resample_global = float(getattr(config, "PRV_TACHO_RESAMPLE_HZ"))
+    min_freq_span_sec = float(getattr(config, "PRV_MIN_FREQ_DOMAIN_SEC"))
+    fixed_win_sec = float(getattr(config, "PRV_LFHF_FIXED_WINDOW_SEC", 300.0))
+    fixed_hop_sec = float(getattr(config, "PRV_LFHF_FIXED_HOP_SEC", fixed_win_sec))
+    fixed_min_rr = int(getattr(config, "PRV_LFHF_FIXED_MIN_RR", 0))
 
     rr_mid_sleep, rr_ms_sleep, rr_mid_clean, rr_ms_clean = _subset_rr_by_sleep_and_events(
         rr_mid_times_sec,
@@ -432,9 +432,9 @@ def summarize_hrv_from_rr(
         include_set=include_set,
     )
 
-    t_hrv = np.arange(0, float(duration_sec), 1.0 / float(target_fs))
+    t_prv = np.arange(0, float(duration_sec), 1.0 / float(target_fs))
     rmssd_raw, _ = _calculate_rmssd_series(
-        t_hrv,
+        t_prv,
         rr_mid_sleep,
         rr_ms_sleep,
         float(window_sec),
@@ -442,7 +442,7 @@ def summarize_hrv_from_rr(
         min_span_sec=rmssd_min_span_sec,
     )
     rmssd_clean, rmssd_windows_list_clean = _calculate_rmssd_series(
-        t_hrv,
+        t_prv,
         rr_mid_clean,
         rr_ms_clean,
         float(window_sec),
@@ -450,7 +450,7 @@ def summarize_hrv_from_rr(
         min_span_sec=rmssd_min_span_sec,
     )
     sdnn_clean = _calculate_sdnn_series(
-        t_hrv,
+        t_prv,
         rr_mid_clean,
         rr_ms_clean,
         float(window_sec),
@@ -524,7 +524,7 @@ def summarize_hrv_from_rr(
     )
 
 
-def summarize_hrv_from_clean_rr(
+def summarize_prv_from_clean_rr(
     rr_mid_times_sec: np.ndarray,
     rr_ms: np.ndarray,
     duration_sec: float,
@@ -533,25 +533,25 @@ def summarize_hrv_from_clean_rr(
     window_sec: Optional[float] = None,
 ) -> Dict[str, float]:
     if target_fs is None:
-        target_fs = float(getattr(config, "HRV_TARGET_FS_HZ"))
+        target_fs = float(getattr(config, "PRV_TARGET_FS_HZ"))
     if window_sec is None:
-        window_sec = float(getattr(config, "HRV_WINDOW_SEC"))
+        window_sec = float(getattr(config, "PRV_WINDOW_SEC"))
 
-    max_gap_sec = float(getattr(config, "HRV_MAX_RR_GAP_SEC"))
-    rmssd_min_span_sec = float(getattr(config, "HRV_RMSSD_MIN_SPAN_SEC"))
-    fs_resample_global = float(getattr(config, "HRV_TACHO_RESAMPLE_HZ"))
-    min_freq_span_sec = float(getattr(config, "HRV_MIN_FREQ_DOMAIN_SEC"))
-    fixed_win_sec = float(getattr(config, "HRV_LFHF_FIXED_WINDOW_SEC", 300.0))
-    fixed_hop_sec = float(getattr(config, "HRV_LFHF_FIXED_HOP_SEC", fixed_win_sec))
-    fixed_min_rr = int(getattr(config, "HRV_LFHF_FIXED_MIN_RR", 0))
+    max_gap_sec = float(getattr(config, "PRV_MAX_RR_GAP_SEC"))
+    rmssd_min_span_sec = float(getattr(config, "PRV_RMSSD_MIN_SPAN_SEC"))
+    fs_resample_global = float(getattr(config, "PRV_TACHO_RESAMPLE_HZ"))
+    min_freq_span_sec = float(getattr(config, "PRV_MIN_FREQ_DOMAIN_SEC"))
+    fixed_win_sec = float(getattr(config, "PRV_LFHF_FIXED_WINDOW_SEC", 300.0))
+    fixed_hop_sec = float(getattr(config, "PRV_LFHF_FIXED_HOP_SEC", fixed_win_sec))
+    fixed_min_rr = int(getattr(config, "PRV_LFHF_FIXED_MIN_RR", 0))
 
     rr_mid_times_sec = np.asarray(rr_mid_times_sec, dtype=float)
     rr_ms = np.asarray(rr_ms, dtype=float)
     duration_sec = float(duration_sec)
 
-    t_hrv = np.arange(0, duration_sec, 1.0 / float(target_fs)) if duration_sec > 0 else np.array([], dtype=float)
+    t_prv = np.arange(0, duration_sec, 1.0 / float(target_fs)) if duration_sec > 0 else np.array([], dtype=float)
     rmssd_clean, rmssd_windows_list_clean = _calculate_rmssd_series(
-        t_hrv,
+        t_prv,
         rr_mid_times_sec,
         rr_ms,
         float(window_sec),
@@ -559,7 +559,7 @@ def summarize_hrv_from_clean_rr(
         min_span_sec=rmssd_min_span_sec,
     )
     sdnn_clean = _calculate_sdnn_series(
-        t_hrv,
+        t_prv,
         rr_mid_times_sec,
         rr_ms,
         float(window_sec),
@@ -631,7 +631,7 @@ def summarize_hrv_from_clean_rr(
     )
 
 
-def summarize_hrv_halves_from_clean_rr(
+def summarize_prv_halves_from_clean_rr(
     rr_mid_times_sec: np.ndarray,
     rr_ms: np.ndarray,
     split_sec: float,
@@ -648,14 +648,14 @@ def summarize_hrv_halves_from_clean_rr(
     first_mask = rr_mid_times_sec < split_sec
     second_mask = rr_mid_times_sec >= split_sec
 
-    first_summary = summarize_hrv_from_clean_rr(
+    first_summary = summarize_prv_from_clean_rr(
         rr_mid_times_sec[first_mask],
         rr_ms[first_mask],
         max(0.0, min(split_sec, duration_sec)),
         target_fs=target_fs,
         window_sec=window_sec,
     )
-    second_summary = summarize_hrv_from_clean_rr(
+    second_summary = summarize_prv_from_clean_rr(
         rr_mid_times_sec[second_mask] - split_sec,
         rr_ms[second_mask],
         max(0.0, duration_sec - split_sec),
@@ -665,7 +665,7 @@ def summarize_hrv_halves_from_clean_rr(
     return {"first_half": first_summary, "second_half": second_summary}
 
 
-def compute_hrv_from_pat_signal_with_tv_metrics(
+def compute_prv_from_pat_signal_with_tv_metrics(
     pat_signal: np.ndarray,
     fs: float,
     aux_df: Optional["pd.DataFrame"] = None,
@@ -680,14 +680,14 @@ def compute_hrv_from_pat_signal_with_tv_metrics(
     Optional[Dict[str, np.ndarray]],
 ]:
     """
-    Same as compute_hrv_from_pat_signal, but also returns time-varying HRV metrics.
+    Same as compute_prv_from_pat_signal, but also returns time-varying PRV metrics.
     """
     if target_fs is None:
-        target_fs = float(getattr(config, "HRV_TARGET_FS_HZ"))
+        target_fs = float(getattr(config, "PRV_TARGET_FS_HZ"))
     if window_sec is None:
-        window_sec = float(getattr(config, "HRV_WINDOW_SEC"))
+        window_sec = float(getattr(config, "PRV_WINDOW_SEC"))
     if tv_window_sec is None:
-        tv_window_sec = float(getattr(config, "HRV_TV_WINDOW_SEC"))
+        tv_window_sec = float(getattr(config, "PRV_TV_WINDOW_SEC"))
 
     if fs <= 0:
         raise ValueError("Sampling frequency fs must be positive.")
@@ -695,31 +695,31 @@ def compute_hrv_from_pat_signal_with_tv_metrics(
     if pat_signal.ndim != 1 or n_samples == 0:
         raise ValueError("PAT signal must be a non-empty 1D array.")
 
-    max_gap_sec = float(getattr(config, "HRV_MAX_RR_GAP_SEC"))
-    rmssd_min_span_sec = float(getattr(config, "HRV_RMSSD_MIN_SPAN_SEC"))
+    max_gap_sec = float(getattr(config, "PRV_MAX_RR_GAP_SEC"))
+    rmssd_min_span_sec = float(getattr(config, "PRV_RMSSD_MIN_SPAN_SEC"))
 
-    fs_resample_global = float(getattr(config, "HRV_TACHO_RESAMPLE_HZ"))
-    min_freq_span_sec = float(getattr(config, "HRV_MIN_FREQ_DOMAIN_SEC"))
+    fs_resample_global = float(getattr(config, "PRV_TACHO_RESAMPLE_HZ"))
+    min_freq_span_sec = float(getattr(config, "PRV_MIN_FREQ_DOMAIN_SEC"))
 
-    fs_resample_tv = float(getattr(config, "HRV_TV_TACHO_RESAMPLE_HZ"))
-    min_rr_tv = int(getattr(config, "HRV_TV_MIN_RR_PER_WINDOW"))
+    fs_resample_tv = float(getattr(config, "PRV_TV_TACHO_RESAMPLE_HZ"))
+    min_rr_tv = int(getattr(config, "PRV_TV_MIN_RR_PER_WINDOW"))
 
     min_freq_span_sec_tv = float(
-        getattr(config, "HRV_TV_MIN_FREQ_DOMAIN_SEC", getattr(config, "HRV_MIN_FREQ_DOMAIN_SEC"))
+        getattr(config, "PRV_TV_MIN_FREQ_DOMAIN_SEC", getattr(config, "PRV_MIN_FREQ_DOMAIN_SEC"))
     )
     max_gap_sec_tv = float(
-        getattr(config, "HRV_TV_MAX_TACHO_GAP_SEC", getattr(config, "HRV_MAX_RR_GAP_SEC"))
+        getattr(config, "PRV_TV_MAX_TACHO_GAP_SEC", getattr(config, "PRV_MAX_RR_GAP_SEC"))
     )
 
     rr_sec_physio_clean, rr_mid_physio_clean, duration_sec = hr_metrics.extract_clean_rr_from_pat(
         pat_signal,
         fs,
     )
-    t_hrv = np.arange(0, duration_sec, 1.0 / float(target_fs))
+    t_prv = np.arange(0, duration_sec, 1.0 / float(target_fs))
 
     if rr_sec_physio_clean.size < 1:
-        nan_array = np.full_like(t_hrv, fill_value=np.nan, dtype=float)
-        return t_hrv, nan_array, nan_array, None, None
+        nan_array = np.full_like(t_prv, fill_value=np.nan, dtype=float)
+        return t_prv, nan_array, nan_array, None, None
 
     rr_ms_physio_clean = rr_sec_physio_clean * 1000.0
 
@@ -728,11 +728,11 @@ def compute_hrv_from_pat_signal_with_tv_metrics(
     rr_ms_sleep = rr_ms_physio_clean[bundle.sleep_keep]
 
     if rr_ms_sleep.size < 1:
-        nan_array = np.full_like(t_hrv, fill_value=np.nan, dtype=float)
-        return t_hrv, nan_array, nan_array, None, None
+        nan_array = np.full_like(t_prv, fill_value=np.nan, dtype=float)
+        return t_prv, nan_array, nan_array, None, None
 
     rmssd_1hz_raw, _rmssd_windows_list_raw = _calculate_rmssd_series(
-        t_hrv,
+        t_prv,
         rr_mid_sleep,
         rr_ms_sleep,
         float(window_sec),
@@ -744,11 +744,11 @@ def compute_hrv_from_pat_signal_with_tv_metrics(
     rr_ms_for_calc = rr_ms_physio_clean[bundle.combined_keep]
 
     if rr_ms_for_calc.size < 1:
-        nan_array = np.full_like(t_hrv, fill_value=np.nan, dtype=float)
-        return t_hrv, rmssd_1hz_raw, nan_array, None, None
+        nan_array = np.full_like(t_prv, fill_value=np.nan, dtype=float)
+        return t_prv, rmssd_1hz_raw, nan_array, None, None
 
     rmssd_1hz_clean, rmssd_windows_list_clean = _calculate_rmssd_series(
-        t_hrv,
+        t_prv,
         rr_mid_for_calc,
         rr_ms_for_calc,
         float(window_sec),
@@ -756,7 +756,7 @@ def compute_hrv_from_pat_signal_with_tv_metrics(
         min_span_sec=rmssd_min_span_sec,
     )
     sdnn_clean = _calculate_sdnn_series(
-        t_hrv,
+        t_prv,
         rr_mid_for_calc,
         rr_ms_for_calc,
         float(window_sec),
@@ -767,9 +767,9 @@ def compute_hrv_from_pat_signal_with_tv_metrics(
     # Keep clean time-domain traces visible only where the center timepoint itself
     # survives the final-analysis mask, rather than allowing window support from
     # nearby included data to populate excluded center times.
-    center_time_bundle = masking.build_mask_bundle(t_hrv, aux_df)
+    center_time_bundle = masking.build_mask_bundle(t_prv, aux_df)
     center_keep = np.asarray(center_time_bundle.combined_keep, dtype=bool)
-    if center_keep.size == t_hrv.size:
+    if center_keep.size == t_prv.size:
         rmssd_1hz_clean = np.asarray(rmssd_1hz_clean, dtype=float)
         sdnn_clean = np.asarray(sdnn_clean, dtype=float)
         rmssd_1hz_clean[~center_keep] = np.nan
@@ -785,10 +785,10 @@ def compute_hrv_from_pat_signal_with_tv_metrics(
         min_freq_span_sec=min_freq_span_sec,
     )
 
-    fixed_win_sec = float(getattr(config, "HRV_LFHF_FIXED_WINDOW_SEC", 300.0))
-    fixed_hop_sec = float(getattr(config, "HRV_LFHF_FIXED_HOP_SEC", fixed_win_sec))
-    fs_resample_fixed = float(getattr(config, "HRV_TACHO_RESAMPLE_HZ", 4.0))
-    fixed_min_rr = int(getattr(config, "HRV_LFHF_FIXED_MIN_RR", 0))
+    fixed_win_sec = float(getattr(config, "PRV_LFHF_FIXED_WINDOW_SEC", 300.0))
+    fixed_hop_sec = float(getattr(config, "PRV_LFHF_FIXED_HOP_SEC", fixed_win_sec))
+    fs_resample_fixed = float(getattr(config, "PRV_TACHO_RESAMPLE_HZ", 4.0))
+    fixed_min_rr = int(getattr(config, "PRV_LFHF_FIXED_MIN_RR", 0))
 
     lfhf_fixed = _calculate_lfhf_fixed_windows(
         rr_mid=rr_mid_for_calc,
@@ -819,15 +819,15 @@ def compute_hrv_from_pat_signal_with_tv_metrics(
 
     if rr_mid_for_calc.size == 0:
         tv = {
-            "rmssd_ms": np.full_like(t_hrv, np.nan, dtype=float),
-            "sdnn_ms_raw": np.full_like(t_hrv, np.nan, dtype=float),
-            "sdnn_ms": np.full_like(t_hrv, np.nan, dtype=float),
-            "lf_raw": np.full_like(t_hrv, np.nan, dtype=float),
-            "lf": np.full_like(t_hrv, np.nan, dtype=float),
-            "hf_raw": np.full_like(t_hrv, np.nan, dtype=float),
-            "hf": np.full_like(t_hrv, np.nan, dtype=float),
-            "lf_hf_raw": np.full_like(t_hrv, np.nan, dtype=float),
-            "lf_hf": np.full_like(t_hrv, np.nan, dtype=float),
+            "rmssd_ms": np.full_like(t_prv, np.nan, dtype=float),
+            "sdnn_ms_raw": np.full_like(t_prv, np.nan, dtype=float),
+            "sdnn_ms": np.full_like(t_prv, np.nan, dtype=float),
+            "lf_raw": np.full_like(t_prv, np.nan, dtype=float),
+            "lf": np.full_like(t_prv, np.nan, dtype=float),
+            "hf_raw": np.full_like(t_prv, np.nan, dtype=float),
+            "hf": np.full_like(t_prv, np.nan, dtype=float),
+            "lf_hf_raw": np.full_like(t_prv, np.nan, dtype=float),
+            "lf_hf": np.full_like(t_prv, np.nan, dtype=float),
             "spectral_t_sec": np.array([], dtype=float),
             "lf_fixed_raw": np.array([], dtype=float),
             "lf_fixed": np.array([], dtype=float),
@@ -839,10 +839,10 @@ def compute_hrv_from_pat_signal_with_tv_metrics(
             "spectral_hop_sec": np.array([float(fixed_hop_sec)], dtype=float),
             "tv_window_sec": np.array([float(tv_window_sec)], dtype=float),
         }
-        return t_hrv, rmssd_1hz_raw, rmssd_1hz_clean, summary, tv
+        return t_prv, rmssd_1hz_raw, rmssd_1hz_clean, summary, tv
 
-    tv_raw = _calculate_hrv_windowed_series(
-        t_grid=t_hrv,
+    tv_raw = _calculate_prv_windowed_series(
+        t_grid=t_prv,
         rr_mid=rr_mid_sleep,
         rr_ms=rr_ms_sleep,
         window_sec=float(tv_window_sec),
@@ -852,8 +852,8 @@ def compute_hrv_from_pat_signal_with_tv_metrics(
         max_gap_sec=float(max_gap_sec_tv),
     )
 
-    tv_clean = _calculate_hrv_windowed_series(
-        t_grid=t_hrv,
+    tv_clean = _calculate_prv_windowed_series(
+        t_grid=t_prv,
         rr_mid=rr_mid_for_calc,
         rr_ms=rr_ms_for_calc,
         window_sec=float(tv_window_sec),
@@ -862,20 +862,20 @@ def compute_hrv_from_pat_signal_with_tv_metrics(
         min_span_sec=float(min_freq_span_sec_tv),
         max_gap_sec=float(max_gap_sec_tv),
     )
-    sdnn_tv_clean = np.asarray(tv_clean.get("sdnn_ms", np.full_like(t_hrv, np.nan, dtype=float)), dtype=float)
-    if center_keep.size == t_hrv.size:
+    sdnn_tv_clean = np.asarray(tv_clean.get("sdnn_ms", np.full_like(t_prv, np.nan, dtype=float)), dtype=float)
+    if center_keep.size == t_prv.size:
         sdnn_tv_clean[~center_keep] = np.nan
 
     tv = {
         "rmssd_ms": np.asarray(rmssd_1hz_clean, dtype=float),
-        "sdnn_ms_raw": np.asarray(tv_raw.get("sdnn_ms", np.full_like(t_hrv, np.nan, dtype=float)), dtype=float),
+        "sdnn_ms_raw": np.asarray(tv_raw.get("sdnn_ms", np.full_like(t_prv, np.nan, dtype=float)), dtype=float),
         "sdnn_ms": sdnn_tv_clean,
-        "lf_raw": np.asarray(tv_raw.get("lf", np.full_like(t_hrv, np.nan, dtype=float)), dtype=float),
-        "lf": np.asarray(tv_clean.get("lf", np.full_like(t_hrv, np.nan, dtype=float)), dtype=float),
-        "hf_raw": np.asarray(tv_raw.get("hf", np.full_like(t_hrv, np.nan, dtype=float)), dtype=float),
-        "hf": np.asarray(tv_clean.get("hf", np.full_like(t_hrv, np.nan, dtype=float)), dtype=float),
-        "lf_hf_raw": np.asarray(tv_raw.get("lf_hf", np.full_like(t_hrv, np.nan, dtype=float)), dtype=float),
-        "lf_hf": np.asarray(tv_clean.get("lf_hf", np.full_like(t_hrv, np.nan, dtype=float)), dtype=float),
+        "lf_raw": np.asarray(tv_raw.get("lf", np.full_like(t_prv, np.nan, dtype=float)), dtype=float),
+        "lf": np.asarray(tv_clean.get("lf", np.full_like(t_prv, np.nan, dtype=float)), dtype=float),
+        "hf_raw": np.asarray(tv_raw.get("hf", np.full_like(t_prv, np.nan, dtype=float)), dtype=float),
+        "hf": np.asarray(tv_clean.get("hf", np.full_like(t_prv, np.nan, dtype=float)), dtype=float),
+        "lf_hf_raw": np.asarray(tv_raw.get("lf_hf", np.full_like(t_prv, np.nan, dtype=float)), dtype=float),
+        "lf_hf": np.asarray(tv_clean.get("lf_hf", np.full_like(t_prv, np.nan, dtype=float)), dtype=float),
     }
     tv.update(_fixed_window_plot_series(lfhf_fixed_raw))
     tv["lf_fixed_raw"] = np.asarray(tv.pop("lf_fixed"), dtype=float)
@@ -886,4 +886,4 @@ def compute_hrv_from_pat_signal_with_tv_metrics(
     tv["spectral_hop_sec"] = np.array([float(fixed_hop_sec)], dtype=float)
     tv["tv_window_sec"] = np.array([float(tv_window_sec)], dtype=float)
 
-    return t_hrv, rmssd_1hz_raw, rmssd_1hz_clean, summary, tv
+    return t_prv, rmssd_1hz_raw, rmssd_1hz_clean, summary, tv

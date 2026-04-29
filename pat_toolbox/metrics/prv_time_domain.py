@@ -17,7 +17,7 @@ def _rmssd(rr_ms: np.ndarray) -> float:
     if diffs.size < 2:
         return np.nan
 
-    hard_cap_ms = float(getattr(config, "HRV_RMSSD_DIFF_HARD_CAP_MS"))
+    hard_cap_ms = float(getattr(config, "PRV_RMSSD_DIFF_HARD_CAP_MS"))
     diffs = diffs[np.abs(diffs) <= hard_cap_ms]
     if diffs.size < 2:
         return np.nan
@@ -26,17 +26,17 @@ def _rmssd(rr_ms: np.ndarray) -> float:
     mad = float(np.median(np.abs(diffs - med)))
     if mad > 0:
         sigma = 1.4826 * mad
-        k = float(getattr(config, "HRV_RMSSD_DIFF_MAD_SIGMAS"))
+        k = float(getattr(config, "PRV_RMSSD_DIFF_MAD_SIGMAS"))
         keep = np.abs(diffs - med) <= (k * sigma)
         diffs = diffs[keep]
 
-    min_diffs = int(getattr(config, "HRV_RMSSD_MIN_DIFFS"))
+    min_diffs = int(getattr(config, "PRV_RMSSD_MIN_DIFFS"))
     if diffs.size < min_diffs:
         return np.nan
 
     rmssd = float(np.sqrt(np.mean(diffs ** 2)))
 
-    rmssd_floor_ms = float(getattr(config, "HRV_RMSSD_FLOOR_MS", 2.0))
+    rmssd_floor_ms = float(getattr(config, "PRV_RMSSD_FLOOR_MS", 2.0))
     if not np.isfinite(rmssd) or rmssd < rmssd_floor_ms:
         return np.nan
 
@@ -51,7 +51,7 @@ def _sdnn(rr_ms: np.ndarray) -> float:
 
 
 def _calculate_rmssd_series(
-    t_hrv: np.ndarray,
+    t_prv: np.ndarray,
     rr_mid: np.ndarray,
     rr_ms: np.ndarray,
     window_sec: float,
@@ -62,29 +62,29 @@ def _calculate_rmssd_series(
     """
     Calculate RMSSD series over a 1 Hz grid.
     """
-    target_fs = float(getattr(config, "HRV_TARGET_FS_HZ", 1.0))
+    target_fs = float(getattr(config, "PRV_TARGET_FS_HZ", 1.0))
     half_win = 0.5 * float(window_sec)
 
-    min_intervals = int(getattr(config, "HRV_MIN_INTERVALS_PER_WINDOW", 4))
-    min_cov = float(getattr(config, "HRV_MIN_WINDOW_COVERAGE", 0.0))
+    min_intervals = int(getattr(config, "PRV_MIN_INTERVALS_PER_WINDOW", 4))
+    min_cov = float(getattr(config, "PRV_MIN_WINDOW_COVERAGE", 0.0))
 
-    veto_bigdiff = bool(getattr(config, "HRV_RMSSD_VETO_BIGDIFF", True))
-    bigdiff_thr_ms = float(getattr(config, "HRV_RMSSD_BIGDIFF_THR_MS", 250.0))
-    bigdiff_max_frac = float(getattr(config, "HRV_RMSSD_BIGDIFF_MAX_FRAC", 0.20))
+    veto_bigdiff = bool(getattr(config, "PRV_RMSSD_VETO_BIGDIFF", True))
+    bigdiff_thr_ms = float(getattr(config, "PRV_RMSSD_BIGDIFF_THR_MS", 250.0))
+    bigdiff_max_frac = float(getattr(config, "PRV_RMSSD_BIGDIFF_MAX_FRAC", 0.20))
 
-    rmssd_floor_ms = float(getattr(config, "HRV_RMSSD_FLOOR_MS", 2.0))
+    rmssd_floor_ms = float(getattr(config, "PRV_RMSSD_FLOOR_MS", 2.0))
 
-    rmssd_1hz = np.full_like(t_hrv, fill_value=np.nan, dtype=float)
+    rmssd_1hz = np.full_like(t_prv, fill_value=np.nan, dtype=float)
     rmssd_windows_list: List[float] = []
 
-    if t_hrv.size == 0 or rr_mid.size == 0 or rr_ms.size == 0:
+    if t_prv.size == 0 or rr_mid.size == 0 or rr_ms.size == 0:
         return rmssd_1hz, rmssd_windows_list
 
     n = rr_mid.size
     left = 0
     right = 0
 
-    for i, t in enumerate(t_hrv):
+    for i, t in enumerate(t_prv):
         start = t - half_win
         end = t + half_win
 
@@ -123,7 +123,7 @@ def _calculate_rmssd_series(
         rmssd_windows_list.append(rmssd_win)
 
     if not np.any(np.isnan(rmssd_1hz)):
-        smooth_sec = float(getattr(config, "HRV_SMOOTHING_WINDOW_SEC", 0.0))
+        smooth_sec = float(getattr(config, "PRV_SMOOTHING_WINDOW_SEC", 0.0))
         smooth_samples = int(round(smooth_sec * target_fs))
         if smooth_samples > 1:
             kernel = np.ones(smooth_samples, dtype=float) / float(smooth_samples)

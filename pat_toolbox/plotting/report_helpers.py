@@ -12,12 +12,12 @@ from ..metrics.psd import compute_psd_figures_and_peaks
 from .feature_overview_builders import (
     _build_event_response_overview_figure,
     _build_hr_overview_figure,
-    _build_hrv_rmssd_overview_figure,
+    _build_prv_rmssd_overview_figure,
     _build_multi_series_overview_figure,
     _build_pat_burden_overview_figure,
     _build_single_series_overview_figure,
 )
-from .figures_hrv import _build_stagegram_and_hrv_tv_figure
+from .figures_prv import _build_stagegram_and_prv_tv_figure
 from .figures_summary import _build_sleep_stagegram_figure, build_summary_pages
 from .segments import _add_segment_pages_to_pdf
 from .specs import active_event_plot_spec
@@ -75,24 +75,24 @@ def _build_summary_pages_for_enabled_features(
     aux_df,
     t_hr_calc,
     hr_calc,
-    t_hrv,
-    hrv_rmssd,
-    hrv_rmssd_raw,
-    hrv_tv,
-    hrv_summary,
+    t_prv,
+    prv_rmssd,
+    prv_rmssd_raw,
+    prv_tv,
+    prv_summary,
     psd_features,
     pat_burden,
     pat_burden_diag,
     sleep_combo_summaries,
-    hrv_mask_info,
-    hrv_midpoint_halves,
+    prv_mask_info,
+    prv_midpoint_halves,
 ):
     return build_summary_pages(
         edf_base=edf_base,
         pearson_r=None,
         spear_rho=None,
         rmse=None,
-        hrv_summary=hrv_summary,
+        prv_summary=prv_summary,
         mayer_peak_freq=mayer_peak_freq,
         resp_peak_freq=resp_peak_freq,
         aux_df=aux_df,
@@ -100,50 +100,50 @@ def _build_summary_pages_for_enabled_features(
         hr_calc=hr_calc,
         t_hr_edf=None,
         hr_edf=None,
-        t_hrv=t_hrv,
-        hrv_clean=hrv_rmssd,
-        hrv_raw=hrv_rmssd_raw,
-        hrv_tv=hrv_tv,
+        t_prv=t_prv,
+        prv_clean=prv_rmssd,
+        prv_raw=prv_rmssd_raw,
+        prv_tv=prv_tv,
         psd_features=psd_features,
         pat_burden=pat_burden,
         pat_burden_diag=pat_burden_diag,
         sleep_combo_summaries=sleep_combo_summaries,
-        hrv_mask_info=hrv_mask_info,
-        hrv_midpoint_halves=hrv_midpoint_halves,
+        prv_mask_info=prv_mask_info,
+        prv_midpoint_halves=prv_midpoint_halves,
     )
 
 
-def _build_hrv_report_figures(
+def _build_prv_report_figures(
     *,
     edf_base: str,
     duration_sec: float,
     exclusion_zones,
     event_spec,
-    t_hrv,
-    hrv_rmssd,
-    hrv_rmssd_raw,
-    hrv_tv,
+    t_prv,
+    prv_rmssd,
+    prv_rmssd_raw,
+    prv_tv,
     aux_df,
     sleep_combo_summaries,
-    hrv_mask_info,
+    prv_mask_info,
 ) -> Dict[str, Any]:
-    use_hrv = features.is_enabled("hrv") and t_hrv is not None and hrv_rmssd is not None and np.size(hrv_rmssd) > 0
-    has_tv = use_hrv and t_hrv is not None and hrv_tv is not None and isinstance(hrv_tv, dict) and len(hrv_tv) > 0
+    use_prv = features.is_enabled("prv") and t_prv is not None and prv_rmssd is not None and np.size(prv_rmssd) > 0
+    has_tv = use_prv and t_prv is not None and prv_tv is not None and isinstance(prv_tv, dict) and len(prv_tv) > 0
 
     fig_stage = None
     fig_stage_tv = None
 
     if has_tv:
-        fig_stage_tv = _build_stagegram_and_hrv_tv_figure(
+        fig_stage_tv = _build_stagegram_and_prv_tv_figure(
             edf_base=edf_base,
             aux_df=aux_df,
-            t_hrv=cast(np.ndarray, t_hrv),
-            hrv_rmssd=hrv_rmssd,
-            hrv_tv=cast(Dict[str, np.ndarray], hrv_tv),
+            t_prv=cast(np.ndarray, t_prv),
+            prv_rmssd=prv_rmssd,
+            prv_tv=cast(Dict[str, np.ndarray], prv_tv),
             exclusion_zones=exclusion_zones,
             sleep_combo_summaries=sleep_combo_summaries,
             event_spec=event_spec,
-            hrv_mask_info=hrv_mask_info,
+            prv_mask_info=prv_mask_info,
         )
     else:
         fig_stage = _build_sleep_stagegram_figure(edf_base=edf_base, aux_df=aux_df)
@@ -155,7 +155,7 @@ def _build_hrv_report_figures(
     }
 
 
-def _build_non_hrv_report_figures(*, edf_base: str, aux_df) -> Dict[str, Any]:
+def _build_non_prv_report_figures(*, edf_base: str, aux_df) -> Dict[str, Any]:
     return {
         "fig_stage": _build_sleep_stagegram_figure(edf_base=edf_base, aux_df=aux_df),
         "fig_stage_tv": None,
@@ -173,11 +173,11 @@ def _build_feature_overview_figures(
     t_hr_calc,
     hr_calc,
     hr_calc_raw,
-    t_hrv,
-    hrv_rmssd,
-    hrv_rmssd_raw,
-    hrv_tv,
-    hrv_mask_info,
+    t_prv,
+    prv_rmssd,
+    prv_rmssd_raw,
+    prv_tv,
+    prv_mask_info,
     t_pat_amp,
     pat_amp,
 ) -> list[Any]:
@@ -197,48 +197,48 @@ def _build_feature_overview_figures(
         if fig is not None:
             figs.append(fig)
 
-    if features.is_enabled("hrv"):
-        fig = _build_hrv_rmssd_overview_figure(
+    if features.is_enabled("prv"):
+        fig = _build_prv_rmssd_overview_figure(
             edf_base=edf_base,
-            t_hrv=t_hrv,
-            hrv_clean=hrv_rmssd,
-            hrv_raw=hrv_rmssd_raw,
+            t_prv=t_prv,
+            prv_clean=prv_rmssd,
+            prv_raw=prv_rmssd_raw,
             aux_df=aux_df,
             exclusion_zones=exclusion_zones,
             duration_sec_fallback=duration_sec,
             event_spec=event_spec,
-            hrv_mask_info=hrv_mask_info,
+            prv_mask_info=prv_mask_info,
         )
         if fig is not None:
             figs.append(fig)
 
-        if isinstance(hrv_tv, dict):
-            t_spectral = hrv_tv.get("spectral_t_sec")
+        if isinstance(prv_tv, dict):
+            t_spectral = prv_tv.get("spectral_t_sec")
             fig = _build_single_series_overview_figure(
                 edf_base=edf_base,
-                title="HRV-SDNN Overview",
+                title="PRV-SDNN Overview",
                 ylabel="SDNN [ms]",
-                t_sec=t_hrv,
-                y=hrv_tv.get("sdnn_ms"),
-                y_raw=hrv_tv.get("sdnn_ms_raw"),
+                t_sec=t_prv,
+                y=prv_tv.get("sdnn_ms"),
+                y_raw=prv_tv.get("sdnn_ms_raw"),
                 color="tab:green",
                 aux_df=aux_df,
                 exclusion_zones=exclusion_zones,
                 duration_sec_fallback=duration_sec,
                 event_spec=event_spec,
-                hrv_mask_info=hrv_mask_info,
+                prv_mask_info=prv_mask_info,
             )
             if fig is not None:
                 figs.append(fig)
 
             lf_hf_series = []
-            if t_spectral is not None and hrv_tv.get("lf_fixed") is not None:
-                lf_hf_series.append({"label": "LF", "y": hrv_tv.get("lf_fixed"), "y_raw": hrv_tv.get("lf_fixed_raw"), "color": "tab:orange"})
-            if t_spectral is not None and hrv_tv.get("hf_fixed") is not None:
-                lf_hf_series.append({"label": "HF", "y": hrv_tv.get("hf_fixed"), "y_raw": hrv_tv.get("hf_fixed_raw"), "color": "tab:blue"})
+            if t_spectral is not None and prv_tv.get("lf_fixed") is not None:
+                lf_hf_series.append({"label": "LF", "y": prv_tv.get("lf_fixed"), "y_raw": prv_tv.get("lf_fixed_raw"), "color": "tab:orange"})
+            if t_spectral is not None and prv_tv.get("hf_fixed") is not None:
+                lf_hf_series.append({"label": "HF", "y": prv_tv.get("hf_fixed"), "y_raw": prv_tv.get("hf_fixed_raw"), "color": "tab:blue"})
             fig = _build_multi_series_overview_figure(
                 edf_base=edf_base,
-                title="HRV-LF-HF Overview",
+                title="PRV-LF-HF Overview",
                 ylabel="LF & HF [ms²]",
                 t_sec=t_spectral,
                 series=lf_hf_series,
@@ -247,24 +247,24 @@ def _build_feature_overview_figures(
                 duration_sec_fallback=duration_sec,
                 event_spec=event_spec,
                 yscale="log",
-                hrv_mask_info=hrv_mask_info,
+                prv_mask_info=prv_mask_info,
             )
             if fig is not None:
                 figs.append(fig)
 
             fig = _build_single_series_overview_figure(
                 edf_base=edf_base,
-                title="HRV-LF-HF Ratio Overview",
+                title="PRV-LF-HF Ratio Overview",
                 ylabel="LF/HF [-]",
                 t_sec=t_spectral,
-                y=hrv_tv.get("lf_hf_fixed"),
-                y_raw=hrv_tv.get("lf_hf_fixed_raw"),
+                y=prv_tv.get("lf_hf_fixed"),
+                y_raw=prv_tv.get("lf_hf_fixed_raw"),
                 color="tab:purple",
                 aux_df=aux_df,
                 exclusion_zones=exclusion_zones,
                 duration_sec_fallback=duration_sec,
                 event_spec=event_spec,
-                hrv_mask_info=hrv_mask_info,
+                prv_mask_info=prv_mask_info,
             )
             if fig is not None:
                 figs.append(fig)
@@ -309,17 +309,17 @@ def _build_report_figures(
     resp_peak_freq,
     t_hr_calc,
     hr_calc,
-    t_hrv,
-    hrv_rmssd,
-    hrv_rmssd_raw,
-    hrv_tv,
-    hrv_summary,
+    t_prv,
+    prv_rmssd,
+    prv_rmssd_raw,
+    prv_tv,
+    prv_summary,
     aux_df,
     pat_burden,
     pat_burden_diag,
     sleep_combo_summaries,
-    hrv_mask_info,
-    hrv_midpoint_halves,
+    prv_mask_info,
+    prv_midpoint_halves,
     hr_calc_raw,
     t_pat_amp,
     pat_amp,
@@ -331,35 +331,35 @@ def _build_report_figures(
         aux_df=aux_df,
         t_hr_calc=t_hr_calc,
         hr_calc=hr_calc,
-        t_hrv=t_hrv,
-        hrv_rmssd=hrv_rmssd,
-        hrv_rmssd_raw=hrv_rmssd_raw,
-        hrv_tv=hrv_tv,
-        hrv_summary=hrv_summary,
+        t_prv=t_prv,
+        prv_rmssd=prv_rmssd,
+        prv_rmssd_raw=prv_rmssd_raw,
+        prv_tv=prv_tv,
+        prv_summary=prv_summary,
         psd_features=psd_features,
         pat_burden=pat_burden,
         pat_burden_diag=pat_burden_diag,
         sleep_combo_summaries=sleep_combo_summaries,
-        hrv_mask_info=hrv_mask_info,
-        hrv_midpoint_halves=hrv_midpoint_halves,
+        prv_mask_info=prv_mask_info,
+        prv_midpoint_halves=prv_midpoint_halves,
     )
 
-    if features.is_enabled("hrv"):
-        figure_bundle = _build_hrv_report_figures(
+    if features.is_enabled("prv"):
+        figure_bundle = _build_prv_report_figures(
             edf_base=edf_base,
             duration_sec=duration_sec,
             exclusion_zones=exclusion_zones,
             event_spec=event_spec,
-            t_hrv=t_hrv,
-            hrv_rmssd=hrv_rmssd,
-            hrv_rmssd_raw=hrv_rmssd_raw,
-            hrv_tv=hrv_tv,
+            t_prv=t_prv,
+            prv_rmssd=prv_rmssd,
+            prv_rmssd_raw=prv_rmssd_raw,
+            prv_tv=prv_tv,
             aux_df=aux_df,
             sleep_combo_summaries=sleep_combo_summaries,
-            hrv_mask_info=hrv_mask_info,
+            prv_mask_info=prv_mask_info,
         )
     else:
-        figure_bundle = _build_non_hrv_report_figures(edf_base=edf_base, aux_df=aux_df)
+        figure_bundle = _build_non_prv_report_figures(edf_base=edf_base, aux_df=aux_df)
 
     overview_figures = _build_feature_overview_figures(
         edf_base=edf_base,
@@ -370,11 +370,11 @@ def _build_report_figures(
         t_hr_calc=t_hr_calc,
         hr_calc=hr_calc,
         hr_calc_raw=hr_calc_raw,
-        t_hrv=t_hrv,
-        hrv_rmssd=hrv_rmssd,
-        hrv_rmssd_raw=hrv_rmssd_raw,
-        hrv_tv=hrv_tv,
-        hrv_mask_info=hrv_mask_info,
+        t_prv=t_prv,
+        prv_rmssd=prv_rmssd,
+        prv_rmssd_raw=prv_rmssd_raw,
+        prv_tv=prv_tv,
+        prv_mask_info=prv_mask_info,
         t_pat_amp=t_pat_amp,
         pat_amp=pat_amp,
     )

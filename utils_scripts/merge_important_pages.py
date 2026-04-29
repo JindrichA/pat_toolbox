@@ -6,7 +6,7 @@ PDF_FOLDER = "/Users/jindrich/Projects/PAT_022026_output_data/ViewPatPlotsOverla
 
 # Output names by page number (0-based index)
 OUTPUTS = {
-    0: "HRV_overview.pdf",
+    0: "PRV_overview.pdf",
     1: "HR_overview.pdf",
     2: "RMSSD_overview.pdf",
     3: "SDNN_overview.pdf",

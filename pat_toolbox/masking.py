@@ -56,22 +56,22 @@ def policy_from_config(
 
     exclusion_columns = tuple(
         str(col)
-        for col in (getattr(config, "HRV_EXCLUSION_EVENT_COLUMNS", []) or [])
+        for col in (getattr(config, "PRV_EXCLUSION_EVENT_COLUMNS", []) or [])
         if str(col)
     )
     return MaskPolicy(
         sleep_enabled=sleep_enabled,
         include_stages=frozenset(int(x) for x in stages),
         exclusion_columns=exclusion_columns,
-        use_desat_windows=bool(getattr(config, "HRV_EXCLUSION_USE_DESAT_WINDOWS", False)),
-        event_pre_sec=float(getattr(config, "HRV_EXCLUSION_PRE_SEC", 0.0)),
-        event_post_sec=float(getattr(config, "HRV_EXCLUSION_POST_SEC", 0.0)),
-        desat_column=str(getattr(config, "HRV_EXCLUSION_DESAT_COLUMN_KEY", "desat_flag")),
-        desat_start_pad_sec=float(getattr(config, "HRV_EXCLUSION_DESAT_START_PAD_SEC", 0.0)),
-        desat_end_pad_sec=float(getattr(config, "HRV_EXCLUSION_DESAT_END_PAD_SEC", 0.0)),
-        desat_min_run_sec=float(getattr(config, "HRV_EXCLUSION_DESAT_MIN_RUN_SEC", 0.0)),
-        desat_lookback_sec=float(getattr(config, "HRV_EXCLUSION_DESAT_LOOKBACK_SEC", 120.0)),
-        desat_lookahead_sec=float(getattr(config, "HRV_EXCLUSION_DESAT_LOOKAHEAD_SEC", 120.0)),
+        use_desat_windows=bool(getattr(config, "PRV_EXCLUSION_USE_DESAT_WINDOWS", False)),
+        event_pre_sec=float(getattr(config, "PRV_EXCLUSION_PRE_SEC", 0.0)),
+        event_post_sec=float(getattr(config, "PRV_EXCLUSION_POST_SEC", 0.0)),
+        desat_column=str(getattr(config, "PRV_EXCLUSION_DESAT_COLUMN_KEY", "desat_flag")),
+        desat_start_pad_sec=float(getattr(config, "PRV_EXCLUSION_DESAT_START_PAD_SEC", 0.0)),
+        desat_end_pad_sec=float(getattr(config, "PRV_EXCLUSION_DESAT_END_PAD_SEC", 0.0)),
+        desat_min_run_sec=float(getattr(config, "PRV_EXCLUSION_DESAT_MIN_RUN_SEC", 0.0)),
+        desat_lookback_sec=float(getattr(config, "PRV_EXCLUSION_DESAT_LOOKBACK_SEC", 120.0)),
+        desat_lookahead_sec=float(getattr(config, "PRV_EXCLUSION_DESAT_LOOKAHEAD_SEC", 120.0)),
     )
 
 

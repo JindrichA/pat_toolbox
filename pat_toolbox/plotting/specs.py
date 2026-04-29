@@ -26,5 +26,5 @@ def active_event_plot_spec() -> List[EventSpec]:
     policy = masking.policy_from_config()
     active_cols = set(policy.exclusion_columns)
     if policy.use_desat_windows:
-        active_cols.add(str(getattr(config, "HRV_EXCLUSION_DESAT_COLUMN_KEY", "desat_flag")))
+        active_cols.add(str(getattr(config, "PRV_EXCLUSION_DESAT_COLUMN_KEY", "desat_flag")))
     return [spec for spec in DEFAULT_EVENT_PLOT_SPEC if spec.col in active_cols]

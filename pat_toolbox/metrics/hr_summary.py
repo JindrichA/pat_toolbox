@@ -10,20 +10,20 @@ from .. import config, features, paths
 from ..io.aux_events import compute_sleep_timing_from_aux
 
 
-def append_hr_hrv_summary(
+def append_hr_prv_summary(
     edf_path: Path,
-    hrv_summary: Optional[Dict[str, float]] = None,
+    prv_summary: Optional[Dict[str, float]] = None,
     mayer_peak_freq: Optional[float] = None,
     resp_peak_freq: Optional[float] = None,
     *,
     t_hr: Optional[np.ndarray] = None,
     hr_calc: Optional[np.ndarray] = None,
-    t_hrv: Optional[np.ndarray] = None,
-    hrv_clean: Optional[np.ndarray] = None,
-    hrv_raw: Optional[np.ndarray] = None,
-    hrv_tv: Optional[Dict[str, np.ndarray]] = None,
-    hrv_mask_info: Optional[Dict[str, object]] = None,
-    hrv_midpoint_halves: Optional[Dict[str, Dict[str, float]]] = None,
+    t_prv: Optional[np.ndarray] = None,
+    prv_clean: Optional[np.ndarray] = None,
+    prv_raw: Optional[np.ndarray] = None,
+    prv_tv: Optional[Dict[str, np.ndarray]] = None,
+    prv_mask_info: Optional[Dict[str, object]] = None,
+    prv_midpoint_halves: Optional[Dict[str, Dict[str, float]]] = None,
     aux_df: Optional[Any] = None,
     psd_features: Optional[Dict[str, float]] = None,
     pat_burden: Optional[float] = None,
@@ -32,9 +32,9 @@ def append_hr_hrv_summary(
 ) -> Path:
     """
     Append one PAT-only summary row with:
-      - HRV summary
+      - PRV summary
       - spectral peaks / PSD features
-      - PAT HR / HRV valid coverage
+      - PAT HR / PRV valid coverage
       - aux event counts
       - sleep-stage masking stats
       - PAT burden
@@ -87,18 +87,18 @@ def append_hr_hrv_summary(
         out["n_total"] = n_total
         return out
 
-    def _hrv_tv_csv_prefix(key: str) -> str:
+    def _prv_tv_csv_prefix(key: str) -> str:
         mapping = {
-            "sdnn_ms_raw": "hrv_tv_sdnn_pre_final_exclusion",
-            "sdnn_ms": "hrv_tv_sdnn_final_analysis",
-            "lf_raw": "hrv_tv_lf_pre_final_exclusion",
-            "lf": "hrv_tv_lf_final_analysis",
-            "hf_raw": "hrv_tv_hf_pre_final_exclusion",
-            "hf": "hrv_tv_hf_final_analysis",
-            "lf_hf_raw": "hrv_tv_lf_hf_pre_final_exclusion",
-            "lf_hf": "hrv_tv_lf_hf_final_analysis",
+            "sdnn_ms_raw": "prv_tv_sdnn_pre_final_exclusion",
+            "sdnn_ms": "prv_tv_sdnn_final_analysis",
+            "lf_raw": "prv_tv_lf_pre_final_exclusion",
+            "lf": "prv_tv_lf_final_analysis",
+            "hf_raw": "prv_tv_hf_pre_final_exclusion",
+            "hf": "prv_tv_hf_final_analysis",
+            "lf_hf_raw": "prv_tv_lf_hf_pre_final_exclusion",
+            "lf_hf": "prv_tv_lf_hf_final_analysis",
         }
-        return mapping.get(key, f"hrv_tv_{key}")
+        return mapping.get(key, f"prv_tv_{key}")
 
     def _mask_breakdown_stats(
         t: Optional[np.ndarray],
@@ -131,7 +131,7 @@ def append_hr_hrv_summary(
         if not all(isinstance(v, np.ndarray) and np.size(v) == np.size(t) for v in required):
             return out
 
-        dt_sec = _sample_dt_sec(t, float(getattr(config, "HRV_TARGET_FS_HZ", 1.0)))
+        dt_sec = _sample_dt_sec(t, float(getattr(config, "PRV_TARGET_FS_HZ", 1.0)))
         sleep_keep = np.asarray(sleep_keep, dtype=bool)
         apnea_keep = np.asarray(apnea_keep, dtype=bool)
         quality_keep = np.asarray(quality_keep, dtype=bool)
@@ -312,7 +312,7 @@ def append_hr_hrv_summary(
 
     summary_folder = paths.get_output_folder(config.HR_OUTPUT_SUBFOLDER)
 
-    summary_parts = features.enabled_feature_parts(("hr", "hrv", "psd", "delta_hr", "pat_burden", "sleep_combo_summary")) or ["SUMMARY"]
+    summary_parts = features.enabled_feature_parts(("hr", "prv", "psd", "delta_hr", "pat_burden", "sleep_combo_summary")) or ["SUMMARY"]
 
     if isinstance(sleep_combo_summaries, dict) and sleep_combo_summaries:
         sleep_stage_policy = "multi_sleep_summary"
@@ -329,7 +329,7 @@ def append_hr_hrv_summary(
     row: Dict[str, Any] = {
         "edf_file": edf_path.name,
     }
-    has_aux_summary_context = features.any_enabled("hrv", "psd", "delta_hr", "pat_burden", "sleep_combo_summary")
+    has_aux_summary_context = features.any_enabled("prv", "psd", "delta_hr", "pat_burden", "sleep_combo_summary")
 
     if features.is_enabled("psd"):
         row["selected_mayer_peak_hz"] = mayer_peak_freq
@@ -352,30 +352,30 @@ def append_hr_hrv_summary(
             row["selected_pat_burden_relative"] = np.nan
             row["selected_pat_burden_nan_pct"] = np.nan
 
-    if features.is_enabled("hrv") and hrv_summary is not None:
+    if features.is_enabled("prv") and prv_summary is not None:
         row.update(
             {
-                "selected_rmssd_mean_ms": hrv_summary.get("rmssd_mean", np.nan),
-                "selected_rmssd_median_ms": hrv_summary.get("rmssd_median", np.nan),
-                "selected_sdnn_mean_ms": hrv_summary.get("sdnn_mean", np.nan),
-                "selected_sdnn_median_ms": hrv_summary.get("sdnn_median", np.nan),
-                "selected_lf": hrv_summary.get("lf", np.nan),
-                "selected_lf_fixed_median": hrv_summary.get("lf_fixed_median", np.nan),
-                "selected_hf": hrv_summary.get("hf", np.nan),
-                "selected_hf_fixed_median": hrv_summary.get("hf_fixed_median", np.nan),
-                "selected_lf_hf": hrv_summary.get("lf_hf", np.nan),
-                "selected_lf_hf_fixed_median": hrv_summary.get("lf_hf_fixed_median", np.nan),
-                "selected_lf_hf_fixed_mean": hrv_summary.get("lf_hf_fixed_mean", np.nan),
-                "selected_lf_hf_fixed_n_windows_valid": hrv_summary.get("lf_hf_fixed_n_windows_valid", np.nan),
-                "selected_lf_hf_fixed_n_windows_total": hrv_summary.get("lf_hf_fixed_n_windows_total", np.nan),
-                "selected_lf_hf_fixed_valid_pct": hrv_summary.get("lf_hf_fixed_valid_pct", np.nan),
-                "selected_lf_hf_fixed_valid_min": hrv_summary.get("lf_hf_fixed_valid_min", np.nan),
-                "selected_lf_hf_fixed_total_min": hrv_summary.get("lf_hf_fixed_total_min", np.nan),
-                "selected_lf_hf_fixed_window_sec": hrv_summary.get("lf_hf_fixed_window_sec", np.nan),
-                "selected_lf_hf_fixed_hop_sec": hrv_summary.get("lf_hf_fixed_hop_sec", np.nan),
+                "selected_rmssd_mean_ms": prv_summary.get("rmssd_mean", np.nan),
+                "selected_rmssd_median_ms": prv_summary.get("rmssd_median", np.nan),
+                "selected_sdnn_mean_ms": prv_summary.get("sdnn_mean", np.nan),
+                "selected_sdnn_median_ms": prv_summary.get("sdnn_median", np.nan),
+                "selected_lf": prv_summary.get("lf", np.nan),
+                "selected_lf_fixed_median": prv_summary.get("lf_fixed_median", np.nan),
+                "selected_hf": prv_summary.get("hf", np.nan),
+                "selected_hf_fixed_median": prv_summary.get("hf_fixed_median", np.nan),
+                "selected_lf_hf": prv_summary.get("lf_hf", np.nan),
+                "selected_lf_hf_fixed_median": prv_summary.get("lf_hf_fixed_median", np.nan),
+                "selected_lf_hf_fixed_mean": prv_summary.get("lf_hf_fixed_mean", np.nan),
+                "selected_lf_hf_fixed_n_windows_valid": prv_summary.get("lf_hf_fixed_n_windows_valid", np.nan),
+                "selected_lf_hf_fixed_n_windows_total": prv_summary.get("lf_hf_fixed_n_windows_total", np.nan),
+                "selected_lf_hf_fixed_valid_pct": prv_summary.get("lf_hf_fixed_valid_pct", np.nan),
+                "selected_lf_hf_fixed_valid_min": prv_summary.get("lf_hf_fixed_valid_min", np.nan),
+                "selected_lf_hf_fixed_total_min": prv_summary.get("lf_hf_fixed_total_min", np.nan),
+                "selected_lf_hf_fixed_window_sec": prv_summary.get("lf_hf_fixed_window_sec", np.nan),
+                "selected_lf_hf_fixed_hop_sec": prv_summary.get("lf_hf_fixed_hop_sec", np.nan),
             }
         )
-    elif features.is_enabled("hrv"):
+    elif features.is_enabled("prv"):
         row.update(
             {
                 "selected_rmssd_mean_ms": np.nan,
@@ -425,63 +425,63 @@ def append_hr_hrv_summary(
         row["selected_hr_std_bpm"] = hr_stats["std"]
         row["selected_hr_valid_pct"] = hr_cov["valid_pct"]
         row["selected_hr_valid_min"] = hr_cov["valid_min"]
-    if features.is_enabled("hrv"):
-        hrv_clean_cov = _coverage_stats(
-            hrv_clean,
-            t=t_hrv,
-            default_fs=float(getattr(config, "HRV_TARGET_FS_HZ", 1.0)),
+    if features.is_enabled("prv"):
+        prv_clean_cov = _coverage_stats(
+            prv_clean,
+            t=t_prv,
+            default_fs=float(getattr(config, "PRV_TARGET_FS_HZ", 1.0)),
         )
-        hrv_raw_cov = _coverage_stats(
-            hrv_raw,
-            t=t_hrv,
-            default_fs=float(getattr(config, "HRV_TARGET_FS_HZ", 1.0)),
+        prv_raw_cov = _coverage_stats(
+            prv_raw,
+            t=t_prv,
+            default_fs=float(getattr(config, "PRV_TARGET_FS_HZ", 1.0)),
         )
-        row["selected_hrv_rmssd_final_analysis_valid_pct"] = hrv_clean_cov["valid_pct"]
-        row["selected_hrv_rmssd_final_analysis_valid_min"] = hrv_clean_cov["valid_min"]
-        row["selected_hrv_rmssd_pre_final_exclusion_valid_pct"] = hrv_raw_cov["valid_pct"]
-        row["selected_hrv_rmssd_pre_final_exclusion_valid_min"] = hrv_raw_cov["valid_min"]
+        row["selected_prv_rmssd_final_analysis_valid_pct"] = prv_clean_cov["valid_pct"]
+        row["selected_prv_rmssd_final_analysis_valid_min"] = prv_clean_cov["valid_min"]
+        row["selected_prv_rmssd_pre_final_exclusion_valid_pct"] = prv_raw_cov["valid_pct"]
+        row["selected_prv_rmssd_pre_final_exclusion_valid_min"] = prv_raw_cov["valid_min"]
 
-    if features.is_enabled("hrv") and isinstance(hrv_tv, dict):
-        for k, v in hrv_tv.items():
+    if features.is_enabled("prv") and isinstance(prv_tv, dict):
+        for k, v in prv_tv.items():
             if v is None or k in {"tv_window_sec", "spectral_window_sec", "spectral_hop_sec"}:
                 continue
             try:
                 arr = np.asarray(v)
             except Exception:
                 continue
-            if arr.ndim == 0 or np.size(arr) != np.size(t_hrv):
+            if arr.ndim == 0 or np.size(arr) != np.size(t_prv):
                 continue
             try:
                 cov = _coverage_stats(
                     arr,
-                    t=t_hrv,
-                    default_fs=float(getattr(config, "HRV_TARGET_FS_HZ", 1.0)),
+                    t=t_prv,
+                    default_fs=float(getattr(config, "PRV_TARGET_FS_HZ", 1.0)),
                 )
-                prefix = _hrv_tv_csv_prefix(k)
+                prefix = _prv_tv_csv_prefix(k)
                 row[f"{prefix}_valid_pct"] = cov["valid_pct"]
                 row[f"{prefix}_valid_min"] = cov["valid_min"]
             except Exception:
                 pass
 
-    if features.is_enabled("hrv"):
-        mask_breakdown = _mask_breakdown_stats(t_hrv, hrv_mask_info)
-        row["selected_hrv_selected_policy_min"] = mask_breakdown["selected_policy_min"]
-        row["selected_hrv_clean_kept_min"] = mask_breakdown["clean_kept_min"]
-        row["selected_hrv_clean_kept_pct_of_selected"] = mask_breakdown["clean_kept_pct_of_selected"]
-        row["selected_hrv_mask_excluded_total_min"] = mask_breakdown["excluded_total_min"]
-        row["selected_hrv_mask_excluded_total_pct_of_selected"] = mask_breakdown["excluded_total_pct_of_selected"]
-        row["selected_hrv_excluded_apnea_only_min"] = mask_breakdown["excluded_apnea_only_min"]
-        row["selected_hrv_excluded_apnea_only_pct_of_selected"] = mask_breakdown["excluded_apnea_only_pct_of_selected"]
-        row["selected_hrv_excluded_quality_only_min"] = mask_breakdown["excluded_quality_only_min"]
-        row["selected_hrv_excluded_quality_only_pct_of_selected"] = mask_breakdown["excluded_quality_only_pct_of_selected"]
-        row["selected_hrv_excluded_desat_only_min"] = mask_breakdown["excluded_desat_only_min"]
-        row["selected_hrv_excluded_desat_only_pct_of_selected"] = mask_breakdown["excluded_desat_only_pct_of_selected"]
-        row["selected_hrv_excluded_overlap_min"] = mask_breakdown["excluded_overlap_min"]
-        row["selected_hrv_excluded_overlap_pct_of_selected"] = mask_breakdown["excluded_overlap_pct_of_selected"]
+    if features.is_enabled("prv"):
+        mask_breakdown = _mask_breakdown_stats(t_prv, prv_mask_info)
+        row["selected_prv_selected_policy_min"] = mask_breakdown["selected_policy_min"]
+        row["selected_prv_clean_kept_min"] = mask_breakdown["clean_kept_min"]
+        row["selected_prv_clean_kept_pct_of_selected"] = mask_breakdown["clean_kept_pct_of_selected"]
+        row["selected_prv_mask_excluded_total_min"] = mask_breakdown["excluded_total_min"]
+        row["selected_prv_mask_excluded_total_pct_of_selected"] = mask_breakdown["excluded_total_pct_of_selected"]
+        row["selected_prv_excluded_apnea_only_min"] = mask_breakdown["excluded_apnea_only_min"]
+        row["selected_prv_excluded_apnea_only_pct_of_selected"] = mask_breakdown["excluded_apnea_only_pct_of_selected"]
+        row["selected_prv_excluded_quality_only_min"] = mask_breakdown["excluded_quality_only_min"]
+        row["selected_prv_excluded_quality_only_pct_of_selected"] = mask_breakdown["excluded_quality_only_pct_of_selected"]
+        row["selected_prv_excluded_desat_only_min"] = mask_breakdown["excluded_desat_only_min"]
+        row["selected_prv_excluded_desat_only_pct_of_selected"] = mask_breakdown["excluded_desat_only_pct_of_selected"]
+        row["selected_prv_excluded_overlap_min"] = mask_breakdown["excluded_overlap_min"]
+        row["selected_prv_excluded_overlap_pct_of_selected"] = mask_breakdown["excluded_overlap_pct_of_selected"]
 
-    if features.is_enabled("hrv") and isinstance(hrv_midpoint_halves, dict):
+    if features.is_enabled("prv") and isinstance(prv_midpoint_halves, dict):
         for half_key, prefix in [("first_half", "nrem_first_half"), ("second_half", "nrem_second_half")]:
-            half_summary = hrv_midpoint_halves.get(half_key)
+            half_summary = prv_midpoint_halves.get(half_key)
             if not isinstance(half_summary, dict):
                 continue
             for src, dst in [
@@ -556,9 +556,9 @@ def append_hr_hrv_summary(
                 row[f"{prefix}_hr_median"] = hr_item.get("median", np.nan)
                 row[f"{prefix}_hr_std"] = hr_item.get("std", np.nan)
 
-            hrv_summary_obj = item.get("hrv_summary")
-            hrv_item: Dict[str, Any] = hrv_summary_obj if isinstance(hrv_summary_obj, dict) else {}
-            if features.is_enabled("hrv"):
+            prv_summary_obj = item.get("prv_summary")
+            prv_item: Dict[str, Any] = prv_summary_obj if isinstance(prv_summary_obj, dict) else {}
+            if features.is_enabled("prv"):
                 for src, dst in [
                     ("rmssd_mean", "rmssd_mean_ms"),
                     ("rmssd_median", "rmssd_median_ms"),
@@ -577,7 +577,7 @@ def append_hr_hrv_summary(
                     ("lf_hf_fixed_window_sec", "lf_hf_fixed_window_sec"),
                     ("lf_hf_fixed_hop_sec", "lf_hf_fixed_hop_sec"),
                 ]:
-                    row[f"{prefix}_{dst}"] = hrv_item.get(src, np.nan)
+                    row[f"{prefix}_{dst}"] = prv_item.get(src, np.nan)
 
             psd_item_obj = item.get("psd_features")
             psd_item: Dict[str, Any] = psd_item_obj if isinstance(psd_item_obj, dict) else {}
@@ -596,24 +596,24 @@ def append_hr_hrv_summary(
         "edf_file",
         "selected_hr_min_bpm", "selected_hr_max_bpm", "selected_hr_mean_bpm", "selected_hr_median_bpm", "selected_hr_std_bpm", "selected_hr_valid_pct", "selected_hr_valid_min",
         "selected_rmssd_mean_ms", "selected_rmssd_median_ms", "selected_sdnn_mean_ms", "selected_sdnn_median_ms",
-        "selected_hrv_rmssd_final_analysis_valid_pct", "selected_hrv_rmssd_final_analysis_valid_min", "selected_hrv_rmssd_pre_final_exclusion_valid_pct",
-        "selected_hrv_rmssd_pre_final_exclusion_valid_min", "hrv_tv_sdnn_final_analysis_valid_pct", "hrv_tv_sdnn_final_analysis_valid_min",
-        "hrv_tv_sdnn_pre_final_exclusion_valid_pct", "hrv_tv_sdnn_pre_final_exclusion_valid_min",
+        "selected_prv_rmssd_final_analysis_valid_pct", "selected_prv_rmssd_final_analysis_valid_min", "selected_prv_rmssd_pre_final_exclusion_valid_pct",
+        "selected_prv_rmssd_pre_final_exclusion_valid_min", "prv_tv_sdnn_final_analysis_valid_pct", "prv_tv_sdnn_final_analysis_valid_min",
+        "prv_tv_sdnn_pre_final_exclusion_valid_pct", "prv_tv_sdnn_pre_final_exclusion_valid_min",
         "selected_lf", "selected_lf_fixed_median", "selected_hf", "selected_hf_fixed_median", "selected_lf_hf", "selected_lf_hf_fixed_median", "selected_lf_hf_fixed_mean", "selected_lf_hf_fixed_n_windows_valid",
         "selected_lf_hf_fixed_n_windows_total", "selected_lf_hf_fixed_valid_pct", "selected_lf_hf_fixed_valid_min", "selected_lf_hf_fixed_total_min",
         "selected_lf_hf_fixed_window_sec", "selected_lf_hf_fixed_hop_sec",
-        "hrv_tv_lf_final_analysis_valid_pct", "hrv_tv_lf_final_analysis_valid_min", "hrv_tv_lf_pre_final_exclusion_valid_pct", "hrv_tv_lf_pre_final_exclusion_valid_min",
-        "hrv_tv_hf_final_analysis_valid_pct", "hrv_tv_hf_final_analysis_valid_min", "hrv_tv_hf_pre_final_exclusion_valid_pct", "hrv_tv_hf_pre_final_exclusion_valid_min",
-        "hrv_tv_lf_hf_final_analysis_valid_pct", "hrv_tv_lf_hf_final_analysis_valid_min", "hrv_tv_lf_hf_pre_final_exclusion_valid_pct", "hrv_tv_lf_hf_pre_final_exclusion_valid_min",
+        "prv_tv_lf_final_analysis_valid_pct", "prv_tv_lf_final_analysis_valid_min", "prv_tv_lf_pre_final_exclusion_valid_pct", "prv_tv_lf_pre_final_exclusion_valid_min",
+        "prv_tv_hf_final_analysis_valid_pct", "prv_tv_hf_final_analysis_valid_min", "prv_tv_hf_pre_final_exclusion_valid_pct", "prv_tv_hf_pre_final_exclusion_valid_min",
+        "prv_tv_lf_hf_final_analysis_valid_pct", "prv_tv_lf_hf_final_analysis_valid_min", "prv_tv_lf_hf_pre_final_exclusion_valid_pct", "prv_tv_lf_hf_pre_final_exclusion_valid_min",
         "selected_mayer_peak_hz", "selected_resp_peak_hz", "selected_psd_pow_vlf", "selected_psd_pow_mayer", "selected_psd_pow_resp", "selected_psd_norm_mayer",
         "selected_psd_norm_resp", "selected_psd_valid_windows", "selected_pat_burden", "selected_pat_burden_sleep_hours",
         "selected_pat_burden_total_area_min", "selected_pat_burden_n_episodes", "selected_pat_burden_n_episodes_used",
-        "selected_pat_burden_relative", "selected_pat_burden_nan_pct", "selected_hrv_selected_policy_min", "selected_hrv_clean_kept_min",
-        "selected_hrv_clean_kept_pct_of_selected", "selected_hrv_mask_excluded_total_min", "selected_hrv_mask_excluded_total_pct_of_selected",
-        "selected_hrv_excluded_apnea_only_min", "selected_hrv_excluded_apnea_only_pct_of_selected",
-        "selected_hrv_excluded_quality_only_min", "selected_hrv_excluded_quality_only_pct_of_selected",
-        "selected_hrv_excluded_desat_only_min", "selected_hrv_excluded_desat_only_pct_of_selected",
-        "selected_hrv_excluded_overlap_min", "selected_hrv_excluded_overlap_pct_of_selected", "sleep_onset_h_from_start", "sleep_onset_hhmm_from_start",
+        "selected_pat_burden_relative", "selected_pat_burden_nan_pct", "selected_prv_selected_policy_min", "selected_prv_clean_kept_min",
+        "selected_prv_clean_kept_pct_of_selected", "selected_prv_mask_excluded_total_min", "selected_prv_mask_excluded_total_pct_of_selected",
+        "selected_prv_excluded_apnea_only_min", "selected_prv_excluded_apnea_only_pct_of_selected",
+        "selected_prv_excluded_quality_only_min", "selected_prv_excluded_quality_only_pct_of_selected",
+        "selected_prv_excluded_desat_only_min", "selected_prv_excluded_desat_only_pct_of_selected",
+        "selected_prv_excluded_overlap_min", "selected_prv_excluded_overlap_pct_of_selected", "sleep_onset_h_from_start", "sleep_onset_hhmm_from_start",
         "sleep_midpoint_h_from_start", "sleep_midpoint_hhmm_from_start", "sleep_end_h_from_start", "sleep_end_hhmm_from_start",
         "nrem_first_half_rmssd_mean_ms", "nrem_first_half_rmssd_median_ms", "nrem_first_half_sdnn_mean_ms", "nrem_first_half_sdnn_median_ms", "nrem_first_half_lf_ms2", "nrem_first_half_lf_fixed_median_ms2", "nrem_first_half_hf_ms2", "nrem_first_half_hf_fixed_median_ms2",
         "nrem_first_half_lf_hf_ratio", "nrem_first_half_lf_hf_fixed_mean", "nrem_first_half_lf_hf_fixed_median", "nrem_first_half_lf_hf_fixed_n_windows_valid", "nrem_first_half_lf_hf_fixed_valid_min",
@@ -694,19 +694,19 @@ def append_hr_correlation_to_summary(
     pearson_r: Optional[float],
     spear_rho: Optional[float],
     rmse: Optional[float],
-    hrv_summary: Optional[Dict[str, float]] = None,
+    prv_summary: Optional[Dict[str, float]] = None,
     mayer_peak_freq: Optional[float] = None,
     resp_peak_freq: Optional[float] = None,
     *,
     t_hr: Optional[np.ndarray] = None,
     hr_calc: Optional[np.ndarray] = None,
     hr_edf: Optional[np.ndarray] = None,
-    t_hrv: Optional[np.ndarray] = None,
-    hrv_clean: Optional[np.ndarray] = None,
-    hrv_raw: Optional[np.ndarray] = None,
-    hrv_tv: Optional[Dict[str, np.ndarray]] = None,
-    hrv_mask_info: Optional[Dict[str, object]] = None,
-    hrv_midpoint_halves: Optional[Dict[str, Dict[str, float]]] = None,
+    t_prv: Optional[np.ndarray] = None,
+    prv_clean: Optional[np.ndarray] = None,
+    prv_raw: Optional[np.ndarray] = None,
+    prv_tv: Optional[Dict[str, np.ndarray]] = None,
+    prv_mask_info: Optional[Dict[str, object]] = None,
+    prv_midpoint_halves: Optional[Dict[str, Dict[str, float]]] = None,
     aux_df: Optional[Any] = None,
     psd_features: Optional[Dict[str, float]] = None,
     pat_burden: Optional[float] = None,
@@ -716,19 +716,19 @@ def append_hr_correlation_to_summary(
     Backward-compatible wrapper.
     Proprietary/reference HR and correlation inputs are ignored.
     """
-    return append_hr_hrv_summary(
+    return append_hr_prv_summary(
         edf_path=edf_path,
-        hrv_summary=hrv_summary,
+        prv_summary=prv_summary,
         mayer_peak_freq=mayer_peak_freq,
         resp_peak_freq=resp_peak_freq,
         t_hr=t_hr,
         hr_calc=hr_calc,
-        t_hrv=t_hrv,
-        hrv_clean=hrv_clean,
-        hrv_raw=hrv_raw,
-        hrv_tv=hrv_tv,
-        hrv_mask_info=hrv_mask_info,
-        hrv_midpoint_halves=hrv_midpoint_halves,
+        t_prv=t_prv,
+        prv_clean=prv_clean,
+        prv_raw=prv_raw,
+        prv_tv=prv_tv,
+        prv_mask_info=prv_mask_info,
+        prv_midpoint_halves=prv_midpoint_halves,
         aux_df=aux_df,
         psd_features=psd_features,
         pat_burden=pat_burden,

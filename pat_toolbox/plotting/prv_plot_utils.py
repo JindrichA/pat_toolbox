@@ -18,15 +18,15 @@ if TYPE_CHECKING:
     import pandas as pd
 
 
-def _shade_hrv_mask_layers(
+def _shade_prv_mask_layers(
     ax: Any,
     t_sec: np.ndarray,
-    hrv_mask_info: Optional[Dict[str, object]],
+    prv_mask_info: Optional[Dict[str, object]],
 ) -> None:
-    if not hrv_mask_info:
+    if not prv_mask_info:
         return
 
-    sleep_keep = hrv_mask_info.get("sleep_keep")
+    sleep_keep = prv_mask_info.get("sleep_keep")
     sleep_excluded_mask = None
     if sleep_keep is not None:
         sleep_excluded_mask = ~np.asarray(sleep_keep, dtype=bool)
@@ -39,7 +39,7 @@ def _shade_hrv_mask_layers(
             zorder=0.03,
         )
 
-    calc_excluded = hrv_mask_info.get("combined_keep")
+    calc_excluded = prv_mask_info.get("combined_keep")
     if calc_excluded is not None:
         calc_excluded_mask = ~np.asarray(calc_excluded, dtype=bool)
         if sleep_excluded_mask is not None and sleep_excluded_mask.shape == calc_excluded_mask.shape:
@@ -62,9 +62,9 @@ def _bin_series_mean_ci(
     min_count: Optional[int] = None,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     if bin_sec is None:
-        bin_sec = float(getattr(config, "HRV_PLOT_BIN_SEC", 5.0 * 60.0))
+        bin_sec = float(getattr(config, "PRV_PLOT_BIN_SEC", 5.0 * 60.0))
     if min_count is None:
-        min_count = int(getattr(config, "HRV_PLOT_BIN_MIN_COUNT", 3))
+        min_count = int(getattr(config, "PRV_PLOT_BIN_MIN_COUNT", 3))
 
     t_sec = np.asarray(t_sec, dtype=float)
     y = np.asarray(y, dtype=float)

@@ -83,7 +83,7 @@ python -m pytest path/to/test_file.py::test_name
 
 - `main.py` enumerates EDF files and drives batch processing.
 - `pat_toolbox/config.py` is the central control surface for paths, feature flags, masking policy, and numeric parameters.
-- `pat_toolbox/workflows.py` orchestrates loading, filtering, HR, HRV, PSD, PAT burden, and report generation.
+- `pat_toolbox/workflows.py` orchestrates loading, filtering, HR, PRV, PSD, PAT burden, and report generation.
 - `pat_toolbox/context.py` defines `RecordingContext`, the per-recording state container.
 - `pat_toolbox/io_edf.py` reads EDF channels and lists EDF inputs.
 - `pat_toolbox/io_aux_csv.py` and `pat_toolbox/io/` normalize auxiliary CSV data and event masks.
@@ -106,7 +106,7 @@ python -m pytest path/to/test_file.py::test_name
 ### Imports
 
 - Group imports as standard library, third-party, then local package imports.
-- Within package code, prefer explicit relative imports such as `from . import config` or `from ..metrics import hrv`.
+- Within package code, prefer explicit relative imports such as `from . import config` or `from ..metrics import prv`.
 - Avoid wildcard imports.
 - Remove unused imports when touching a file.
 

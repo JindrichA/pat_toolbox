@@ -7,7 +7,7 @@ from . import config, features, masking, sleep_mask
 from .context import RecordingContext
 from .io_aux_csv import compute_sleep_timing_from_aux
 from .metrics import hr as hr_metrics
-from .metrics import hrv as hrv_metrics
+from .metrics import prv as prv_metrics
 from .metrics import pat_burden as pat_burden_metrics
 from .metrics import psd as psd_metrics
 from .metrics.hr_event_response import summarize_event_hr_response
@@ -58,9 +58,9 @@ def _compute_single_sleep_combo_summary(
 ) -> dict[str, object]:
     sleep_hours = sleep_mask.compute_sleep_hours_from_aux(aux_df, include_set=include_set)
 
-    hrv_summary = None
-    if features.is_enabled("hrv"):
-        hrv_summary = hrv_metrics.summarize_hrv_from_rr(rr_mid, rr_ms, duration_sec, aux_df, include_set=include_set)
+    prv_summary = None
+    if features.is_enabled("prv"):
+        prv_summary = prv_metrics.summarize_prv_from_rr(rr_mid, rr_ms, duration_sec, aux_df, include_set=include_set)
 
     hr_summary = None
     if features.is_enabled("hr") and t_hr_subset is not None and hr_raw_subset is not None and aux_df is not None:
@@ -94,7 +94,7 @@ def _compute_single_sleep_combo_summary(
         "include_set": set(include_set),
         "sleep_hours": sleep_hours,
         "hr_summary": hr_summary,
-        "hrv_summary": hrv_summary,
+        "prv_summary": prv_summary,
         "psd_features": psd_features,
         "hr_event_response_summary": hr_event_response_summary,
         "pat_burden": burden,
@@ -131,7 +131,7 @@ def compute_sleep_combo_summaries_step(ctx: RecordingContext) -> None:
     ctx.sleep_combo_summaries = None
     if not features.is_enabled("sleep_combo_summary"):
         return
-    if not features.any_enabled("hr", "hrv", "psd", "delta_hr", "pat_burden"):
+    if not features.any_enabled("hr", "prv", "psd", "delta_hr", "pat_burden"):
         return
     if ctx.view_pat is None or ctx.sfreq is None or ctx.sfreq <= 0:
         return
@@ -203,34 +203,34 @@ def compute_hr_from_pat_step(ctx: RecordingContext) -> None:
         ctx.hr_calc_raw = None
 
 
-def compute_hrv_step(ctx: RecordingContext) -> None:
-    if not features.is_enabled("hrv"):
-        ctx.t_hrv = None
-        ctx.hrv_rmssd_raw = None
-        ctx.hrv_rmssd_clean = None
-        ctx.hrv_summary = None
-        ctx.hrv_tv = None
-        ctx.hrv_mask_info = None
-        ctx.hrv_midpoint_halves = None
+def compute_prv_step(ctx: RecordingContext) -> None:
+    if not features.is_enabled("prv"):
+        ctx.t_prv = None
+        ctx.prv_rmssd_raw = None
+        ctx.prv_rmssd_clean = None
+        ctx.prv_summary = None
+        ctx.prv_tv = None
+        ctx.prv_mask_info = None
+        ctx.prv_midpoint_halves = None
         return
     assert ctx.view_pat is not None and ctx.sfreq is not None
     try:
-        ctx.t_hrv, ctx.hrv_rmssd_raw, ctx.hrv_rmssd_clean, ctx.hrv_summary, ctx.hrv_tv = hrv_metrics.compute_hrv_from_pat_signal_with_tv_metrics(
+        ctx.t_prv, ctx.prv_rmssd_raw, ctx.prv_rmssd_clean, ctx.prv_summary, ctx.prv_tv = prv_metrics.compute_prv_from_pat_signal_with_tv_metrics(
             ctx.view_pat,
             fs=ctx.sfreq,
             aux_df=ctx.aux_df,
-            target_fs=config.HRV_TARGET_FS_HZ,
-            window_sec=config.HRV_WINDOW_SEC,
-            tv_window_sec=getattr(config, "HRV_TV_WINDOW_SEC"),
+            target_fs=config.PRV_TARGET_FS_HZ,
+            window_sec=config.PRV_WINDOW_SEC,
+            tv_window_sec=getattr(config, "PRV_TV_WINDOW_SEC"),
         )
-        if ctx.hrv_summary is not None:
-            s = ctx.hrv_summary
+        if ctx.prv_summary is not None:
+            s = ctx.prv_summary
             nseg = s.get("lf_n_segments_used", None)
             nseg_str = f", LF_segments_used={int(nseg)}" if nseg is not None else ""
-            print("  HRV summary (Clean): " f"RMSSD_mean={s['rmssd_mean']:.2f} ms, " f"SDNN={s['sdnn']:.2f} ms" f"{nseg_str}")
-        if ctx.t_hrv is not None:
-            bundle = masking.build_mask_bundle(ctx.t_hrv, ctx.aux_df)
-            ctx.hrv_mask_info = {
+            print("  PRV summary (Clean): " f"RMSSD_mean={s['rmssd_mean']:.2f} ms, " f"SDNN={s['sdnn']:.2f} ms" f"{nseg_str}")
+        if ctx.t_prv is not None:
+            bundle = masking.build_mask_bundle(ctx.t_prv, ctx.aux_df)
+            ctx.prv_mask_info = {
                 "sleep_keep": np.asarray(bundle.sleep_keep, dtype=bool),
                 "apnea_keep": np.asarray(bundle.apnea_keep, dtype=bool),
                 "quality_keep": np.asarray(bundle.quality_keep, dtype=bool),
@@ -247,14 +247,14 @@ def compute_hrv_step(ctx: RecordingContext) -> None:
             ctx.rr_ms_clean = rr_ms
             ctx.rr_duration_sec = float(duration_sec)
             ctx.sleep_timing = compute_sleep_timing_from_aux(ctx.aux_df) if ctx.aux_df is not None else None
-            ctx.hrv_midpoint_halves = None
+            ctx.prv_midpoint_halves = None
             if ctx.sleep_timing is not None and ctx.aux_df is not None:
                 onset_sec = float(ctx.sleep_timing.get("sleep_onset_rel_sec", np.nan))
                 split_sec = float(ctx.sleep_timing.get("sleep_midpoint_rel_sec", np.nan))
                 end_sec = float(ctx.sleep_timing.get("sleep_end_rel_sec", np.nan))
                 if np.isfinite(onset_sec) and np.isfinite(split_sec) and np.isfinite(end_sec) and onset_sec < split_sec < end_sec:
                     include_set = {1, 2}
-                    _rr_mid_sleep, _rr_ms_sleep, rr_mid_clean, rr_ms_clean = hrv_metrics._subset_rr_by_sleep_and_events(
+                    _rr_mid_sleep, _rr_ms_sleep, rr_mid_clean, rr_ms_clean = prv_metrics._subset_rr_by_sleep_and_events(
                         rr_mid,
                         rr_ms,
                         ctx.aux_df,
@@ -263,26 +263,26 @@ def compute_hrv_step(ctx: RecordingContext) -> None:
                     in_sleep_window = (rr_mid_clean >= onset_sec) & (rr_mid_clean < end_sec)
                     rr_mid_sleep_window = rr_mid_clean[in_sleep_window] - onset_sec
                     rr_ms_sleep_window = rr_ms_clean[in_sleep_window]
-                    ctx.hrv_midpoint_halves = hrv_metrics.summarize_hrv_halves_from_clean_rr(
+                    ctx.prv_midpoint_halves = prv_metrics.summarize_prv_halves_from_clean_rr(
                         rr_mid_sleep_window,
                         rr_ms_sleep_window,
                         split_sec=split_sec - onset_sec,
                         duration_sec=end_sec - onset_sec,
-                        target_fs=config.HRV_TARGET_FS_HZ,
-                        window_sec=config.HRV_WINDOW_SEC,
+                        target_fs=config.PRV_TARGET_FS_HZ,
+                        window_sec=config.PRV_WINDOW_SEC,
                     )
         except Exception as e:
-            print(f"  WARNING: could not compute sleep-midpoint HRV halves: {e}")
-            ctx.hrv_midpoint_halves = None
+            print(f"  WARNING: could not compute sleep-midpoint PRV halves: {e}")
+            ctx.prv_midpoint_halves = None
     except Exception as e:
-        print(f"  WARNING: HRV computation failed: {e}")
-        ctx.t_hrv = None
-        ctx.hrv_rmssd_raw = None
-        ctx.hrv_rmssd_clean = None
-        ctx.hrv_summary = None
-        ctx.hrv_tv = None
-        ctx.hrv_mask_info = None
-        ctx.hrv_midpoint_halves = None
+        print(f"  WARNING: PRV computation failed: {e}")
+        ctx.t_prv = None
+        ctx.prv_rmssd_raw = None
+        ctx.prv_rmssd_clean = None
+        ctx.prv_summary = None
+        ctx.prv_tv = None
+        ctx.prv_mask_info = None
+        ctx.prv_midpoint_halves = None
 
 
 def compute_psd_step(ctx: RecordingContext) -> None:

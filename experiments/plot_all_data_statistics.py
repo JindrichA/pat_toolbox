@@ -8,7 +8,7 @@ from scipy.stats import mannwhitneyu
 # ----------------------------
 # File paths
 # ----------------------------
-csv_path = "/Users/jindrich/Projects/PAT_022026_output_data/HR__20260413_115908__all_sleep_incluidng_wake__deltahrinclud/HR_HRV_EVENT_HR_summary__multi_sleep_summary__20260413_115908.csv"
+csv_path = "/Users/jindrich/Projects/PAT_022026_output_data/HR__20260413_115908__all_sleep_incluidng_wake__deltahrinclud/HR_PRV_EVENT_HR_summary__multi_sleep_summary__20260413_115908.csv"
 xlsx_path = "/Users/jindrich/Projects/mayo_sleep_pat/SmallDataset21Oct25/Data/20251020_parsed_last_deindentified.xlsx"
 
 output_dir = "/Users/jindrich/Projects/pat_toolbox/experiments/ahi_feature_analysis"
@@ -78,8 +78,8 @@ merged["AHI_group"] = pd.cut(
 # lf_hf_fixed_n_windows_total lf_hf_fixed_window_sec lf_hf_fixed_hop_sec
 # hr_pat_nan_pct delta_hr_mean delta_hr_median delta_hr_std delta_hr_nan_pct
 # delta_hr_n_used delta_hr_evt_mean delta_hr_evt_median delta_hr_evt_std
-# delta_hr_evt_nan_pct delta_hr_evt_n_used hrv_rmssd_clean_nan_pct
-# hrv_rmssd_raw_nan_pct aux_rows desat_n desat_pct exclude_pat_n
+# delta_hr_evt_nan_pct delta_hr_evt_n_used prv_rmssd_clean_nan_pct
+# prv_rmssd_raw_nan_pct aux_rows desat_n desat_pct exclude_pat_n
 # exclude_pat_pct evt_central_3_n evt_central_3_pct evt_obstructive_3_n
 # evt_obstructive_3_pct evt_unclassified_3_n evt_unclassified_3_pct
 # sleep_mask_enabled sleep_included_n sleep_included_pct sleep_excluded_n
@@ -119,8 +119,8 @@ merged["AHI_group"] = pd.cut(
 # combo_wake_sleep_peak_to_trough_hr combo_wake_sleep_post_peak_minus_pre_mean_hr
 # combo_wake_sleep_psd_valid_windows combo_wake_sleep_rmssd_mean_ms
 # combo_wake_sleep_sdnn_ms combo_wake_sleep_sleep_hours
-# hrv_tv_hf_nan_pct hrv_tv_lf_hf_nan_pct hrv_tv_lf_nan_pct
-# hrv_tv_rmssd_ms_nan_pct hrv_tv_sdnn_ms_nan_pct hrv_tv_tv_window_sec_nan_pct
+# prv_tv_hf_nan_pct prv_tv_lf_hf_nan_pct prv_tv_lf_nan_pct
+# prv_tv_rmssd_ms_nan_pct prv_tv_sdnn_ms_nan_pct prv_tv_tv_window_sec_nan_pct
 # """.split()
 
 
@@ -129,7 +129,7 @@ feature_cols = """
 rmssd_mean_ms rmssd_median_ms sdnn_ms lf hf lf_hf lf_n_segments_used
 lf_hf_fixed_median lf_hf_fixed_mean lf_hf_fixed_n_windows_valid
 lf_hf_fixed_n_windows_total lf_hf_fixed_window_sec lf_hf_fixed_hop_sec
-hr_pat_nan_pct hrv_rmssd_clean_nan_pct hrv_rmssd_raw_nan_pct aux_rows
+hr_pat_nan_pct prv_rmssd_clean_nan_pct prv_rmssd_raw_nan_pct aux_rows
 desat_n desat_pct exclude_pat_n exclude_pat_pct evt_central_3_n
 evt_central_3_pct evt_obstructive_3_n evt_obstructive_3_pct
 evt_unclassified_3_n evt_unclassified_3_pct sleep_mask_enabled
@@ -172,9 +172,9 @@ combo_wake_sleep_lf_n_segments_used
 combo_wake_sleep_mean_to_peak_response_mean combo_wake_sleep_pat_burden
 combo_wake_sleep_psd_valid_windows combo_wake_sleep_rmssd_mean_ms
 combo_wake_sleep_sdnn_ms combo_wake_sleep_sleep_hours
-combo_wake_sleep_trough_to_peak_response_mean hrv_tv_hf_nan_pct
-hrv_tv_lf_hf_nan_pct hrv_tv_lf_nan_pct hrv_tv_rmssd_ms_nan_pct
-hrv_tv_sdnn_ms_nan_pct hrv_tv_tv_window_sec_nan_pct
+combo_wake_sleep_trough_to_peak_response_mean prv_tv_hf_nan_pct
+prv_tv_lf_hf_nan_pct prv_tv_lf_nan_pct prv_tv_rmssd_ms_nan_pct
+prv_tv_sdnn_ms_nan_pct prv_tv_tv_window_sec_nan_pct
 """.split()
 
 feature_cols = [

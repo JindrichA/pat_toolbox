@@ -94,7 +94,7 @@ def _append_coverage_rows(rows: List[List[str]], label: str, stats: Dict[str, Op
     rows.append([f"  {label} valid [%]", _fmt_pct(stats.get("valid_pct"), 1)])
 
 
-def _hrv_tv_display_label(key: str) -> str:
+def _prv_tv_display_label(key: str) -> str:
     mapping = {
         "sdnn_ms_raw": "SDNN pre-final exclusion",
         "sdnn_ms": "SDNN final-analysis",
@@ -109,22 +109,22 @@ def _hrv_tv_display_label(key: str) -> str:
 
 
 def _build_mask_breakdown_rows(
-    t_hrv: Optional[np.ndarray],
-    hrv_mask_info: Optional[Dict[str, object]],
+    t_prv: Optional[np.ndarray],
+    prv_mask_info: Optional[Dict[str, object]],
 ) -> List[List[str]]:
-    if t_hrv is None or not hrv_mask_info:
+    if t_prv is None or not prv_mask_info:
         return []
 
-    sleep_keep = hrv_mask_info.get("sleep_keep")
-    apnea_keep = hrv_mask_info.get("apnea_keep")
-    quality_keep = hrv_mask_info.get("quality_keep")
-    desat_keep = hrv_mask_info.get("desat_keep")
-    combined_keep = hrv_mask_info.get("combined_keep")
+    sleep_keep = prv_mask_info.get("sleep_keep")
+    apnea_keep = prv_mask_info.get("apnea_keep")
+    quality_keep = prv_mask_info.get("quality_keep")
+    desat_keep = prv_mask_info.get("desat_keep")
+    combined_keep = prv_mask_info.get("combined_keep")
 
-    if not all(isinstance(v, np.ndarray) and np.size(v) == np.size(t_hrv) for v in [sleep_keep, apnea_keep, quality_keep, desat_keep, combined_keep]):
+    if not all(isinstance(v, np.ndarray) and np.size(v) == np.size(t_prv) for v in [sleep_keep, apnea_keep, quality_keep, desat_keep, combined_keep]):
         return []
 
-    dt_sec = _sample_dt_sec(t_hrv, float(getattr(config, "HRV_TARGET_FS_HZ", 1.0)))
+    dt_sec = _sample_dt_sec(t_prv, float(getattr(config, "PRV_TARGET_FS_HZ", 1.0)))
     sleep_keep = np.asarray(sleep_keep, dtype=bool)
     apnea_keep = np.asarray(apnea_keep, dtype=bool)
     quality_keep = np.asarray(quality_keep, dtype=bool)
@@ -263,8 +263,8 @@ def _sleep_combo_row_values(item: Dict[str, Any]) -> tuple[str, list[str], list[
     sleep_hours = _fmt_num(item.get("sleep_hours"), 2)
     hr_summary_obj = item.get("hr_summary")
     hr_summary: Dict[str, Any] = hr_summary_obj if isinstance(hr_summary_obj, dict) else {}
-    hrv_summary_obj = item.get("hrv_summary")
-    hrv_summary: Dict[str, Any] = hrv_summary_obj if isinstance(hrv_summary_obj, dict) else {}
+    prv_summary_obj = item.get("prv_summary")
+    prv_summary: Dict[str, Any] = prv_summary_obj if isinstance(prv_summary_obj, dict) else {}
     psd_features_obj = item.get("psd_features")
     psd_features: Dict[str, Any] = psd_features_obj if isinstance(psd_features_obj, dict) else {}
     hr_response_obj = item.get("hr_event_response_summary")
@@ -280,17 +280,17 @@ def _sleep_combo_row_values(item: Dict[str, Any]) -> tuple[str, list[str], list[
         ])
 
     core_secondary: list[str] = []
-    if features.is_enabled("hrv"):
+    if features.is_enabled("prv"):
         core_primary.extend([
-            f"{_fmt(hrv_summary.get('rmssd_mean'), 1)} ms",
-            f"{_fmt(hrv_summary.get('rmssd_median'), 1)} ms",
+            f"{_fmt(prv_summary.get('rmssd_mean'), 1)} ms",
+            f"{_fmt(prv_summary.get('rmssd_median'), 1)} ms",
         ])
         core_secondary.extend([
-            f"{_fmt(hrv_summary.get('sdnn_mean'), 1)} ms",
-            f"{_fmt(hrv_summary.get('sdnn_median'), 1)} ms",
-            f"{_fmt(hrv_summary.get('lf'), 2)}",
-            f"{_fmt(hrv_summary.get('hf'), 2)}",
-            f"{_fmt(hrv_summary.get('lf_hf'), 2)}",
+            f"{_fmt(prv_summary.get('sdnn_mean'), 1)} ms",
+            f"{_fmt(prv_summary.get('sdnn_median'), 1)} ms",
+            f"{_fmt(prv_summary.get('lf'), 2)}",
+            f"{_fmt(prv_summary.get('hf'), 2)}",
+            f"{_fmt(prv_summary.get('lf_hf'), 2)}",
         ])
 
     right: list[str] = []
@@ -314,11 +314,11 @@ def _sleep_combo_tables(sleep_combo_summaries: Optional[Dict[str, Dict[str, obje
     primary_headers = ["Subset", "Sleep h"]
     if features.is_enabled("hr"):
         primary_headers.extend(["HR mean", "HR med", "HR std"])
-    if features.is_enabled("hrv"):
+    if features.is_enabled("prv"):
         primary_headers.extend(["RMSSD mean", "RMSSD med"])
 
     secondary_headers = ["Subset"]
-    if features.is_enabled("hrv"):
+    if features.is_enabled("prv"):
         secondary_headers.extend(["SDNN mean", "SDNN med", "LF mean\n[ms^2]", "HF mean\n[ms^2]", "LF/HF mean\n[-]"])
 
     right_headers = ["Subset"]
@@ -428,10 +428,10 @@ def _render_sleep_combo_page(
 def _build_quality_rows(
     t_hr: Optional[np.ndarray],
     hr_calc: Optional[np.ndarray],
-    t_hrv: Optional[np.ndarray],
-    hrv_clean: Optional[np.ndarray],
-    hrv_raw: Optional[np.ndarray],
-    hrv_tv: Optional[Dict[str, np.ndarray]],
+    t_prv: Optional[np.ndarray],
+    prv_clean: Optional[np.ndarray],
+    prv_raw: Optional[np.ndarray],
+    prv_tv: Optional[Dict[str, np.ndarray]],
 ) -> tuple[List[List[str]], List[List[str]], List[List[str]]]:
     hr_rows: List[List[str]] = []
     ts_rows: List[List[str]] = []
@@ -446,75 +446,75 @@ def _build_quality_rows(
         hr_rows += [["PAT-derived HR summary", ""], ["  HR min / max [bpm]", f"{_fmt_num(hr_pat_stats['min'], 2)} / {_fmt_num(hr_pat_stats['max'], 2)}"], ["  HR mean [bpm]", _fmt_num(hr_pat_stats["mean"], 2)], ["  HR median [bpm]", _fmt_num(hr_pat_stats["median"], 2)], ["  HR std [bpm]", _fmt_num(hr_pat_stats["std"], 2)], ["", ""], ["Valid signal coverage", ""]]
         _append_coverage_rows(hr_rows, "HR (PAT-derived)", hr_cov)
 
-    if features.is_enabled("hrv"):
-        hrv_clean_cov = _coverage_stats(
-            hrv_clean,
-            t=t_hrv,
-            default_fs=float(getattr(config, "HRV_TARGET_FS_HZ", 1.0)),
+    if features.is_enabled("prv"):
+        prv_clean_cov = _coverage_stats(
+            prv_clean,
+            t=t_prv,
+            default_fs=float(getattr(config, "PRV_TARGET_FS_HZ", 1.0)),
         )
-        hrv_raw_cov = _coverage_stats(
-            hrv_raw,
-            t=t_hrv,
-            default_fs=float(getattr(config, "HRV_TARGET_FS_HZ", 1.0)),
+        prv_raw_cov = _coverage_stats(
+            prv_raw,
+            t=t_prv,
+            default_fs=float(getattr(config, "PRV_TARGET_FS_HZ", 1.0)),
         )
-        ts_rows += [["HRV time-series valid coverage", ""]]
-        _append_coverage_rows(ts_rows, "RMSSD final-analysis", hrv_clean_cov)
-        _append_coverage_rows(ts_rows, "RMSSD pre-final exclusion", hrv_raw_cov)
-        if isinstance(hrv_tv, dict) and len(hrv_tv) > 0:
+        ts_rows += [["PRV time-series valid coverage", ""]]
+        _append_coverage_rows(ts_rows, "RMSSD final-analysis", prv_clean_cov)
+        _append_coverage_rows(ts_rows, "RMSSD pre-final exclusion", prv_raw_cov)
+        if isinstance(prv_tv, dict) and len(prv_tv) > 0:
             time_series_keys = ["sdnn_ms", "sdnn_ms_raw"]
             spectral_keys = ["lf", "lf_raw", "hf", "hf_raw", "lf_hf", "lf_hf_raw"]
 
-            available_time_series = [k for k in time_series_keys if k in hrv_tv and hrv_tv.get(k) is not None]
+            available_time_series = [k for k in time_series_keys if k in prv_tv and prv_tv.get(k) is not None]
             if available_time_series:
                 for k in available_time_series:
                     stats = _coverage_stats(
-                        hrv_tv.get(k),
-                        t=t_hrv,
-                        default_fs=float(getattr(config, "HRV_TARGET_FS_HZ", 1.0)),
+                        prv_tv.get(k),
+                        t=t_prv,
+                        default_fs=float(getattr(config, "PRV_TARGET_FS_HZ", 1.0)),
                     )
-                    _append_coverage_rows(ts_rows, _hrv_tv_display_label(k), stats)
+                    _append_coverage_rows(ts_rows, _prv_tv_display_label(k), stats)
 
-            available_spectral = [k for k in spectral_keys if k in hrv_tv and hrv_tv.get(k) is not None]
+            available_spectral = [k for k in spectral_keys if k in prv_tv and prv_tv.get(k) is not None]
             if available_spectral:
-                spectral_rows += [["HRV spectral valid coverage", ""]]
+                spectral_rows += [["PRV spectral valid coverage", ""]]
                 for k in available_spectral:
                     stats = _coverage_stats(
-                        hrv_tv.get(k),
-                        t=t_hrv,
-                        default_fs=float(getattr(config, "HRV_TARGET_FS_HZ", 1.0)),
+                        prv_tv.get(k),
+                        t=t_prv,
+                        default_fs=float(getattr(config, "PRV_TARGET_FS_HZ", 1.0)),
                     )
-                    _append_coverage_rows(spectral_rows, _hrv_tv_display_label(k), stats)
+                    _append_coverage_rows(spectral_rows, _prv_tv_display_label(k), stats)
     return hr_rows, ts_rows, spectral_rows
 
 
 def _build_time_series_feature_rows(
-    hrv_summary: Optional[Dict[str, float]],
+    prv_summary: Optional[Dict[str, float]],
 ) -> List[List[str]]:
     rows: List[List[str]] = []
-    if features.is_enabled("hrv"):
-        rmssd_mean = hrv_summary.get("rmssd_mean") if hrv_summary else None
-        sdnn = hrv_summary.get("sdnn") if hrv_summary else None
-        rmssd_median = hrv_summary.get("rmssd_median") if hrv_summary else None
-        sdnn_mean = hrv_summary.get("sdnn_mean") if hrv_summary else None
-        sdnn_median = hrv_summary.get("sdnn_median") if hrv_summary else None
+    if features.is_enabled("prv"):
+        rmssd_mean = prv_summary.get("rmssd_mean") if prv_summary else None
+        sdnn = prv_summary.get("sdnn") if prv_summary else None
+        rmssd_median = prv_summary.get("rmssd_median") if prv_summary else None
+        sdnn_mean = prv_summary.get("sdnn_mean") if prv_summary else None
+        sdnn_median = prv_summary.get("sdnn_median") if prv_summary else None
         rows += [["Selected-policy time-series features", ""], ["  RMSSD mean [ms]", _fmt(rmssd_mean, 2)], ["  RMSSD median [ms]", _fmt(rmssd_median, 2)], ["  SDNN mean [ms]", _fmt(sdnn_mean, 2)], ["  SDNN median [ms]", _fmt(sdnn_median, 2)]]
     return rows
 
 
 def _build_spectral_feature_rows(
-    hrv_summary: Optional[Dict[str, float]],
+    prv_summary: Optional[Dict[str, float]],
     mayer_peak_freq: Optional[float],
     resp_peak_freq: Optional[float],
     psd_features: Optional[Dict[str, float]],
 ) -> List[List[str]]:
     rows: List[List[str]] = []
-    if features.is_enabled("hrv"):
-        lf = hrv_summary.get("lf") if hrv_summary else None
-        hf = hrv_summary.get("hf") if hrv_summary else None
-        lf_hf = hrv_summary.get("lf_hf") if hrv_summary else None
+    if features.is_enabled("prv"):
+        lf = prv_summary.get("lf") if prv_summary else None
+        hf = prv_summary.get("hf") if prv_summary else None
+        lf_hf = prv_summary.get("lf_hf") if prv_summary else None
         rows += [["Selected-policy spectral parameters", ""], ["  LF mean [ms^2]", _fmt(lf, 2)], ["  HF mean [ms^2]", _fmt(hf, 2)], ["  LF/HF mean [-]", _fmt(lf_hf, 2)]]
-        if hrv_summary:
-            rows += [["  LF median [ms^2]", _fmt(hrv_summary.get("lf_fixed_median"), 2)], ["  HF median [ms^2]", _fmt(hrv_summary.get("hf_fixed_median"), 2)], ["  LF/HF median [-]", _fmt(hrv_summary.get("lf_hf_fixed_median"), 2)], ["  Valid LF/HF windows [n]", _fmt_int(hrv_summary.get("lf_hf_fixed_n_windows_valid"))], ["  Total LF/HF windows [n]", _fmt_int(hrv_summary.get("lf_hf_fixed_n_windows_total"))], ["  Valid LF/HF [min]", _fmt_num(hrv_summary.get("lf_hf_fixed_valid_min"), 1)], ["  Valid LF/HF [%]", _fmt_pct(hrv_summary.get("lf_hf_fixed_valid_pct"), 1)], ["  Total LF/HF [min]", _fmt_num(hrv_summary.get("lf_hf_fixed_total_min"), 1)], ["  LF/HF window [s]", _fmt(hrv_summary.get("lf_hf_fixed_window_sec"), 0)], ["  LF/HF hop [s]", _fmt(hrv_summary.get("lf_hf_fixed_hop_sec"), 0)]]
+        if prv_summary:
+            rows += [["  LF median [ms^2]", _fmt(prv_summary.get("lf_fixed_median"), 2)], ["  HF median [ms^2]", _fmt(prv_summary.get("hf_fixed_median"), 2)], ["  LF/HF median [-]", _fmt(prv_summary.get("lf_hf_fixed_median"), 2)], ["  Valid LF/HF windows [n]", _fmt_int(prv_summary.get("lf_hf_fixed_n_windows_valid"))], ["  Total LF/HF windows [n]", _fmt_int(prv_summary.get("lf_hf_fixed_n_windows_total"))], ["  Valid LF/HF [min]", _fmt_num(prv_summary.get("lf_hf_fixed_valid_min"), 1)], ["  Valid LF/HF [%]", _fmt_pct(prv_summary.get("lf_hf_fixed_valid_pct"), 1)], ["  Total LF/HF [min]", _fmt_num(prv_summary.get("lf_hf_fixed_total_min"), 1)], ["  LF/HF window [s]", _fmt(prv_summary.get("lf_hf_fixed_window_sec"), 0)], ["  LF/HF hop [s]", _fmt(prv_summary.get("lf_hf_fixed_hop_sec"), 0)]]
 
     if features.is_enabled("psd"):
         if rows:
@@ -628,11 +628,11 @@ def _render_comparison_table_page(
     return fig
 
 
-def _build_midpoint_half_rows(hrv_midpoint_halves: Optional[Dict[str, Dict[str, float]]]) -> List[List[str]]:
-    if not hrv_midpoint_halves:
+def _build_midpoint_half_rows(prv_midpoint_halves: Optional[Dict[str, Dict[str, float]]]) -> List[List[str]]:
+    if not prv_midpoint_halves:
         return []
-    first = hrv_midpoint_halves.get("first_half") or {}
-    second = hrv_midpoint_halves.get("second_half") or {}
+    first = prv_midpoint_halves.get("first_half") or {}
+    second = prv_midpoint_halves.get("second_half") or {}
     if not first and not second:
         return []
     return [
@@ -655,7 +655,7 @@ def build_summary_pages(
     pearson_r: Optional[float],
     spear_rho: Optional[float],
     rmse: Optional[float],
-    hrv_summary: Optional[Dict[str, float]],
+    prv_summary: Optional[Dict[str, float]],
     mayer_peak_freq: Optional[float],
     resp_peak_freq: Optional[float],
     aux_df: Optional["pd.DataFrame"],
@@ -664,16 +664,16 @@ def build_summary_pages(
     hr_calc: Optional[np.ndarray] = None,
     t_hr_edf: Optional[np.ndarray] = None,
     hr_edf: Optional[np.ndarray] = None,
-    t_hrv: Optional[np.ndarray] = None,
-    hrv_clean: Optional[np.ndarray] = None,
-    hrv_raw: Optional[np.ndarray] = None,
-    hrv_tv: Optional[Dict[str, np.ndarray]] = None,
+    t_prv: Optional[np.ndarray] = None,
+    prv_clean: Optional[np.ndarray] = None,
+    prv_raw: Optional[np.ndarray] = None,
+    prv_tv: Optional[Dict[str, np.ndarray]] = None,
     psd_features: Optional[Dict[str, float]] = None,
     pat_burden: Optional[float] = None,
     pat_burden_diag: Optional[Dict[str, float]] = None,
     sleep_combo_summaries: Optional[Dict[str, Dict[str, object]]] = None,
-    hrv_mask_info: Optional[Dict[str, object]] = None,
-    hrv_midpoint_halves: Optional[Dict[str, Dict[str, float]]] = None,
+    prv_mask_info: Optional[Dict[str, object]] = None,
+    prv_midpoint_halves: Optional[Dict[str, Dict[str, float]]] = None,
 ):
     pearson_r = None
     spear_rho = None
@@ -681,21 +681,21 @@ def build_summary_pages(
     t_hr_edf = None
     hr_edf = None
     figs = []
-    has_aux_summary_context = features.any_enabled("hrv", "psd", "delta_hr", "pat_burden", "sleep_combo_summary")
+    has_aux_summary_context = features.any_enabled("prv", "psd", "delta_hr", "pat_burden", "sleep_combo_summary")
 
-    rows_hr_quality, rows_ts_coverage, rows_spectral_coverage = _build_quality_rows(t_hr_calc, hr_calc, t_hrv, hrv_clean, hrv_raw, hrv_tv)
+    rows_hr_quality, rows_ts_coverage, rows_spectral_coverage = _build_quality_rows(t_hr_calc, hr_calc, t_prv, prv_clean, prv_raw, prv_tv)
 
     if rows_hr_quality:
         figs.append(_render_table_page("Summary (Selected-Policy HR & Coverage)", rows_hr_quality, edf_base=edf_base, font_size=12, scale_y=1.55))
 
-    rows_ts_features = _build_time_series_feature_rows(hrv_summary)
+    rows_ts_features = _build_time_series_feature_rows(prv_summary)
     if rows_ts_features:
         figs.append(_render_table_page("Summary (Selected-Policy Time-Series Features)", rows_ts_features, edf_base=edf_base, font_size=12, scale_y=1.35))
 
     if rows_ts_coverage:
         figs.append(_render_table_page("Summary (Selected-Policy Time-Series Coverage)", rows_ts_coverage, edf_base=edf_base, font_size=12, scale_y=1.35))
 
-    rows_spectral = _build_spectral_feature_rows(hrv_summary, mayer_peak_freq, resp_peak_freq, psd_features)
+    rows_spectral = _build_spectral_feature_rows(prv_summary, mayer_peak_freq, resp_peak_freq, psd_features)
     if rows_spectral:
         figs.append(_render_table_page("Summary (Selected-Policy Spectral Parameters)", rows_spectral, edf_base=edf_base, font_size=12, scale_y=1.35))
 
@@ -706,11 +706,11 @@ def build_summary_pages(
     if rows_sleep_timing:
         figs.append(_render_table_page("Summary (Sleep Timing)", rows_sleep_timing, edf_base=edf_base, font_size=12, scale_y=1.35))
 
-    rows_midpoint_halves = _build_midpoint_half_rows(hrv_midpoint_halves)
+    rows_midpoint_halves = _build_midpoint_half_rows(prv_midpoint_halves)
     if rows_midpoint_halves:
         figs.append(
             _render_comparison_table_page(
-                "Summary (NREM Sleep Midpoint HRV Halves)",
+                "Summary (NREM Sleep Midpoint PRV Halves)",
                 rows_midpoint_halves,
                 edf_base=edf_base,
                 headers=["Metric", "NREM first half", "NREM second half"],
@@ -719,7 +719,7 @@ def build_summary_pages(
             )
         )
 
-    rows_p3 = _build_mask_breakdown_rows(t_hrv, hrv_mask_info)
+    rows_p3 = _build_mask_breakdown_rows(t_prv, prv_mask_info)
     if rows_p3:
         figs.append(_render_table_page("Summary (Selected-Policy Exclusion Breakdown)", rows_p3, edf_base=edf_base, font_size=12, scale_y=1.35))
 

@@ -10,7 +10,7 @@ Critical constraint:
 - the same inputs and config should produce the same outputs after refactor
 - behavior changes should only happen when a user explicitly requests a new feature or new algorithm option
 
-The toolbox should support the current HR/HRV workflow now, and make it easy to add more EDF-derived features later, such as:
+The toolbox should support the current HR/PRV workflow now, and make it easy to add more EDF-derived features later, such as:
 
 - delta HR
 - PAT burden
@@ -36,11 +36,11 @@ The main issues in the current codebase are structural rather than algorithmic.
 The biggest examples are:
 
 - `pat_toolbox/metrics/hr.py`
-- `pat_toolbox/metrics/hrv.py`
+- `pat_toolbox/metrics/prv.py`
 - `pat_toolbox/metrics/psd.py`
 - `pat_toolbox/io_aux_csv.py`
 - `pat_toolbox/workflows.py`
-- `pat_toolbox/plotting/figures_hrv.py`
+- `pat_toolbox/plotting/figures_prv.py`
 - `pat_toolbox/plotting/segments.py`
 - `pat_toolbox/plotting/figures_summary.py`
 
@@ -71,9 +71,9 @@ This increases coupling and makes reuse harder.
 
 Examples of duplication or near-duplication:
 
-- window acceptance logic for HRV time-domain vs spectral metrics
+- window acceptance logic for PRV time-domain vs spectral metrics
 - summary/stat formatting helpers
-- exclusion/mask-related handling across HRV, PSD, burden, and plotting
+- exclusion/mask-related handling across PRV, PSD, burden, and plotting
 - repeated “collect data -> compute metric -> package outputs” patterns
 
 ### 4. The pipeline is feature-specific instead of feature-oriented
@@ -150,7 +150,7 @@ Files should be organized by responsibility, not by historical growth.
 Good:
 
 - `rr_cleaning.py`
-- `hrv_windows.py`
+- `prv_windows.py`
 - `aux_events.py`
 - `summary_writer.py`
 
@@ -194,7 +194,7 @@ pat_toolbox/
 |  |  |- compute.py
 |  |  |- summary.py
 |  |  `- debug.py
-|  |- hrv/
+|  |- prv/
 |  |  |- __init__.py
 |  |  |- time_domain.py
 |  |  |- freq_domain.py
@@ -223,10 +223,10 @@ pat_toolbox/
 |  |  |- __init__.py
 |  |  |- pages.py
 |  |  |- hr_panel.py
-|  |  |- hrv_panel.py
+|  |  |- prv_panel.py
 |  |  |- delta_panel.py
 |  |  `- event_panel.py
-|  `- hrv/
+|  `- prv/
 |     |- __init__.py
 |     |- overview.py
 |     |- tv.py
@@ -261,7 +261,7 @@ For example, a feature should define:
 Example feature categories:
 
 - `hr`
-- `hrv`
+- `prv`
 - `delta_hr`
 - `pat_burden`
 - `psd`
@@ -301,7 +301,7 @@ Recommended pattern:
 
 ```python
 @dataclass
-class HRVResult:
+class PRVResult:
     t_sec: np.ndarray
     rmssd_clean: np.ndarray
     rmssd_raw: np.ndarray
@@ -333,7 +333,7 @@ Move there:
 
 Reason:
 
-- HR, HRV, PSD, and future features all depend on the same RR base.
+- HR, PRV, PSD, and future features all depend on the same RR base.
 
 #### 1.2 Extract shared window logic
 
@@ -350,7 +350,7 @@ Move there:
 
 Reason:
 
-- window logic is currently scattered across HRV and PSD code.
+- window logic is currently scattered across PRV and PSD code.
 
 #### 1.3 Keep masking centralized
 
@@ -375,7 +375,7 @@ Recommended direction:
 
 Example:
 
-- HRV may use sleep + event exclusion
+- PRV may use sleep + event exclusion
 - PAT burden may use event-focused windows with a different exclusion meaning
 - future features may use sleep-only, event-only, or no masking
 
@@ -401,7 +401,7 @@ Reason:
 
 - aux parsing is a foundational dependency for hypnogram, masking, burden, and reports.
 
-### Stage 3. Rebuild HR and HRV around shared core
+### Stage 3. Rebuild HR and PRV around shared core
 
 #### 3.1 Split HR
 
@@ -413,15 +413,15 @@ Current `pat_toolbox/metrics/hr.py` should become:
 
 Keep summary CSV writing out of the compute module.
 
-#### 3.2 Split HRV
+#### 3.2 Split PRV
 
-Current `pat_toolbox/metrics/hrv.py` should become:
+Current `pat_toolbox/metrics/prv.py` should become:
 
-- `pat_toolbox/features/hrv/time_domain.py`
-- `pat_toolbox/features/hrv/freq_domain.py`
-- `pat_toolbox/features/hrv/windows.py`
-- `pat_toolbox/features/hrv/pipeline.py`
-- `pat_toolbox/features/hrv/summary.py`
+- `pat_toolbox/features/prv/time_domain.py`
+- `pat_toolbox/features/prv/freq_domain.py`
+- `pat_toolbox/features/prv/windows.py`
+- `pat_toolbox/features/prv/pipeline.py`
+- `pat_toolbox/features/prv/summary.py`
 
 Recommended behavior:
 
@@ -431,7 +431,7 @@ Recommended behavior:
 
 Reason:
 
-- HRV is currently one of the most overloaded modules in the repository.
+- PRV is currently one of the most overloaded modules in the repository.
 
 ### Stage 4. Make each optional feature pluggable
 
@@ -448,15 +448,15 @@ Recommended rule:
 Examples:
 
 - `ENABLE_HR`
-- `ENABLE_HRV`
+- `ENABLE_PRV`
 - `ENABLE_DELTA_HR`
 - `ENABLE_PAT_BURDEN`
 - `ENABLE_PSD`
 
 And for future per-feature masking behavior, prefer explicit knobs such as:
 
-- `HRV_ENABLE_SLEEP_MASKING`
-- `HRV_ENABLE_EVENT_EXCLUSION`
+- `PRV_ENABLE_SLEEP_MASKING`
+- `PRV_ENABLE_EVENT_EXCLUSION`
 - `PAT_BURDEN_ENABLE_SLEEP_MASKING`
 - `PAT_BURDEN_ENABLE_EVENT_EXCLUSION`
 - `DELTA_HR_ENABLE_SLEEP_MASKING`
@@ -470,7 +470,7 @@ The exact names can evolve, but the design principle should remain:
 Recommended second layer of output toggles:
 
 - `REPORT_INCLUDE_HR`
-- `REPORT_INCLUDE_HRV`
+- `REPORT_INCLUDE_PRV`
 - `REPORT_INCLUDE_DELTA_HR`
 - `REPORT_INCLUDE_PAT_BURDEN`
 - `REPORT_INCLUDE_PSD`
@@ -481,7 +481,7 @@ Example direction:
 
 ```python
 FEATURES = {
-    "hrv": {
+    "prv": {
         "enabled": True,
         "include_in_report": True,
         "include_in_summary_tables": True,
@@ -510,8 +510,8 @@ This prevents the common problem where a feature is disabled in computation but 
 At workflow level, the code should look like:
 
 ```python
-if config.ENABLE_HRV:
-    ctx.hrv = compute_hrv_feature(ctx)
+if config.ENABLE_PRV:
+    ctx.prv = compute_prv_feature(ctx)
 
 if config.ENABLE_DELTA_HR:
     ctx.delta_hr = compute_delta_hr_feature(ctx)
@@ -531,13 +531,13 @@ Recommended rule:
 - summary tables ask "is this feature enabled and summary-visible?"
 - no ad hoc checks scattered across page builders
 
-#### 5.1 Split HRV plotting
+#### 5.1 Split PRV plotting
 
-Break up `pat_toolbox/plotting/figures_hrv.py` into:
+Break up `pat_toolbox/plotting/figures_prv.py` into:
 
-- `pat_toolbox/plotting/hrv/overview.py`
-- `pat_toolbox/plotting/hrv/tv.py`
-- `pat_toolbox/plotting/hrv/combined.py`
+- `pat_toolbox/plotting/prv/overview.py`
+- `pat_toolbox/plotting/prv/tv.py`
+- `pat_toolbox/plotting/prv/combined.py`
 - `pat_toolbox/plotting/stagegram.py`
 
 #### 5.2 Split segment plotting
@@ -546,7 +546,7 @@ Break up `pat_toolbox/plotting/segments.py` into:
 
 - `pat_toolbox/plotting/segments/pages.py`
 - `pat_toolbox/plotting/segments/hr_panel.py`
-- `pat_toolbox/plotting/segments/hrv_panel.py`
+- `pat_toolbox/plotting/segments/prv_panel.py`
 - `pat_toolbox/plotting/segments/delta_panel.py`
 - `pat_toolbox/plotting/segments/event_panel.py`
 
@@ -622,7 +622,7 @@ Long term optional split:
 
 - `config_paths.py`
 - `config_hr.py`
-- `config_hrv.py`
+- `config_prv.py`
 - `config_plotting.py`
 
 This should only happen after the computation modules are cleaner.
@@ -679,8 +679,8 @@ Use explicit names that describe exactly what happens.
 
 Examples:
 
-- `compute_hrv_time_domain_series`
-- `compute_hrv_spectral_tv_series`
+- `compute_prv_time_domain_series`
+- `compute_prv_spectral_tv_series`
 - `build_rr_mask_bundle`
 - `write_batch_summary_row`
 
@@ -697,13 +697,13 @@ This order minimizes risk.
 ### Phase B: reorganize feature computation
 
 - split `hr.py`
-- split `hrv.py`
+- split `prv.py`
 - split `psd.py`
 - keep old public entry points delegating to new modules
 
 ### Phase C: reorganize plotting
 
-- split HRV figures
+- split PRV figures
 - split segment pages
 - split summary pages
 
@@ -736,7 +736,7 @@ If starting now, the best first refactor sequence is:
 
 1. extract `rr_cleaning.py` and `windows.py`
 2. split `io_aux_csv.py`
-3. split `hrv.py` into time-domain and freq-domain pieces
+3. split `prv.py` into time-domain and freq-domain pieces
 4. split `hr.py` into compute vs summary/debug pieces
 5. split plotting modules
 6. thin out `workflows.py`

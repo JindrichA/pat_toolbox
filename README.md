@@ -2,14 +2,14 @@
 
 PAT Toolbox is a config-driven Python pipeline for processing EDF recordings with PAT-derived physiology signals, synchronized auxiliary sleep/event CSVs, and report-style outputs.
 
-It is designed for whole-night batch processing of recordings that contain `VIEW_PAT` and optional derived channels such as PAT amplitude and actigraphy. The pipeline computes PAT-derived HR, HRV, PSD features, PAT burden, and multi-page PDF reports.
+It is designed for whole-night batch processing of recordings that contain `VIEW_PAT` and optional derived channels such as PAT amplitude and actigraphy. The pipeline computes PAT-derived HR, PRV, PSD features, PAT burden, and multi-page PDF reports.
 
 ## What The Project Does
 
 - Reads PAT-centered EDF recordings.
 - Extracts and cleans RR intervals from PAT peaks.
 - Computes PAT-derived HR on a regular time grid.
-- Computes HRV metrics including RMSSD, SDNN, LF, HF, LF/HF, and time-varying HRV series.
+- Computes PRV metrics including RMSSD, SDNN, LF, HF, LF/HF, and time-varying PRV series.
 - Applies shared sleep-stage, event, and desaturation masking across metrics and plots.
 - Computes PSD summaries from an RR/tachogram representation.
 - Optionally computes PAT burden from PAT amplitude around masked event regions.
@@ -29,7 +29,7 @@ For each EDF file, the current processing path is:
 6. Compute PAT burden
 7. Compute PAT-derived HR
 8. Compute delta-HR
-9. Compute HRV and HRV summary outputs
+9. Compute PRV and PRV summary outputs
 10. Build a multi-page report PDF
 11. Optionally build a PAT peaks debug PDF
 12. Append one summary CSV row for the recording
@@ -51,12 +51,12 @@ flowchart TD
     A --> G[Load PAT AMP if available\nconfig: PAT_AMP_CHANNEL_NAME]
     A --> H[Load aux CSV if available\nconfig: AUX_* and COL_NAMES]
     H --> I[Sleep stage mapping\nconfig: SLEEP_STAGE_POLICY]
-    H --> J[Event and desaturation exclusion windows\nconfig: HRV_EXCLUSION_*]
+    H --> J[Event and desaturation exclusion windows\nconfig: PRV_EXCLUSION_*]
     I --> K[Build shared mask bundle]
     J --> K
 
     F --> L[Compute HR\nconfig: HR_*]
-    F --> M[Compute HRV\nRMSSD, SDNN, LF, HF, LF/HF\nconfig: HRV_*]
+    F --> M[Compute PRV\nRMSSD, SDNN, LF, HF, LF/HF\nconfig: PRV_*]
     F --> N[Compute PSD from tachogram\nconfig: PSD_*]
     G --> O[Compute PAT burden\nconfig: PAT_BURDEN_*]
 
@@ -81,11 +81,11 @@ flowchart TD
     Q --> S[Write PDF report]
     R --> S
 
-    M --> T[Write HRV CSV]
+    M --> T[Write PRV CSV]
     Q --> U[Append summary CSV row]
 ```
 
-In short: PAT drives the RR series, RR drives HR/HRV/PSD, aux data drives masking, and all of them come together in the final PDF and summary outputs.
+In short: PAT drives the RR series, RR drives HR/PRV/PSD, aux data drives masking, and all of them come together in the final PDF and summary outputs.
 
 ## Repository Layout
 
@@ -130,21 +130,21 @@ In short: PAT drives the RR series, RR drives HR/HRV/PSD, aux data drives maskin
    |  |- hr_delta.py
    |  |- hr_io.py
    |  |- hr_summary.py
-   |  |- hrv.py
-   |  |- hrv_frequency_domain.py
-   |  |- hrv_io.py
-   |  |- hrv_pipeline.py
-   |  |- hrv_time_domain.py
+   |  |- prv.py
+   |  |- prv_frequency_domain.py
+   |  |- prv_io.py
+   |  |- prv_pipeline.py
+   |  |- prv_time_domain.py
    |  |- pat_burden.py
    |  |- psd.py
    |  |- psd_pipeline.py
    |  `- spectral_utils.py
    `- plotting/
       |- __init__.py
-      |- figures_hrv.py
+      |- figures_prv.py
       |- figures_summary.py
-      |- hrv_plot_builders.py
-      |- hrv_plot_utils.py
+      |- prv_plot_builders.py
+      |- prv_plot_utils.py
       |- peaks_debug.py
       |- report.py
       |- report_helpers.py
@@ -187,7 +187,7 @@ In short: PAT drives the RR series, RR drives HR/HRV/PSD, aux data drives maskin
 
 - HR computation
 - delta-HR computation
-- HRV computation
+- PRV computation
 - PAT burden computation
 - fixed sleep-subset summaries
 
@@ -250,22 +250,22 @@ Internal split:
 - `pat_toolbox/metrics/hr_summary.py`
   - summary CSV append helpers
 
-### HRV
+### PRV
 
 Public facade:
 
-- `pat_toolbox/metrics/hrv.py`
+- `pat_toolbox/metrics/prv.py`
 
 Internal split:
 
-- `pat_toolbox/metrics/hrv_time_domain.py`
+- `pat_toolbox/metrics/prv_time_domain.py`
   - RMSSD / SDNN helpers and RMSSD series logic
-- `pat_toolbox/metrics/hrv_frequency_domain.py`
+- `pat_toolbox/metrics/prv_frequency_domain.py`
   - LF / HF / LF-HF spectral computations from RR
-- `pat_toolbox/metrics/hrv_pipeline.py`
-  - top-level HRV orchestration and summaries
-- `pat_toolbox/metrics/hrv_io.py`
-  - HRV CSV export
+- `pat_toolbox/metrics/prv_pipeline.py`
+  - top-level PRV orchestration and summaries
+- `pat_toolbox/metrics/prv_io.py`
+  - PRV CSV export
 
 ### PSD
 
@@ -301,13 +301,13 @@ Public plotting entry points:
 - `pat_toolbox/plotting/report_helpers.py`
   - report setup, figure selection, PDF writing
 
-### HRV report figures
+### PRV report figures
 
-- `pat_toolbox/plotting/figures_hrv.py`
+- `pat_toolbox/plotting/figures_prv.py`
   - compatibility facade
-- `pat_toolbox/plotting/hrv_plot_builders.py`
-  - HRV overview and stagegram/TV figure builders
-- `pat_toolbox/plotting/hrv_plot_utils.py`
+- `pat_toolbox/plotting/prv_plot_builders.py`
+  - PRV overview and stagegram/TV figure builders
+- `pat_toolbox/plotting/prv_plot_utils.py`
   - legends, event overlays, mask shading, binning helpers
 
 ### Summary pages
@@ -324,7 +324,7 @@ Public plotting entry points:
 - `pat_toolbox/plotting/segments.py`
   - segment page assembly
 - `pat_toolbox/plotting/segment_plot_helpers.py`
-  - HR, HRV, delta-HR, and event overlay helpers
+  - HR, PRV, delta-HR, and event overlay helpers
 
 ### Plotting utilities
 
@@ -364,7 +364,7 @@ The code normalizes aux fields using `config.COL_NAMES` and related aux settings
 
 ## Shared Masking Model
 
-The repository uses a shared masking approach so that HRV, PSD, burden, and plots refer to the same basic exclusion logic.
+The repository uses a shared masking approach so that PRV, PSD, burden, and plots refer to the same basic exclusion logic.
 
 Conceptually, masking combines:
 
@@ -397,7 +397,7 @@ Example:
 ```python
 FEATURES = {
     "hr": True,
-    "hrv": True,
+    "prv": True,
     "psd": True,
     "delta_hr": False,
     "pat_burden": False,
@@ -411,8 +411,8 @@ What these top-level switches mean:
 
 - `hr`
   - enables PAT-derived heart-rate calculation and HR-owned summary outputs
-- `hrv`
-  - enables HRV calculation, HRV report figures, and HRV CSV export
+- `prv`
+  - enables PRV calculation, PRV report figures, and PRV CSV export
 - `psd`
   - enables spectral feature calculation and PSD report pages
 - `delta_hr`
@@ -430,7 +430,7 @@ Recommended workflow for users:
 
 1. decide which features should be on in `FEATURES`
 2. run the pipeline once
-3. only then tune detailed knobs like `HR_*`, `HRV_*`, `PSD_*`, or `PAT_BURDEN_*`
+3. only then tune detailed knobs like `HR_*`, `PRV_*`, `PSD_*`, or `PAT_BURDEN_*`
 
 Common configuration areas include:
 
@@ -441,7 +441,7 @@ Common configuration areas include:
 - PAT filtering
 - HR thresholds and smoothing
 - RR cleaning thresholds
-- HRV windows and spectral settings
+- PRV windows and spectral settings
 - PSD band definitions
 - delta-HR settings
 - PAT burden settings
@@ -499,7 +499,7 @@ Typical outputs include:
 
 - per-run PDF reports
 - HR CSV outputs
-- HRV CSV outputs
+- PRV CSV outputs
 - PSD figures
 - optional PAT peak debug PDFs
 - appended summary CSV rows
@@ -532,7 +532,7 @@ python main.py
   - check `config.EDF_FOLDER`
 - Output paths look wrong
   - check `BASE_OUTPUT_DIR`, `RUN_TAG`, and sleep-stage policy
-- HR/HRV outputs are sparse or empty
+- HR/PRV outputs are sparse or empty
   - inspect PAT quality, RR cleaning, masking policy, and exclusion windows
 - PSD features are missing
   - the RR series may be too fragmented after masking
@@ -554,6 +554,6 @@ python main.py
 - Single-recording workflow: `pat_toolbox/workflows.py`
 - Main report generation: `pat_toolbox/plotting/report.py`
 - HR facade: `pat_toolbox/metrics/hr.py`
-- HRV facade: `pat_toolbox/metrics/hrv.py`
+- PRV facade: `pat_toolbox/metrics/prv.py`
 - PSD facade: `pat_toolbox/metrics/psd.py`
 - Main configuration: `pat_toolbox/config.py`

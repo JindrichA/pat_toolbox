@@ -9,7 +9,7 @@ It is written as a methods-style reference for research reporting. It explains, 
 The current `FEATURES` configuration is:
 
 - `hr = True`
-- `hrv = True`
+- `prv = True`
 - `psd = False`
 - `delta_hr = False`
 - `pat_burden = False`
@@ -20,8 +20,8 @@ The current `FEATURES` configuration is:
 This means the current run produces:
 
 - PAT-derived HR
-- HRV time-domain features
-- HRV frequency-domain features based on RR intervals
+- PRV time-domain features
+- PRV frequency-domain features based on RR intervals
 - sleep-subset comparison summaries
 - the main PDF report
 
@@ -37,7 +37,7 @@ Under the current stage mapping:
 - `2 = Deep sleep`
 - `3 = REM`
 
-Therefore, in the main selected-policy analysis, only light sleep and deep sleep are included. Wake and REM are excluded from the main selected-policy HR and HRV analysis.
+Therefore, in the main selected-policy analysis, only light sleep and deep sleep are included. Wake and REM are excluded from the main selected-policy HR and PRV analysis.
 
 ## Input Data
 
@@ -47,7 +47,7 @@ For each recording, the workflow reads the EDF channel:
 
 - `VIEW_PAT`
 
-This is the PAT waveform used for peak detection, RR extraction, HR, and HRV.
+This is the PAT waveform used for peak detection, RR extraction, HR, and PRV.
 
 The code uses the sampling frequency stored in the EDF for that channel. In practice, your recordings may use a 40 Hz PAT signal, but the algorithm itself uses the EDF-native sampling frequency rather than a hard-coded value.
 
@@ -85,7 +85,7 @@ For each EDF file, the processing order is:
 5. Compute sleep-subset summaries.
 6. Compute PAT burden if enabled.
 7. Compute PAT-derived HR.
-8. Compute HRV and RR-based summaries.
+8. Compute PRV and RR-based summaries.
 9. Compute separate PSD features if enabled.
 10. Export per-feature CSVs.
 11. Build the PDF report.
@@ -122,7 +122,7 @@ RR mid-times are defined as the midpoint between consecutive peaks.
 
 ## Low-Level RR Cleaning
 
-After initial RR extraction, the repository applies an additional low-level RR cleaning pass before HR and HRV are derived.
+After initial RR extraction, the repository applies an additional low-level RR cleaning pass before HR and PRV are derived.
 
 ### RR cleaning parameters
 
@@ -149,7 +149,7 @@ The cleaned RR stream is produced as follows:
    - long threshold: `> (1 + 0.35) x local median`
 8. After all point-wise rejection, keep only contiguous runs of good RR intervals of length at least `3`.
 
-This produces the shared physiologically cleaned RR series used by HR and HRV.
+This produces the shared physiologically cleaned RR series used by HR and PRV.
 
 ## Sleep-Stage Policy
 
@@ -226,7 +226,7 @@ The code builds:
 
 The current configuration also enables desaturation-gated masking:
 
-- `HRV_EXCLUSION_USE_DESAT_WINDOWS = True`
+- `PRV_EXCLUSION_USE_DESAT_WINDOWS = True`
 - desaturation column: `desat_flag`
 - desaturation start padding: `15 s`
 - desaturation end padding: `0 s`
@@ -284,24 +284,24 @@ Heart rate is derived from the cleaned RR intervals.
 
 The final selected-policy HR summary statistics are computed from the finite HR samples remaining after this masking.
 
-## HRV Calculation Overview
+## PRV Calculation Overview
 
-The HRV feature uses the shared cleaned RR intervals and then creates two distinct families of outputs:
+The PRV feature uses the shared cleaned RR intervals and then creates two distinct families of outputs:
 
-1. time-domain HRV outputs
-2. frequency-domain HRV outputs
+1. time-domain PRV outputs
+2. frequency-domain PRV outputs
 
 These two families do not use exactly the same window definition in the current setup.
 
-## Time-Domain HRV: RMSSD And SDNN
+## Time-Domain PRV: RMSSD And SDNN
 
 ### Core time-domain settings
 
-- HRV output grid: `1.0 Hz`
-- main HRV window: `300 s` (`5.0 min`)
+- PRV output grid: `1.0 Hz`
+- main PRV window: `300 s` (`5.0 min`)
 - minimum RR intervals per window: `6`
-- maximum RR gap inside HRV windows: `8.0 s`
-- minimum time span inside an HRV window: `5.0 s`
+- maximum RR gap inside PRV windows: `8.0 s`
+- minimum time span inside an PRV window: `5.0 s`
 - minimum window coverage fraction: `0.2`
 - RMSSD smoothing window: `5.0 s`
 
@@ -326,7 +326,7 @@ For each `1 Hz` analysis time point:
    - at least `6` RR intervals
    - no RR gap larger than `8.0 s`
    - RR midpoint span at least `5.0 s`
-   - span at least `20%` of the `300 s` window because `HRV_MIN_WINDOW_COVERAGE = 0.2`
+   - span at least `20%` of the `300 s` window because `PRV_MIN_WINDOW_COVERAGE = 0.2`
 4. Compute successive RR differences.
 5. Remove RR differences whose absolute value exceeds `400 ms`.
 6. Compute the median and MAD of the remaining differences.
@@ -355,7 +355,7 @@ In addition to the time-varying series, the summary tables report:
 - `SDNN mean`: mean of valid sliding-window SDNN values
 - `SDNN median`: median of valid sliding-window SDNN values
 
-## Frequency-Domain HRV: LF, HF, LF/HF
+## Frequency-Domain PRV: LF, HF, LF/HF
 
 ### Fundamental spectral settings
 
@@ -444,11 +444,11 @@ Definitions:
 - sleep end: last time with stage in `{1, 2, 3}`, plus one auxiliary sample interval
 - sleep midpoint: midpoint between sleep onset and sleep end
 
-In the current midpoint-half HRV comparison:
+In the current midpoint-half PRV comparison:
 
 - the half analysis is restricted to NREM only, using stages `{1, 2}`
 - the NREM RR stream is cut into first and second halves relative to the sleep midpoint
-- each half is then summarized with the same selected-policy HRV summary engine
+- each half is then summarized with the same selected-policy PRV summary engine
 
 This is why the comparison table is labeled:
 
@@ -511,7 +511,7 @@ reflects the explicit mask logic, not the full end-to-end loss of valid physiolo
 
 ## Summary Of The Current Method In One Sequence
 
-For the current configuration, the main selected-policy HRV workflow can be summarized as:
+For the current configuration, the main selected-policy PRV workflow can be summarized as:
 
 1. Read the PAT waveform from EDF.
 2. Band-pass filter the PAT waveform from `0.5 to 8.0 Hz` with order `4`.

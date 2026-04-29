@@ -9,7 +9,7 @@ from matplotlib.ticker import FuncFormatter
 
 from .. import config, sleep_mask
 from ..metrics.hr_event_response import extract_event_hr_windows
-from .hrv_plot_utils import _add_colored_event_key, _overlay_events_on_single_axis_whole_night, _shade_hrv_mask_layers
+from .prv_plot_utils import _add_colored_event_key, _overlay_events_on_single_axis_whole_night, _shade_prv_mask_layers
 from .segment_plot_helpers import _overlay_pat_burden_area
 from .specs import DEFAULT_EVENT_PLOT_SPEC, EventSpec
 from .utils import _add_exclusion_spans, _shade_masked_regions
@@ -40,14 +40,14 @@ def _init_overview_figure(edf_base: str, title: str, n_panels: int) -> tuple[Any
 def _overview_header_text(title: str) -> str:
     overview_hours = float(getattr(config, "OVERVIEW_PANEL_HOURS", 2.0))
     parts = [f"Overview page: {title}.", f"Panels are split into {overview_hours:.0f} h windows."]
-    if "HRV" in title:
-        if title in {"HRV-LF-HF Overview", "HRV-LF-HF Ratio Overview"}:
+    if "PRV" in title:
+        if title in {"PRV-LF-HF Overview", "PRV-LF-HF Ratio Overview"}:
             parts.append(
-                f"Spectral traces use fixed {float(getattr(config, 'HRV_LFHF_FIXED_WINDOW_SEC', 120.0)) / 60.0:.1f} min windows after stage/event exclusion."
+                f"Spectral traces use fixed {float(getattr(config, 'PRV_LFHF_FIXED_WINDOW_SEC', 120.0)) / 60.0:.1f} min windows after stage/event exclusion."
             )
         else:
             parts.append(
-                f"HRV uses current stage filtering first, then event exclusion for the clean signal (window={float(getattr(config, 'HRV_WINDOW_SEC', 300.0)) / 60.0:.1f} min)."
+                f"PRV uses current stage filtering first, then event exclusion for the clean signal (window={float(getattr(config, 'PRV_WINDOW_SEC', 300.0)) / 60.0:.1f} min)."
             )
     elif title == "HR Overview":
         parts.append(
@@ -84,7 +84,7 @@ def _overview_header_legend(title: str) -> list[Line2D]:
         if show_raw_debug:
             handles.insert(1, Line2D([0], [0], color="tab:gray", linewidth=0.7, alpha=0.6, label="HR raw"))
         return handles
-    if title == "HRV-RMSSD Overview":
+    if title == "PRV-RMSSD Overview":
         handles = [
             Line2D([0], [0], color="tab:green", linewidth=1.2, label="Final-analysis RMSSD"),
             Line2D([0], [0], color="#6c757d", linewidth=6, alpha=0.10, label="Stage-policy excluded"),
@@ -94,7 +94,7 @@ def _overview_header_legend(title: str) -> list[Line2D]:
         if show_raw_debug:
             handles.insert(1, Line2D([0], [0], color="tab:gray", linewidth=0.6, alpha=0.6, label="Pre-final-exclusion RMSSD"))
         return handles
-    if title == "HRV-SDNN Overview":
+    if title == "PRV-SDNN Overview":
         handles = [
             Line2D([0], [0], color="tab:green", linewidth=1.2, label="Final-analysis SDNN"),
             Line2D([0], [0], color="#6c757d", linewidth=6, alpha=0.10, label="Stage-policy excluded"),
@@ -104,7 +104,7 @@ def _overview_header_legend(title: str) -> list[Line2D]:
         if show_raw_debug:
             handles.insert(0, Line2D([0], [0], color="tab:gray", linewidth=0.7, alpha=0.6, label="Pre-final-exclusion SDNN"))
         return handles
-    if title == "HRV-LF-HF Overview":
+    if title == "PRV-LF-HF Overview":
         handles = [
             Line2D([0], [0], color="tab:orange", linewidth=1.2, label="LF"),
             Line2D([0], [0], color="tab:blue", linewidth=1.2, label="HF"),
@@ -115,7 +115,7 @@ def _overview_header_legend(title: str) -> list[Line2D]:
         if show_raw_debug:
             handles.insert(0, Line2D([0], [0], color="tab:gray", linewidth=0.7, alpha=0.35, label="Pre-final-exclusion LF and HF traces"))
         return handles
-    if title == "HRV-LF-HF Ratio Overview":
+    if title == "PRV-LF-HF Ratio Overview":
         handles = [
             Line2D([0], [0], color="tab:purple", linewidth=1.2, label="Final-analysis LF/HF"),
             Line2D([0], [0], color="#6c757d", linewidth=6, alpha=0.10, label="Stage-policy excluded"),
@@ -199,11 +199,11 @@ def _shade_metric_invalid_regions(
     t_sec: np.ndarray,
     invalid_mask: np.ndarray,
     *,
-    hrv_mask_info: Optional[Dict[str, object]] = None,
+    prv_mask_info: Optional[Dict[str, object]] = None,
 ) -> None:
     invalid_mask = np.asarray(invalid_mask, dtype=bool)
-    if hrv_mask_info:
-        combined_keep = hrv_mask_info.get("combined_keep")
+    if prv_mask_info:
+        combined_keep = prv_mask_info.get("combined_keep")
         if isinstance(combined_keep, np.ndarray) and np.size(combined_keep) == np.size(t_sec):
             invalid_mask = invalid_mask & np.asarray(combined_keep, dtype=bool)
     _shade_masked_regions(
@@ -269,53 +269,53 @@ def _build_hr_overview_figure(
     return _finalize_overview_figure(fig, axes, "HR [bpm]")
 
 
-def _build_hrv_rmssd_overview_figure(
+def _build_prv_rmssd_overview_figure(
     edf_base: str,
-    t_hrv: np.ndarray,
-    hrv_clean: np.ndarray,
-    hrv_raw: Optional[np.ndarray],
+    t_prv: np.ndarray,
+    prv_clean: np.ndarray,
+    prv_raw: Optional[np.ndarray],
     aux_df: Optional["pd.DataFrame"],
     exclusion_zones,
     duration_sec_fallback: float,
     event_spec: Sequence[EventSpec] = DEFAULT_EVENT_PLOT_SPEC,
-    hrv_mask_info: Optional[Dict[str, object]] = None,
+    prv_mask_info: Optional[Dict[str, object]] = None,
 ) -> Optional[Any]:
-    if t_hrv is None or hrv_clean is None or t_hrv.size == 0:
+    if t_prv is None or prv_clean is None or t_prv.size == 0:
         return None
 
-    bounds = _panel_bounds(t_hrv, duration_sec_fallback)
-    title = "HRV-RMSSD Overview"
+    bounds = _panel_bounds(t_prv, duration_sec_fallback)
+    title = "PRV-RMSSD Overview"
     fig, axes = _init_overview_figure(edf_base, title, len(bounds))
     _decorate_overview_figure(fig, title)
     _add_colored_event_key(fig, list(event_spec))
     show_raw_debug = bool(getattr(config, "PLOT_SHOW_RAW_DEBUG_OVERLAYS", False))
-    use_raw = show_raw_debug and hrv_raw is not None and np.size(hrv_raw) == np.size(hrv_clean)
+    use_raw = show_raw_debug and prv_raw is not None and np.size(prv_raw) == np.size(prv_clean)
 
     for idx, (ax, (start_sec, end_sec)) in enumerate(zip(axes, bounds)):
         _prepare_panel(ax, start_sec, end_sec, exclusion_zones, aux_df, event_spec)
-        mask = (t_hrv >= start_sec) & (t_hrv <= end_sec)
+        mask = (t_prv >= start_sec) & (t_prv <= end_sec)
         if not np.any(mask):
             continue
-        panel_hrv_mask_info: Optional[Dict[str, object]] = None
-        if hrv_mask_info is not None:
+        panel_prv_mask_info: Optional[Dict[str, object]] = None
+        if prv_mask_info is not None:
             mask_slice: Dict[str, object] = {
                 key: np.asarray(value)[mask]
-                for key, value in hrv_mask_info.items()
-                if isinstance(value, np.ndarray) and np.size(value) == np.size(t_hrv)
+                for key, value in prv_mask_info.items()
+                if isinstance(value, np.ndarray) and np.size(value) == np.size(t_prv)
             }
-            panel_hrv_mask_info = mask_slice
-            _shade_hrv_mask_layers(ax, t_hrv[mask], mask_slice)
-        th = t_hrv[mask] / 3600.0
+            panel_prv_mask_info = mask_slice
+            _shade_prv_mask_layers(ax, t_prv[mask], mask_slice)
+        th = t_prv[mask] / 3600.0
         if use_raw:
-            yr = np.asarray(hrv_raw)[mask].astype(float)
+            yr = np.asarray(prv_raw)[mask].astype(float)
             if np.any(np.isfinite(yr)):
                 ax.plot(th, np.ma.masked_invalid(yr), label="Pre-final-exclusion RMSSD", linewidth=0.6, color="tab:gray", alpha=0.6, zorder=1)
-        yc = hrv_clean[mask].astype(float)
+        yc = prv_clean[mask].astype(float)
         _shade_metric_invalid_regions(
             ax,
-            t_hrv[mask],
+            t_prv[mask],
             ~np.isfinite(yc),
-            hrv_mask_info=panel_hrv_mask_info,
+            prv_mask_info=panel_prv_mask_info,
         )
         if np.any(np.isfinite(yc)):
             ax.plot(th, np.ma.masked_invalid(yc), label="Final-analysis RMSSD", linewidth=1.2, color="tab:green", zorder=2)
@@ -339,7 +339,7 @@ def _build_single_series_overview_figure(
     duration_sec_fallback: float,
     event_spec: Sequence[EventSpec] = DEFAULT_EVENT_PLOT_SPEC,
     yscale: Optional[str] = None,
-    hrv_mask_info: Optional[Dict[str, object]] = None,
+    prv_mask_info: Optional[Dict[str, object]] = None,
 ) -> Optional[Any]:
     if t_sec is None or y is None or np.size(t_sec) == 0 or np.size(y) != np.size(t_sec):
         return None
@@ -354,15 +354,15 @@ def _build_single_series_overview_figure(
         mask = (t_sec >= start_sec) & (t_sec <= end_sec)
         if not np.any(mask):
             continue
-        panel_hrv_mask_info: Optional[Dict[str, object]] = None
-        if hrv_mask_info is not None:
+        panel_prv_mask_info: Optional[Dict[str, object]] = None
+        if prv_mask_info is not None:
             mask_slice: Dict[str, object] = {
                 key: np.asarray(value)[mask]
-                for key, value in hrv_mask_info.items()
+                for key, value in prv_mask_info.items()
                 if isinstance(value, np.ndarray) and np.size(value) == np.size(t_sec)
             }
-            panel_hrv_mask_info = mask_slice
-            _shade_hrv_mask_layers(ax, np.asarray(t_sec)[mask], mask_slice)
+            panel_prv_mask_info = mask_slice
+            _shade_prv_mask_layers(ax, np.asarray(t_sec)[mask], mask_slice)
         th = np.asarray(t_sec)[mask] / 3600.0
         yy_raw = None
         show_raw_debug = bool(getattr(config, "PLOT_SHOW_RAW_DEBUG_OVERLAYS", False))
@@ -375,7 +375,7 @@ def _build_single_series_overview_figure(
             ax,
             np.asarray(t_sec)[mask],
             ~np.isfinite(yy),
-            hrv_mask_info=panel_hrv_mask_info,
+            prv_mask_info=panel_prv_mask_info,
         )
         if np.any(np.isfinite(yy)):
             ax.plot(th, np.ma.masked_invalid(yy), linewidth=1.2, color=color, zorder=2)
@@ -397,7 +397,7 @@ def _build_multi_series_overview_figure(
     duration_sec_fallback: float,
     event_spec: Sequence[EventSpec] = DEFAULT_EVENT_PLOT_SPEC,
     yscale: Optional[str] = None,
-    hrv_mask_info: Optional[Dict[str, object]] = None,
+    prv_mask_info: Optional[Dict[str, object]] = None,
 ) -> Optional[Any]:
     if t_sec is None or np.size(t_sec) == 0 or not series:
         return None
@@ -411,15 +411,15 @@ def _build_multi_series_overview_figure(
         _prepare_panel(ax, start_sec, end_sec, exclusion_zones, aux_df, event_spec)
         panel_mask = (t_sec >= start_sec) & (t_sec <= end_sec)
         if np.any(panel_mask):
-            panel_hrv_mask_info: Optional[Dict[str, object]] = None
-            if hrv_mask_info is not None:
+            panel_prv_mask_info: Optional[Dict[str, object]] = None
+            if prv_mask_info is not None:
                 mask_slice: Dict[str, object] = {
                     key: np.asarray(value)[panel_mask]
-                    for key, value in hrv_mask_info.items()
+                    for key, value in prv_mask_info.items()
                     if isinstance(value, np.ndarray) and np.size(value) == np.size(t_sec)
                 }
-                panel_hrv_mask_info = mask_slice
-                _shade_hrv_mask_layers(ax, np.asarray(t_sec)[panel_mask], mask_slice)
+                panel_prv_mask_info = mask_slice
+                _shade_prv_mask_layers(ax, np.asarray(t_sec)[panel_mask], mask_slice)
             panel_nonfinite_masks: list[np.ndarray] = []
             for spec in series:
                 y = spec.get("y")
@@ -433,7 +433,7 @@ def _build_multi_series_overview_figure(
                     ax,
                     np.asarray(t_sec)[panel_mask],
                     masked,
-                    hrv_mask_info=panel_hrv_mask_info,
+                    prv_mask_info=panel_prv_mask_info,
                 )
         any_plotted = False
         for spec in series:

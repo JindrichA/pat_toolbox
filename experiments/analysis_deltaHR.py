@@ -22,7 +22,7 @@ except Exception:
 # ----------------------------
 # File paths
 # ----------------------------
-csv_path = "/Users/jindrich/Projects/PAT_022026_output_data/HR__20260413_115908__all_sleep_incluidng_wake__deltahrinclud/HR_HRV_EVENT_HR_summary__multi_sleep_summary__20260413_115908.csv"
+csv_path = "/Users/jindrich/Projects/PAT_022026_output_data/HR__20260413_115908__all_sleep_incluidng_wake__deltahrinclud/HR_PRV_EVENT_HR_summary__multi_sleep_summary__20260413_115908.csv"
 xlsx_path = "/Users/jindrich/Projects/mayo_sleep_pat/SmallDataset21Oct25/Data/20251020_parsed_last_deindentified.xlsx"
 
 output_dir = "/Users/jindrich/Projects/pat_toolbox/experiments/ahi_feature_analysis_delta_hr_boosted"
@@ -63,8 +63,8 @@ SEVERITY_COLS = [
 
 QUALITY_COLS = [
     "hr_pat_nan_pct",
-    "hrv_rmssd_clean_nan_pct",
-    "hrv_rmssd_raw_nan_pct",
+    "prv_rmssd_clean_nan_pct",
+    "prv_rmssd_raw_nan_pct",
 ]
 
 # ----------------------------
@@ -564,7 +564,7 @@ quartile_features = [
     "combo_all_sleep_dip_depth_mean",
     "combo_all_sleep_response_per_log_event",
     "hr_pat_nan_pct",
-    "hrv_rmssd_clean_nan_pct",
+    "prv_rmssd_clean_nan_pct",
     "combo_all_sleep_event_windows_used"
 ]
 quartile_features = [c for c in quartile_features if c in merged.columns]
@@ -743,7 +743,7 @@ group_median_features = [
     "combo_deep_trough_to_peak_response_mean",
     "combo_rem_trough_to_peak_response_mean",
     "hr_pat_nan_pct",
-    "hrv_rmssd_clean_nan_pct",
+    "prv_rmssd_clean_nan_pct",
     "combo_all_sleep_event_windows_used",
 ]
 group_median_features = [c for c in group_median_features if c in merged.columns]
