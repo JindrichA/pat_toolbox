@@ -20,7 +20,7 @@ EDF_FOLDER = Path(
 )
 
 # Set to an integer for short debug runs, or keep None to process everything.
-MAX_FILES = None
+MAX_FILES = 10
 
 # RUN_ID is generated automatically at import time.
 RUN_ID = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -55,6 +55,14 @@ FEATURES = {
     "report_pdf": True,
     "peaks_debug_pdf": True,
 }
+
+# Optional publication-style single-figure export. This is intentionally separate
+# from the report PDF pipeline so it can use a cleaner layout and high-resolution
+# PNG output for manuscripts.
+EXPORT_PUBLICATION_PRV_PNG = True
+PUBLICATION_PRV_SEGMENT_MIN_SEC = 10.0 * 60.0
+PUBLICATION_PRV_SELECTION_STEP_SEC = 30.0
+PUBLICATION_PRV_DPI = 300
 
 
 def _slug(s: str) -> str:
@@ -166,6 +174,7 @@ def run_suffix() -> str:
 OUTPUT_SUBFOLDER = f"ViewPatPlotsOverlay__{run_suffix()}"
 HR_OUTPUT_SUBFOLDER = f"HR__{run_suffix()}"
 PRV_OUTPUT_SUBFOLDER = f"PRV__{run_suffix()}"
+PUBLICATION_PRV_OUTPUT_SUBFOLDER = f"PublicationPRV__{run_suffix()}"
 PAT_BURDEN_OUTPUT_SUBFOLDER = f"PATBurden__{run_suffix()}"
 PSD_OUTPUT_SUBFOLDER = f"PSD__{run_suffix()}"
 
@@ -390,6 +399,10 @@ PRV_PLOT_LFHF_RATIO_YLIM = (0.0, 10.0)
 # Binning used in cross-night PRV summary plots.
 PRV_PLOT_BIN_SEC = 10.0 * 60.0
 PRV_PLOT_BIN_MIN_COUNT = 3
+# Spectral bins are much sparser than 1 Hz RMSSD/SDNN traces, so they often need
+# a lower minimum valid-count threshold to avoid dropping an otherwise informative
+# early or late bin.
+PRV_PLOT_SPECTRAL_BIN_MIN_COUNT = 1
 
 
 # =============================================================================

@@ -81,6 +81,7 @@ class RecordingContext:
     sleep_timing_csv_path: Optional[Path] = None
     pat_burden_csv_path: Optional[Path] = None
     peaks_pdf_path: Optional[Path] = None
+    publication_prv_png_path: Optional[Path] = None
 
     def __post_init__(self) -> None:
         if not self.edf_base:

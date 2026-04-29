@@ -106,6 +106,36 @@ def build_peaks_debug_pdf_step(ctx: RecordingContext) -> None:
         print(f"  WARNING: could not create peaks debug PDF for {ctx.edf_path.name}: {e}")
 
 
+def build_publication_prv_png_step(ctx: RecordingContext) -> None:
+    if not bool(getattr(config, "EXPORT_PUBLICATION_PRV_PNG", False)):
+        ctx.publication_prv_png_path = None
+        return
+    if ctx.view_pat is None or ctx.view_pat_filt is None or ctx.sfreq is None:
+        ctx.publication_prv_png_path = None
+        return
+    try:
+        ctx.publication_prv_png_path = plotting.save_publication_prv_png(
+            edf_base=ctx.edf_base,
+            signal_raw=ctx.view_pat,
+            signal_filt=ctx.view_pat_filt,
+            sfreq=ctx.sfreq,
+            t_hr=ctx.t_hr_calc,
+            hr=ctx.hr_calc,
+            t_prv=ctx.t_prv,
+            prv_rmssd=ctx.prv_rmssd_clean,
+            prv_tv=ctx.prv_tv,
+            aux_df=ctx.aux_df,
+            prv_mask_info=ctx.prv_mask_info,
+        )
+        if ctx.publication_prv_png_path is not None:
+            print(f"  Saved publication PRV PNG to: {ctx.publication_prv_png_path}")
+        else:
+            print(f"  WARNING: no valid 10 min NREM segment found for publication PNG in {ctx.edf_path.name}")
+    except Exception as e:
+        ctx.publication_prv_png_path = None
+        print(f"  WARNING: could not create publication PRV PNG for {ctx.edf_path.name}: {e}")
+
+
 def append_summary_step(ctx: RecordingContext) -> None:
     if not features.summary_requested():
         return

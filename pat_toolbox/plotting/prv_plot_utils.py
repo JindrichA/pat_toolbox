@@ -107,6 +107,30 @@ def _bin_series_mean_ci(
     return centers_h, means, ci95
 
 
+def _plot_binned_series_with_support(
+    ax: Any,
+    t_center_h: np.ndarray,
+    y: np.ndarray,
+    *,
+    bin_sec: float,
+    color: str,
+    linewidth: float = 1.3,
+    label: Optional[str] = None,
+    alpha_support: float = 0.28,
+    show_markers: bool = False,
+) -> None:
+    t_center_h = np.asarray(t_center_h, dtype=float)
+    y = np.asarray(y, dtype=float)
+    if t_center_h.size == 0 or y.size != t_center_h.size:
+        return
+    ok = np.isfinite(t_center_h) & np.isfinite(y)
+    if not np.any(ok):
+        return
+    t_center_h = t_center_h[ok]
+    y = y[ok]
+    ax.plot(t_center_h, y, color=color, linewidth=linewidth, label=label, zorder=2.0, marker="o" if show_markers else None, markersize=2.5 if show_markers else 0.0)
+
+
 def _add_mean_median_lines(
     ax: Any,
     y: np.ndarray,

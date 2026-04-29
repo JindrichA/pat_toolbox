@@ -12,6 +12,7 @@ from .prv_plot_utils import (
     _add_metric_legend,
     _add_summary_line,
     _bin_series_mean_ci,
+    _plot_binned_series_with_support,
     _overlay_events_on_single_axis_whole_night,
     _plot_sleep_stagegram_on_ax,
     _shade_prv_mask_layers,
@@ -153,12 +154,20 @@ def _build_prv_tv_metrics_figure(
                 continue
             p = np.nanpercentile(y, 99)
             y_plot = np.clip(y, None, p)
-            t_bin_h, y_bin, y_ci = _bin_series_mean_ci(np.asarray(t_plot_sec, dtype=float), y_plot, bin_sec=float(getattr(config, "PRV_PLOT_BIN_SEC", 15.0 * 60.0)))
+            min_count = int(getattr(config, "PRV_PLOT_BIN_MIN_COUNT", 3))
+            if panel["key"] in {"lf_hf_power", "lf_hf"}:
+                min_count = int(getattr(config, "PRV_PLOT_SPECTRAL_BIN_MIN_COUNT", min_count))
+            t_bin_h, y_bin, y_ci = _bin_series_mean_ci(
+                np.asarray(t_plot_sec, dtype=float),
+                y_plot,
+                bin_sec=float(getattr(config, "PRV_PLOT_BIN_SEC", 15.0 * 60.0)),
+                min_count=min_count,
+            )
             okb = np.isfinite(y_bin)
             if not np.any(okb):
                 continue
             plotted_any = True
-            ax.plot(t_bin_h[okb], y_bin[okb], linewidth=1.3, label=label, color=color, zorder=2)
+            _plot_binned_series_with_support(ax, t_bin_h[okb], y_bin[okb], bin_sec=float(getattr(config, "PRV_PLOT_BIN_SEC", 15.0 * 60.0)), color=color, linewidth=1.3, label=label)
             ax.errorbar(t_bin_h[okb], y_bin[okb], yerr=y_ci[okb], fmt="none", elinewidth=0.9, capsize=2, alpha=0.45, color=color, zorder=2)
             if panel["kind"] == "single" or panel["key"] == "lf_hf_power":
                 _add_mean_median_lines(ax, y_bin[okb], color=color)
@@ -251,7 +260,7 @@ def _build_stagegram_and_prv_tv_figure(
     plot_bin_sec = float(getattr(config, "PRV_PLOT_BIN_SEC", 10.0 * 60.0))
     fig.suptitle(f"{edf_base} - Hypnogram + PRV" if tv_win is None or tv_win <= 0 else f"{edf_base} - Hypnogram + PRV", fontsize=11, y=0.988)
     step_sec = 1.0 / prv_step_hz if prv_step_hz > 0 else np.nan
-    fig.text(0.5, 0.948, f"PAT-derived PRV. RMSSD/SDNN use a sliding {prv_window_sec/60.0:.1f} min window, evaluated every {step_sec:.0f} s.\nSpectral LF & HF & LF/HF ratio use fixed {spectral_window_sec/60.0:.1f} min windows. Displayed as {plot_bin_sec/60.0:.0f} min binned mean +/- 95% CI.\nTop markers indicate active exclusion events.", ha="center", va="top", fontsize=8)
+    fig.text(0.5, 0.95, f"PAT-derived PRV from the original 40 Hz PAT waveform; PAT peaks were converted to pulse-to-pulse (PR) intervals.\nRMSSD and SDNN: overlapping {prv_window_sec/60.0:.1f} min windows, advanced every {step_sec:.0f} s, displayed as {plot_bin_sec/60.0:.0f} min binned means with 95% CI. LF, HF, and LF/HF: fixed {spectral_window_sec/60.0:.1f} min windows, likewise displayed as {plot_bin_sec/60.0:.0f} min binned means with 95% CI.\nHypnogram lines mark sleep onset, sleep midpoint, and sleep end; top markers denote active exclusion events.", ha="center", va="top", fontsize=7.5)
     _add_colored_event_key(fig, event_spec)
 
     t_h = t_prv / 3600.0
@@ -269,12 +278,20 @@ def _build_stagegram_and_prv_tv_figure(
                 continue
             p = np.nanpercentile(y, 99)
             y_plot = np.clip(y, None, p)
-            t_bin_h, y_bin, y_ci = _bin_series_mean_ci(np.asarray(t_plot_sec, dtype=float), y_plot, bin_sec=float(getattr(config, "PRV_PLOT_BIN_SEC", 15.0 * 60.0)))
+            min_count = int(getattr(config, "PRV_PLOT_BIN_MIN_COUNT", 3))
+            if panel["key"] in {"lf_hf_power", "lf_hf"}:
+                min_count = int(getattr(config, "PRV_PLOT_SPECTRAL_BIN_MIN_COUNT", min_count))
+            t_bin_h, y_bin, y_ci = _bin_series_mean_ci(
+                np.asarray(t_plot_sec, dtype=float),
+                y_plot,
+                bin_sec=float(getattr(config, "PRV_PLOT_BIN_SEC", 15.0 * 60.0)),
+                min_count=min_count,
+            )
             okb = np.isfinite(y_bin)
             if not np.any(okb):
                 continue
             plotted_any = True
-            ax.plot(t_bin_h[okb], y_bin[okb], linewidth=1.3, label=label, color=color, zorder=2)
+            _plot_binned_series_with_support(ax, t_bin_h[okb], y_bin[okb], bin_sec=float(getattr(config, "PRV_PLOT_BIN_SEC", 15.0 * 60.0)), color=color, linewidth=1.3, label=label)
             ax.errorbar(t_bin_h[okb], y_bin[okb], yerr=y_ci[okb], fmt="none", elinewidth=0.9, capsize=2, alpha=0.45, color=color, zorder=2)
             summary_key = None
             for series_label, candidate_key in panel_summary_keys.get(panel["key"], []):
@@ -302,6 +319,6 @@ def _build_stagegram_and_prv_tv_figure(
 
     if data_axes:
         data_axes[-1].set_xlabel("Time (hours from recording start)")
-    fig.tight_layout(rect=(0.04, 0.05, 0.98, 0.86))
+    fig.tight_layout(rect=(0.04, 0.05, 0.98, 0.88))
     fig.subplots_adjust(hspace=0.22)
     return fig
