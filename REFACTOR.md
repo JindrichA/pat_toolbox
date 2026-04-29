@@ -63,7 +63,7 @@ Examples:
 - metric-specific window rules are partly embedded in plotting expectations
 - summary CSV concerns live inside metric modules
 - aux CSV parsing and exclusion logic are bundled together
-- HR-derived reusable RR logic is buried inside `hr.py`
+- HR-derived reusable PR logic is buried inside `hr.py`
 
 This increases coupling and makes reuse harder.
 
@@ -132,7 +132,7 @@ Computation modules should not decide file paths, PDF pages, or summary-file lay
 
 There should be one clear home for each category of shared behavior:
 
-- RR extraction and cleaning
+- PR extraction and cleaning
 - masking and exclusion
 - sliding-window acceptance rules
 - summary formatting helpers
@@ -149,7 +149,7 @@ Files should be organized by responsibility, not by historical growth.
 
 Good:
 
-- `rr_cleaning.py`
+- `pr_cleaning.py`
 - `prv_windows.py`
 - `aux_events.py`
 - `summary_writer.py`
@@ -183,7 +183,7 @@ pat_toolbox/
 |  `- aux_events.py
 |- core/
 |  |- __init__.py
-|  |- rr_cleaning.py
+|  |- pr_cleaning.py
 |  |- windows.py
 |  |- masking.py
 |  `- signal_quality.py
@@ -318,22 +318,22 @@ Later, these dicts can also be replaced with more specific dataclasses.
 
 This is the most important first step.
 
-#### 1.1 Extract RR cleaning from `pat_toolbox/metrics/hr.py`
+#### 1.1 Extract PR cleaning from `pat_toolbox/metrics/hr.py`
 
-Create a reusable core RR module:
+Create a reusable core PR module:
 
-- `pat_toolbox/core/rr_cleaning.py`
+- `pat_toolbox/core/pr_cleaning.py`
 
 Move there:
 
-- PAT peak-to-RR extraction helpers
-- RR physiologic filtering
+- PAT peak-to-PR extraction helpers
+- PR physiologic filtering
 - median/gap/jump/alternans cleanup
 - contiguous-run filtering
 
 Reason:
 
-- HR, PRV, PSD, and future features all depend on the same RR base.
+- HR, PRV, PSD, and future features all depend on the same PR base.
 
 #### 1.2 Extract shared window logic
 
@@ -666,7 +666,7 @@ All metric validity rules should live in compute modules, not in plot modules.
 
 Examples:
 
-- one RR cleaning implementation
+- one PR cleaning implementation
 - one masking engine implementation
 - one shared time-domain window gate
 - one spectral acceptance gate
@@ -681,7 +681,7 @@ Examples:
 
 - `compute_prv_time_domain_series`
 - `compute_prv_spectral_tv_series`
-- `build_rr_mask_bundle`
+- `build_pr_mask_bundle`
 - `write_batch_summary_row`
 
 ## Suggested Implementation Order
@@ -691,7 +691,7 @@ This order minimizes risk.
 ### Phase A: low-risk extraction
 
 - extract shared helpers from large modules
-- extract RR/window helpers into `core/`
+- extract PR/window helpers into `core/`
 - do not change behavior yet
 
 ### Phase B: reorganize feature computation
@@ -734,7 +734,7 @@ The refactor is successful when:
 
 If starting now, the best first refactor sequence is:
 
-1. extract `rr_cleaning.py` and `windows.py`
+1. extract `pr_cleaning.py` and `windows.py`
 2. split `io_aux_csv.py`
 3. split `prv.py` into time-domain and freq-domain pieces
 4. split `hr.py` into compute vs summary/debug pieces

@@ -268,13 +268,13 @@ def build_mask_bundle(
     )
 
 
-def build_rr_mask_bundle(
-    rr_mid_times_sec: np.ndarray,
+def build_pr_mask_bundle(
+    pr_mid_times_sec: np.ndarray,
     aux_df,
     *,
     policy: Optional[MaskPolicy] = None,
 ) -> MaskBundle:
-    return build_mask_bundle(rr_mid_times_sec, aux_df, policy=policy)
+    return build_mask_bundle(pr_mid_times_sec, aux_df, policy=policy)
 
 
 def false_runs_from_mask(t_sec: np.ndarray, keep_mask: np.ndarray) -> list[tuple[float, float]]:
@@ -307,6 +307,6 @@ __all__ = [
     "MaskBundle",
     "policy_from_config",
     "build_mask_bundle",
-    "build_rr_mask_bundle",
+    "build_pr_mask_bundle",
     "false_runs_from_mask",
 ]

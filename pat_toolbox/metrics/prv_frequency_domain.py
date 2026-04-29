@@ -4,21 +4,21 @@ from typing import Dict, List, Literal, Tuple, overload
 
 import numpy as np
 from ..core.windows import split_into_contiguous_runs
-from .spectral_utils import tachogram_psd_from_rr
+from .spectral_utils import tachogram_psd_from_pr
 
 
-def _lf_hf_from_rr(
-    rr_ms: np.ndarray,
-    rr_mid_times_sec: np.ndarray,
+def _lf_hf_from_pr(
+    pr_ms: np.ndarray,
+    pr_mid_times_sec: np.ndarray,
     fs_resample: float = 4.0,
 ) -> Tuple[float, float, float]:
     """
-    Compute LF, HF, LF/HF from RR intervals using Welch PSD on a resampled tachogram.
+    Compute LF, HF, LF/HF from PR intervals using Welch PSD on a resampled tachogram.
     """
-    if rr_ms.size < 4 or rr_mid_times_sec.size < 4:
+    if pr_ms.size < 4 or pr_mid_times_sec.size < 4:
         return np.nan, np.nan, np.nan
 
-    f, pxx = tachogram_psd_from_rr(rr_ms, rr_mid_times_sec, fs_resample=fs_resample)
+    f, pxx = tachogram_psd_from_pr(pr_ms, pr_mid_times_sec, fs_resample=fs_resample)
     if f.size == 0 or pxx.size == 0:
         return np.nan, np.nan, np.nan
 
@@ -38,9 +38,9 @@ def _lf_hf_from_rr(
 
 
 @overload
-def _lf_hf_from_rr_segmented(
-    rr_ms: np.ndarray,
-    rr_mid_times_sec: np.ndarray,
+def _lf_hf_from_pr_segmented(
+    pr_ms: np.ndarray,
+    pr_mid_times_sec: np.ndarray,
     fs_resample: float = 4.0,
     *,
     max_gap_sec: float = 3.0,
@@ -50,9 +50,9 @@ def _lf_hf_from_rr_segmented(
 
 
 @overload
-def _lf_hf_from_rr_segmented(
-    rr_ms: np.ndarray,
-    rr_mid_times_sec: np.ndarray,
+def _lf_hf_from_pr_segmented(
+    pr_ms: np.ndarray,
+    pr_mid_times_sec: np.ndarray,
     fs_resample: float = 4.0,
     *,
     max_gap_sec: float = 3.0,
@@ -61,9 +61,9 @@ def _lf_hf_from_rr_segmented(
 ) -> Tuple[float, float, float, Dict[str, float]]: ...
 
 
-def _lf_hf_from_rr_segmented(
-    rr_ms: np.ndarray,
-    rr_mid_times_sec: np.ndarray,
+def _lf_hf_from_pr_segmented(
+    pr_ms: np.ndarray,
+    pr_mid_times_sec: np.ndarray,
     fs_resample: float = 4.0,
     *,
     max_gap_sec: float = 3.0,
@@ -71,9 +71,9 @@ def _lf_hf_from_rr_segmented(
     return_info: bool = False,
 ) -> Tuple[float, float, float] | Tuple[float, float, float, Dict[str, float]]:
     """
-    Compute LF, HF, LF/HF from RR intervals WITHOUT interpolating across big gaps.
+    Compute LF, HF, LF/HF from PR intervals WITHOUT interpolating across big gaps.
     """
-    if rr_ms.size < 4 or rr_mid_times_sec.size < 4:
+    if pr_ms.size < 4 or pr_mid_times_sec.size < 4:
         if return_info:
             return np.nan, np.nan, np.nan, {
                 "n_segments_total": 0.0,
@@ -82,7 +82,7 @@ def _lf_hf_from_rr_segmented(
             }
         return np.nan, np.nan, np.nan
 
-    runs = split_into_contiguous_runs(rr_mid_times_sec, float(max_gap_sec))
+    runs = split_into_contiguous_runs(pr_mid_times_sec, float(max_gap_sec))
     n_segments_total = int(len(runs))
 
     if not runs:
@@ -102,12 +102,12 @@ def _lf_hf_from_rr_segmented(
         if r.size < 4:
             continue
 
-        t = rr_mid_times_sec[r]
+        t = pr_mid_times_sec[r]
         span = float(t[-1] - t[0])
         if span < float(min_span_sec):
             continue
 
-        lf, hf, _ = _lf_hf_from_rr(rr_ms[r], t, fs_resample=float(fs_resample))
+        lf, hf, _ = _lf_hf_from_pr(pr_ms[r], t, fs_resample=float(fs_resample))
         if np.isfinite(lf) and np.isfinite(hf):
             lf_list.append(float(lf))
             hf_list.append(float(hf))
@@ -143,15 +143,15 @@ def _lf_hf_from_rr_segmented(
 
 
 def _calculate_lfhf_fixed_windows(
-    rr_mid: np.ndarray,
-    rr_ms: np.ndarray,
+    pr_mid: np.ndarray,
+    pr_ms: np.ndarray,
     duration_sec: float,
     *,
     window_sec: float = 300.0,
     hop_sec: float = 300.0,
     fs_resample: float = 4.0,
     max_gap_sec: float = 3.0,
-    min_rr: int = 0,
+    min_pr: int = 0,
 ) -> Dict[str, np.ndarray]:
     """
     Compute LF/HF on fixed-length windows (publication-style).
@@ -165,7 +165,7 @@ def _calculate_lfhf_fixed_windows(
         "valid_mask": np.array([], dtype=bool),
     }
 
-    if rr_mid.size == 0 or rr_ms.size == 0 or duration_sec <= 0:
+    if pr_mid.size == 0 or pr_ms.size == 0 or duration_sec <= 0:
         return out
 
     window_sec = float(window_sec)
@@ -181,7 +181,7 @@ def _calculate_lfhf_fixed_windows(
     lf_hf = np.full(centers.shape, np.nan, dtype=float)
     valid = np.zeros(centers.shape, dtype=bool)
 
-    n = rr_mid.size
+    n = pr_mid.size
     left = 0
     right = 0
 
@@ -189,32 +189,32 @@ def _calculate_lfhf_fixed_windows(
         start = c - half
         end = c + half
 
-        while left < n and rr_mid[left] < start:
+        while left < n and pr_mid[left] < start:
             left += 1
         if right < left:
             right = left
-        while right < n and rr_mid[right] < end:
+        while right < n and pr_mid[right] < end:
             right += 1
 
         k = right - left
         if k < 4:
             continue
-        if min_rr and k < int(min_rr):
+        if min_pr and k < int(min_pr):
             continue
 
-        rr_win_ms = rr_ms[left:right]
-        rr_mid_win = rr_mid[left:right]
+        pr_win_ms = pr_ms[left:right]
+        pr_mid_win = pr_mid[left:right]
 
-        if rr_mid_win.size >= 2:
-            if np.any(np.diff(rr_mid_win) > float(max_gap_sec)):
+        if pr_mid_win.size >= 2:
+            if np.any(np.diff(pr_mid_win) > float(max_gap_sec)):
                 continue
-            span = float(rr_mid_win[-1] - rr_mid_win[0])
+            span = float(pr_mid_win[-1] - pr_mid_win[0])
             if span < 0.8 * window_sec:
                 continue
         else:
             continue
 
-        lfi, hfi, r = _lf_hf_from_rr(rr_win_ms, rr_mid_win, fs_resample=float(fs_resample))
+        lfi, hfi, r = _lf_hf_from_pr(pr_win_ms, pr_mid_win, fs_resample=float(fs_resample))
         if np.isfinite(lfi) and np.isfinite(hfi):
             lf[i] = lfi
             hf[i] = hfi

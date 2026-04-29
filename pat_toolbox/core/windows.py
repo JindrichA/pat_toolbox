@@ -20,7 +20,7 @@ def split_into_contiguous_runs(t: np.ndarray, max_gap_sec: float) -> list[np.nda
 
 
 def passes_time_domain_window_gate(
-    rr_mid_win: np.ndarray,
+    pr_mid_win: np.ndarray,
     *,
     window_sec: float,
     min_intervals: int,
@@ -28,20 +28,20 @@ def passes_time_domain_window_gate(
     min_span_sec: float,
     min_cov: float,
 ) -> bool:
-    """Return True when an RR window passes the shared time-domain gate."""
-    k = int(np.size(rr_mid_win))
+    """Return True when an PR window passes the shared time-domain gate."""
+    k = int(np.size(pr_mid_win))
     if k < int(min_intervals):
         return False
 
     if k < 2:
         return False
 
-    rr_mid_win = np.asarray(rr_mid_win, dtype=float)
-    gaps = np.diff(rr_mid_win)
+    pr_mid_win = np.asarray(pr_mid_win, dtype=float)
+    gaps = np.diff(pr_mid_win)
     if gaps.size > 0 and np.any(gaps > float(max_gap_sec)):
         return False
 
-    span = float(rr_mid_win[-1] - rr_mid_win[0])
+    span = float(pr_mid_win[-1] - pr_mid_win[0])
     if span < float(min_span_sec):
         return False
 

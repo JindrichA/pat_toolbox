@@ -87,7 +87,7 @@ python -m pytest path/to/test_file.py::test_name
 - `pat_toolbox/context.py` defines `RecordingContext`, the per-recording state container.
 - `pat_toolbox/io_edf.py` reads EDF channels and lists EDF inputs.
 - `pat_toolbox/io_aux_csv.py` and `pat_toolbox/io/` normalize auxiliary CSV data and event masks.
-- `pat_toolbox/core/` holds shared low-level logic such as RR cleaning and interpolation helpers.
+- `pat_toolbox/core/` holds shared low-level logic such as PR cleaning and interpolation helpers.
 - `pat_toolbox/metrics/` contains signal-derived computations.
 - `pat_toolbox/plotting/` contains PDF/report rendering.
 

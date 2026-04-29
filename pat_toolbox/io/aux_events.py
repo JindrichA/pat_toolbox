@@ -241,27 +241,27 @@ def save_sleep_timing_to_csv(edf_path: Path, aux_df: pd.DataFrame) -> Optional[P
     return out_csv
 
 
-def get_rr_exclusion_mask(
-    rr_mid_times_sec: np.ndarray,
+def get_pr_exclusion_mask(
+    pr_mid_times_sec: np.ndarray,
     aux_df: pd.DataFrame,
 ) -> np.ndarray:
     from .. import masking
 
-    rr_mid_times_sec = np.asarray(rr_mid_times_sec, dtype=float)
-    bundle = masking.build_rr_mask_bundle(rr_mid_times_sec, aux_df)
+    pr_mid_times_sec = np.asarray(pr_mid_times_sec, dtype=float)
+    bundle = masking.build_pr_mask_bundle(pr_mid_times_sec, aux_df)
     keep = np.asarray(bundle.combined_keep, dtype=bool)
 
     if bool(getattr(config, "PRV_EXCLUSION_USE_DESAT_WINDOWS", False)):
         n_exc = int(np.sum(~keep))
         if bundle.gated_desat_windows and bundle.active_event_times_sec.size > 0:
             print(
-                f"  PRV RR exclusion (EVENT+DESAT gated): excluded {n_exc}/{keep.size} RR "
+                f"  PRV PR exclusion (EVENT+DESAT gated): excluded {n_exc}/{keep.size} PR "
                 f"({100*n_exc/max(1, keep.size):.1f}%) | "
                 f"gated_desat_windows={len(bundle.gated_desat_windows)}"
             )
         else:
             print(
-                f"  PRV RR exclusion (EVENT+DESAT gated): excluded {n_exc}/{keep.size} RR "
+                f"  PRV PR exclusion (EVENT+DESAT gated): excluded {n_exc}/{keep.size} PR "
                 f"({100*n_exc/max(1, keep.size):.1f}%) | (no events -> desats ignored)"
             )
 
@@ -277,7 +277,7 @@ def build_time_exclusion_mask(
       True  = KEEP
       False = EXCLUDE (inside event or desat windows)
 
-    IMPORTANT: This MUST match get_rr_exclusion_mask() logic,
+    IMPORTANT: This MUST match get_pr_exclusion_mask() logic,
     including EVENT-gated desat windows.
     """
     if aux_df is None or len(aux_df) == 0 or t_grid_sec is None or np.size(t_grid_sec) == 0:

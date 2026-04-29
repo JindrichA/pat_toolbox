@@ -8,12 +8,12 @@ from .. import config
 from ..core.windows import passes_time_domain_window_gate
 
 
-def _rmssd(rr_ms: np.ndarray) -> float:
-    """Robust RMSSD (ms) from RR in ms: reject outlier successive diffs before RMSSD."""
-    if rr_ms.size < 3:
+def _rmssd(pr_ms: np.ndarray) -> float:
+    """Robust RMSSD (ms) from PR in ms: reject outlier successive diffs before RMSSD."""
+    if pr_ms.size < 3:
         return np.nan
 
-    diffs = np.diff(rr_ms).astype(float)
+    diffs = np.diff(pr_ms).astype(float)
     if diffs.size < 2:
         return np.nan
 
@@ -43,17 +43,17 @@ def _rmssd(rr_ms: np.ndarray) -> float:
     return rmssd
 
 
-def _sdnn(rr_ms: np.ndarray) -> float:
-    """Compute SDNN (ms) from RR intervals in ms (sample std)."""
-    if rr_ms.size < 2:
+def _sdnn(pr_ms: np.ndarray) -> float:
+    """Compute SDNN (ms) from PR intervals in ms (sample std)."""
+    if pr_ms.size < 2:
         return np.nan
-    return float(np.std(rr_ms, ddof=1))
+    return float(np.std(pr_ms, ddof=1))
 
 
 def _calculate_rmssd_series(
     t_prv: np.ndarray,
-    rr_mid: np.ndarray,
-    rr_ms: np.ndarray,
+    pr_mid: np.ndarray,
+    pr_ms: np.ndarray,
     window_sec: float,
     *,
     max_gap_sec: float = 3.0,
@@ -77,10 +77,10 @@ def _calculate_rmssd_series(
     rmssd_1hz = np.full_like(t_prv, fill_value=np.nan, dtype=float)
     rmssd_windows_list: List[float] = []
 
-    if t_prv.size == 0 or rr_mid.size == 0 or rr_ms.size == 0:
+    if t_prv.size == 0 or pr_mid.size == 0 or pr_ms.size == 0:
         return rmssd_1hz, rmssd_windows_list
 
-    n = rr_mid.size
+    n = pr_mid.size
     left = 0
     right = 0
 
@@ -88,18 +88,18 @@ def _calculate_rmssd_series(
         start = t - half_win
         end = t + half_win
 
-        while left < n and rr_mid[left] < start:
+        while left < n and pr_mid[left] < start:
             left += 1
         if right < left:
             right = left
-        while right < n and rr_mid[right] < end:
+        while right < n and pr_mid[right] < end:
             right += 1
 
-        rr_win_ms = rr_ms[left:right]
-        rr_mid_win = rr_mid[left:right]
+        pr_win_ms = pr_ms[left:right]
+        pr_mid_win = pr_mid[left:right]
 
         if not passes_time_domain_window_gate(
-            rr_mid_win,
+            pr_mid_win,
             window_sec=float(window_sec),
             min_intervals=min_intervals,
             max_gap_sec=float(max_gap_sec),
@@ -108,14 +108,14 @@ def _calculate_rmssd_series(
         ):
             continue
 
-        if veto_bigdiff and rr_win_ms.size >= 3:
-            diffs = np.abs(np.diff(rr_win_ms.astype(float)))
+        if veto_bigdiff and pr_win_ms.size >= 3:
+            diffs = np.abs(np.diff(pr_win_ms.astype(float)))
             if diffs.size > 0:
                 frac_big = float(np.mean(diffs > bigdiff_thr_ms))
                 if frac_big > bigdiff_max_frac:
                     continue
 
-        rmssd_win = _rmssd(rr_win_ms)
+        rmssd_win = _rmssd(pr_win_ms)
         if not np.isfinite(rmssd_win) or rmssd_win < rmssd_floor_ms:
             continue
 

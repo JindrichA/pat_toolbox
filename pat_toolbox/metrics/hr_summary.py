@@ -243,12 +243,12 @@ def append_hr_prv_summary(
         out["n_used"] = float(np.count_nonzero(ok))
         if not np.any(ok):
             return out
-        arr_ok = arr[ok]
-        out["min"] = float(np.min(arr_ok))
-        out["max"] = float(np.max(arr_ok))
-        out["mean"] = float(np.mean(arr_ok))
-        out["median"] = float(np.median(arr_ok))
-        out["std"] = float(np.std(arr_ok))
+        apr_ok = arr[ok]
+        out["min"] = float(np.min(apr_ok))
+        out["max"] = float(np.max(apr_ok))
+        out["mean"] = float(np.mean(apr_ok))
+        out["median"] = float(np.median(apr_ok))
+        out["std"] = float(np.std(apr_ok))
         return out
 
     def _sleep_stage_stats(df: Any) -> Dict[str, Any]:

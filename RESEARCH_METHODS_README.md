@@ -4,6 +4,14 @@ This document describes the current signal-processing workflow used in this repo
 
 It is written as a methods-style reference for research reporting. It explains, step by step, how features are derived from the EDF and auxiliary CSV inputs, how exclusion is applied, how sleep-stage policies are handled, and which calculations are active in the current setup.
 
+Terminology used below:
+
+- `PAT` = Peripheral Arterial Tone.
+- `PR` = pulse-to-pulse interval between adjacent detected PAT peaks.
+- `PRV` = pulse rate variability derived from the PAT pulse-interval stream.
+
+These `PR` intervals are PAT-derived pulse intervals. They are not ECG `R-R` intervals, and the repository uses `PR` terminology consistently for that reason.
+
 ## Current Active Setup
 
 The current `FEATURES` configuration is:
@@ -21,7 +29,7 @@ This means the current run produces:
 
 - PAT-derived HR
 - PRV time-domain features
-- PRV frequency-domain features based on RR intervals
+- PRV frequency-domain features based on PR intervals
 - sleep-subset comparison summaries
 - the main PDF report
 
@@ -47,7 +55,7 @@ For each recording, the workflow reads the EDF channel:
 
 - `VIEW_PAT`
 
-This is the PAT waveform used for peak detection, RR extraction, HR, and PRV.
+This is the PAT waveform used for peak detection, PR extraction, HR, and PRV.
 
 The code uses the sampling frequency stored in the EDF for that channel. In practice, your recordings may use a 40 Hz PAT signal, but the algorithm itself uses the EDF-native sampling frequency rather than a hard-coded value.
 
@@ -85,7 +93,7 @@ For each EDF file, the processing order is:
 5. Compute sleep-subset summaries.
 6. Compute PAT burden if enabled.
 7. Compute PAT-derived HR.
-8. Compute PRV and RR-based summaries.
+8. Compute PRV and PR-based summaries.
 9. Compute separate PSD features if enabled.
 10. Export per-feature CSVs.
 11. Build the PDF report.
@@ -101,55 +109,55 @@ Before peak detection, the PAT waveform is band-pass filtered with a Butterworth
 
 Filtering is done with zero-phase forward-backward filtering (`filtfilt`), so no intentional phase shift is introduced.
 
-## Peak Detection And RR Extraction
+## Peak Detection And PR Extraction
 
 PAT peak detection is performed on the filtered PAT waveform.
 
 ### Peak detection settings
 
-- minimum RR interval: `0.30 s`
-- maximum RR interval: `2.50 s`
+- minimum PR interval: `0.30 s`
+- maximum PR interval: `2.50 s`
 - peak prominence factor: `0.30 x SD(filtered PAT)`
 
 Operationally, the detector:
 
 1. Finds local PAT peaks with a minimum peak-to-peak distance corresponding to `0.30 s`.
 2. Uses a prominence threshold equal to `0.30 x` the standard deviation of the filtered PAT waveform when the filtered signal has nonzero variance.
-3. Converts detected peak times into beat-to-beat RR intervals.
-4. Keeps only RR intervals within the physiologic range `0.30 to 2.50 s`.
+3. Converts detected peak times into beat-to-beat PR intervals.
+4. Keeps only PR intervals within the physiologic range `0.30 to 2.50 s`.
 
-RR mid-times are defined as the midpoint between consecutive peaks.
+PR mid-times are defined as the midpoint between consecutive peaks.
 
-## Low-Level RR Cleaning
+## Low-Level PR Cleaning
 
-After initial RR extraction, the repository applies an additional low-level RR cleaning pass before HR and PRV are derived.
+After initial PR extraction, the repository applies an additional low-level PR cleaning pass before HR and PRV are derived.
 
-### RR cleaning parameters
+### PR cleaning parameters
 
 - median filter kernel: `5`
-- RR relative outlier threshold: `0.30`
-- RR gap factor: `2.4`
-- RR jump relative threshold: `0.6`
+- PR relative outlier threshold: `0.30`
+- PR gap factor: `2.4`
+- PR jump relative threshold: `0.6`
 - alternans short relative threshold: `0.25`
 - alternans long relative threshold: `0.35`
-- minimum retained contiguous good run length: `3 RR intervals`
+- minimum retained contiguous good run length: `3 PR intervals`
 
-### RR cleaning procedure
+### PR cleaning procedure
 
-The cleaned RR stream is produced as follows:
+The cleaned PR stream is produced as follows:
 
-1. Compute the raw RR sequence from consecutive PAT peaks.
-2. Remove RR intervals outside the physiologic range `0.30 to 2.50 s`.
-3. Compute a local median RR using a median filter of length `5`.
-4. Mark an RR interval as bad if its relative deviation from the local median exceeds `30%`.
-5. Mark an RR interval as bad if it exceeds `2.4 x` the local median RR.
-6. Mark abrupt jumps as bad when the relative jump between consecutive RR intervals exceeds `0.6`.
+1. Compute the raw PR sequence from consecutive PAT peaks.
+2. Remove PR intervals outside the physiologic range `0.30 to 2.50 s`.
+3. Compute a local median PR using a median filter of length `5`.
+4. Mark a PR interval as bad if its relative deviation from the local median exceeds `30%`.
+5. Mark a PR interval as bad if it exceeds `2.4 x` the local median PR.
+6. Mark abrupt jumps as bad when the relative jump between consecutive PR intervals exceeds `0.6`.
 7. Reject short-long or long-short alternans-like pairs using:
    - short threshold: `< (1 - 0.25) x local median`
    - long threshold: `> (1 + 0.35) x local median`
-8. After all point-wise rejection, keep only contiguous runs of good RR intervals of length at least `3`.
+8. After all point-wise rejection, keep only contiguous runs of good PR intervals of length at least `3`.
 
-This produces the shared physiologically cleaned RR series used by HR and PRV.
+This produces the shared physiologically cleaned PR series used by HR and PRV.
 
 ## Sleep-Stage Policy
 
@@ -164,7 +172,7 @@ This means:
 
 ### How sleep-stage masking is applied
 
-The code maps each analysis time point or RR midpoint to the nearest auxiliary stage sample in time.
+The code maps each analysis time point or PR midpoint to the nearest auxiliary stage sample in time.
 
 For the selected-policy analysis:
 
@@ -246,7 +254,7 @@ This is a conservative event-gated desaturation logic. Desaturation alone does n
 
 ### Final combined mask
 
-For time-grid or RR-midpoint analyses, the final selected-policy keep mask is:
+For time-grid or PR-midpoint analyses, the final selected-policy keep mask is:
 
 - `combined_keep = sleep_keep AND event_keep AND desat_keep`
 
@@ -258,7 +266,7 @@ Therefore a sample is kept only if:
 
 ## PAT-Derived HR Calculation
 
-Heart rate is derived from the cleaned RR intervals.
+Heart rate is derived from the cleaned PR intervals.
 
 ### HR parameters
 
@@ -272,9 +280,9 @@ Heart rate is derived from the cleaned RR intervals.
 
 ### HR derivation procedure
 
-1. Convert the cleaned RR intervals to instantaneous HR using `HR = 60 / RR`.
+1. Convert the cleaned PR intervals to instantaneous HR using `HR = 60 / PR`.
 2. Interpolate instantaneous HR to a regular `1 Hz` grid.
-3. Do not interpolate across RR gaps larger than `2.5 s`.
+3. Do not interpolate across PR gaps larger than `2.5 s`.
 4. Smooth the interpolated HR with a moving average over `4 s`.
 5. Clamp the smoothed HR to `30 to 220 bpm`.
 6. Apply a Hampel despiking filter with an `8 s` window and `2 sigma`, but only when the NaN fraction is below `5%`.
@@ -286,7 +294,7 @@ The final selected-policy HR summary statistics are computed from the finite HR 
 
 ## PRV Calculation Overview
 
-The PRV feature uses the shared cleaned RR intervals and then creates two distinct families of outputs:
+The PRV feature uses the shared cleaned PR intervals and then creates two distinct families of outputs:
 
 1. time-domain PRV outputs
 2. frequency-domain PRV outputs
@@ -299,17 +307,17 @@ These two families do not use exactly the same window definition in the current 
 
 - PRV output grid: `1.0 Hz`
 - main PRV window: `300 s` (`5.0 min`)
-- minimum RR intervals per window: `6`
-- maximum RR gap inside PRV windows: `8.0 s`
-- minimum time span inside an PRV window: `5.0 s`
+- minimum PR intervals per window: `6`
+- maximum PR gap inside PRV windows: `8.0 s`
+- minimum time span inside a PRV window: `5.0 s`
 - minimum window coverage fraction: `0.2`
 - RMSSD smoothing window: `5.0 s`
 
 ### RMSSD robustness settings
 
-- hard cap on successive RR differences: `400 ms`
+- hard cap on successive PR differences: `400 ms`
 - MAD cutoff: `4.0 sigma`
-- minimum surviving RR differences: `3`
+- minimum surviving PR differences: `3`
 - RMSSD floor: `2.0 ms`
 - large-difference veto: `False`
 - if enabled, the unused veto parameters would be:
@@ -321,17 +329,17 @@ These two families do not use exactly the same window definition in the current 
 For each `1 Hz` analysis time point:
 
 1. Center a `300 s` window on that time.
-2. Gather RR intervals whose midpoints fall inside the window.
+2. Gather PR intervals whose midpoints fall inside the window.
 3. Require the shared time-domain window gate to pass:
-   - at least `6` RR intervals
-   - no RR gap larger than `8.0 s`
-   - RR midpoint span at least `5.0 s`
+   - at least `6` PR intervals
+   - no PR gap larger than `8.0 s`
+   - PR midpoint span at least `5.0 s`
    - span at least `20%` of the `300 s` window because `PRV_MIN_WINDOW_COVERAGE = 0.2`
-4. Compute successive RR differences.
-5. Remove RR differences whose absolute value exceeds `400 ms`.
+4. Compute successive PR differences.
+5. Remove PR differences whose absolute value exceeds `400 ms`.
 6. Compute the median and MAD of the remaining differences.
 7. Remove differences farther than `4.0 x robust sigma` from the median.
-8. Require at least `3` remaining RR differences.
+8. Require at least `3` remaining PR differences.
 9. Compute RMSSD as the square root of the mean squared successive difference.
 10. Reject the value if RMSSD is below `2.0 ms`.
 
@@ -348,7 +356,7 @@ The time-varying SDNN series is computed on the same `300 s` sliding windows use
 
 For each valid window:
 
-- `SDNN = standard deviation of RR intervals in ms`
+- `SDNN = standard deviation of PR intervals in ms`
 
 In addition to the time-varying series, the summary tables report:
 
@@ -369,18 +377,18 @@ The current selected-policy spectral summary uses fixed windows, not the same `5
 
 - fixed window length: `120 s` (`2.0 min`)
 - fixed hop: `120 s`
-- minimum RR intervals per fixed spectral window: `0` additional requirement beyond the built-in minimum of `4`
-- maximum RR gap in fixed spectral windows: `3.0 s`
+- minimum PR intervals per fixed spectral window: `0` additional requirement beyond the built-in minimum of `4`
+- maximum PR gap in fixed spectral windows: `3.0 s`
 - minimum retained span in a fixed spectral window: at least `80%` of the window, therefore at least `96 s`
 
 ### Spectral computation within one valid fixed window
 
 For each valid fixed window:
 
-1. Extract RR intervals whose midpoints fall inside the fixed window.
-2. Require at least `4` RR intervals.
-3. Reject the window if any RR gap exceeds `3.0 s`.
-4. Reject the window if the RR midpoint span is below `96 s`.
+1. Extract PR intervals whose midpoints fall inside the fixed window.
+2. Require at least `4` PR intervals.
+3. Reject the window if any PR gap exceeds `3.0 s`.
+4. Reject the window if the PR midpoint span is below `96 s`.
 5. Resample the tachogram to `4.0 Hz`.
 6. Compute the PSD using Welch spectral estimation.
 7. Integrate LF power over `0.04 to 0.15 Hz`.
@@ -406,7 +414,7 @@ Importantly:
 
 ### Legacy segmented spectral summary
 
-The code still contains a segmented spectral helper that pools contiguous clean RR runs of at least `120 s` and weights them by duration.
+The code still contains a segmented spectral helper that pools contiguous clean PR runs of at least `120 s` and weights them by duration.
 
 However, the main exported `lf`, `hf`, and `lf_hf` summary values are currently overwritten to follow the fixed-window analysis, not the legacy segmented summary.
 
@@ -432,7 +440,7 @@ So in the present setup:
 - no dedicated PAT PSD pages are generated
 - no separate PSD summary fields are expected in the main output as a run feature
 
-If enabled, that feature would compute averaged RR-based PSDs over the same fixed `120 s` windows and report Mayer-band and respiratory-band power summaries.
+If enabled, that feature would compute averaged PR-based PSDs over the same fixed `120 s` windows and report Mayer-band and respiratory-band power summaries.
 
 ## Sleep Timing And Sleep-Half Analysis
 
@@ -447,7 +455,7 @@ Definitions:
 In the current midpoint-half PRV comparison:
 
 - the half analysis is restricted to NREM only, using stages `{1, 2}`
-- the NREM RR stream is cut into first and second halves relative to the sleep midpoint
+- the NREM PR stream is cut into first and second halves relative to the sleep midpoint
 - each half is then summarized with the same selected-policy PRV summary engine
 
 This is why the comparison table is labeled:
@@ -500,7 +508,7 @@ Under the current setup, the exclusion breakdown in the report is mask-based onl
 That means:
 
 - the table describes sleep-stage, event, quality, and gated-desaturation masking applied on the final time grid
-- it does not include upstream RR loss from PAT peak-detection failure or low-level RR cleaning rejection
+- it does not include upstream PR loss from PAT peak-detection failure or low-level PR cleaning rejection
 
 Therefore, the difference between:
 
@@ -516,16 +524,16 @@ For the current configuration, the main selected-policy PRV workflow can be summ
 1. Read the PAT waveform from EDF.
 2. Band-pass filter the PAT waveform from `0.5 to 8.0 Hz` with order `4`.
 3. Detect PAT peaks using a minimum peak distance corresponding to `0.30 s` and a prominence threshold of `0.30 x signal SD`.
-4. Convert consecutive peaks into RR intervals and RR midpoint times.
-5. Keep only physiologic RR intervals between `0.30 and 2.50 s`.
-6. Apply low-level RR cleaning using median-based outlier rejection, gap rejection, jump rejection, alternans rejection, and a minimum good-run length of `3`.
+4. Convert consecutive peaks into PR intervals and PR midpoint times.
+5. Keep only physiologic PR intervals between `0.30 and 2.50 s`.
+6. Apply low-level PR cleaning using median-based outlier rejection, gap rejection, jump rejection, alternans rejection, and a minimum good-run length of `3`.
 7. Read the auxiliary CSV and convert sleep stages into numeric stage codes.
 8. Build the selected sleep-stage mask using `nrem_only = {1, 2}`.
 9. Build event and quality exclusion windows from respiratory event flags and `Exclude HR` / `Exclude PAT` flags using `15 s` pre-padding and `30 s` post-padding.
 10. Build event-gated desaturation windows using the desaturation flag, `15 s` start padding, `0 s` end padding, and minimum run length `5 s`.
 11. Combine sleep, event, quality, and gated-desaturation masks into the final selected-policy keep mask.
-12. Derive PAT HR from the cleaned RR stream, interpolate to `1 Hz`, smooth, despike, and apply the final selected-policy mask.
+12. Derive PAT HR from the cleaned PR stream, interpolate to `1 Hz`, smooth, despike, and apply the final selected-policy mask.
 13. Derive RMSSD and SDNN on `5 min` sliding windows evaluated on a `1 Hz` grid.
-14. Derive LF, HF, and LF/HF on non-overlapping fixed `2 min` windows using RR-tachogram Welch PSD.
+14. Derive LF, HF, and LF/HF on non-overlapping fixed `2 min` windows using PR-tachogram Welch PSD.
 15. Summarize the surviving values over the selected-policy valid windows.
 16. Recompute the same family of metrics for fixed subsets such as all sleep, NREM, deep, REM, wake+sleep, and pre-sleep wake.

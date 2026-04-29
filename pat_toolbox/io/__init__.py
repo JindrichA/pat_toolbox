@@ -4,7 +4,7 @@ from .aux_events import (
     compute_sleep_timing_from_aux,
     desat_windows_from_aux,
     get_event_times,
-    get_rr_exclusion_mask,
+    get_pr_exclusion_mask,
     save_sleep_timing_to_csv,
 )
 from .aux_normalize import normalize_aux_df, parse_time_column_to_seconds

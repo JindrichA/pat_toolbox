@@ -508,7 +508,7 @@ stage_summary_df.to_csv(os.path.join(output_dir, "stage_summary_medians.csv"), i
 # ----------------------------
 # Correlations: delta-HR vs severity / quality
 # ----------------------------
-corr_rows = []
+copr_rows = []
 x_cols = [c for c in (SEVERITY_COLS + QUALITY_COLS) if c in merged.columns]
 
 for y_col in delta_hr_features:
@@ -520,7 +520,7 @@ for y_col in delta_hr_features:
             rho, p = spearmanr(sub[x_col], sub[y_col], nan_policy="omit")
         except Exception:
             continue
-        corr_rows.append({
+        copr_rows.append({
             "y_feature": y_col,
             "x_feature": x_col,
             "n": len(sub),
@@ -528,10 +528,10 @@ for y_col in delta_hr_features:
             "p_value": p
         })
 
-corr_df = pd.DataFrame(corr_rows)
-if not corr_df.empty:
-    corr_df = corr_df.sort_values(["y_feature", "p_value", "spearman_rho"], ascending=[True, True, False])
-corr_df.to_csv(os.path.join(output_dir, "delta_hr_correlations.csv"), index=False)
+copr_df = pd.DataFrame(copr_rows)
+if not copr_df.empty:
+    copr_df = copr_df.sort_values(["y_feature", "p_value", "spearman_rho"], ascending=[True, True, False])
+copr_df.to_csv(os.path.join(output_dir, "delta_hr_correlations.csv"), index=False)
 
 # ----------------------------
 # Pairwise AHI-group boxplots
@@ -786,9 +786,9 @@ if not residual_pairwise_df.empty:
 else:
     print("\nNo residual pairwise results generated.")
 
-if not corr_df.empty:
+if not copr_df.empty:
     print("\nTop 20 strongest delta-HR correlations by smallest p-value:")
-    print(corr_df.sort_values("p_value").head(20).to_string(index=False))
+    print(copr_df.sort_values("p_value").head(20).to_string(index=False))
 else:
     print("\nNo delta-HR correlation results generated.")
 

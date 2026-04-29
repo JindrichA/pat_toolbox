@@ -5,7 +5,7 @@ from typing import Optional, Tuple
 import numpy as np
 
 from .. import config
-from ..core.rr_cleaning import detect_pat_peaks, extract_clean_rr_from_pat as core_extract_clean_rr_from_pat
+from ..core.pr_cleaning import detect_pat_peaks, extract_clean_pr_from_pat as core_extract_clean_pr_from_pat
 from ..core.windows import interp_with_gaps
 
 
@@ -16,11 +16,11 @@ def _detect_pat_peaks(
     return detect_pat_peaks(pat_signal, fs)
 
 
-def extract_clean_rr_from_pat(
+def extract_clean_pr_from_pat(
     pat_signal: np.ndarray,
     fs: float,
 ) -> Tuple[np.ndarray, np.ndarray, float]:
-    return core_extract_clean_rr_from_pat(pat_signal, fs)
+    return core_extract_clean_pr_from_pat(pat_signal, fs)
 
 
 def _hampel_filter_1d(
@@ -69,22 +69,22 @@ def compute_hr_from_pat_signal(
     target_fs: Optional[float] = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
-    Compute HR (1 Hz by default) from PAT using shared RR extraction.
+    Compute HR (1 Hz by default) from PAT using shared PR extraction.
     """
     if target_fs is None:
         target_fs = float(getattr(config, "HR_TARGET_FS_HZ", 1.0))
 
-    rr_sec_clean, rr_mid_clean, duration_sec = extract_clean_rr_from_pat(pat_signal, fs)
+    pr_sec_clean, pr_mid_clean, duration_sec = extract_clean_pr_from_pat(pat_signal, fs)
 
     t_hr = np.arange(0, duration_sec, 1.0 / float(target_fs))
-    if rr_sec_clean.size < 1:
+    if pr_sec_clean.size < 1:
         hr_1hz = np.full_like(t_hr, fill_value=np.nan, dtype=float)
         return t_hr, hr_1hz
 
-    inst_hr = 60.0 / rr_sec_clean
+    inst_hr = 60.0 / pr_sec_clean
 
-    max_gap_sec = float(getattr(config, "HR_MAX_RR_GAP_SEC", 2.5))
-    hr_grid = _interp_with_gaps(t_hr, rr_mid_clean, inst_hr, max_gap_sec=max_gap_sec)
+    max_gap_sec = float(getattr(config, "HR_MAX_PR_GAP_SEC", 2.5))
+    hr_grid = _interp_with_gaps(t_hr, pr_mid_clean, inst_hr, max_gap_sec=max_gap_sec)
 
     smooth_sec = float(getattr(config, "HR_SMOOTHING_WINDOW_SEC", 0.0))
     smooth_samples = int(round(smooth_sec * target_fs))

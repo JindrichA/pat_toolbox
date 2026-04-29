@@ -1,2 +1,2 @@
-from .rr_cleaning import detect_pat_peaks, extract_clean_rr_from_pat
+from .pr_cleaning import detect_pat_peaks, extract_clean_pr_from_pat
 from .windows import interp_with_gaps, passes_time_domain_window_gate, split_into_contiguous_runs

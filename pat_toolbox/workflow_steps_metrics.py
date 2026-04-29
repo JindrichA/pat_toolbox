@@ -49,8 +49,8 @@ def _compute_single_sleep_combo_summary(
     label: str,
     include_set: set[int],
     aux_df,
-    rr_mid: np.ndarray,
-    rr_ms: np.ndarray,
+    pr_mid: np.ndarray,
+    pr_ms: np.ndarray,
     duration_sec: float,
     t_hr_subset,
     hr_raw_subset,
@@ -60,7 +60,7 @@ def _compute_single_sleep_combo_summary(
 
     prv_summary = None
     if features.is_enabled("prv"):
-        prv_summary = prv_metrics.summarize_prv_from_rr(rr_mid, rr_ms, duration_sec, aux_df, include_set=include_set)
+        prv_summary = prv_metrics.summarize_prv_from_pr(pr_mid, pr_ms, duration_sec, aux_df, include_set=include_set)
 
     hr_summary = None
     if features.is_enabled("hr") and t_hr_subset is not None and hr_raw_subset is not None and aux_df is not None:
@@ -68,7 +68,7 @@ def _compute_single_sleep_combo_summary(
 
     psd_features = None
     if features.is_enabled("psd"):
-        psd_features = psd_metrics.compute_psd_features_from_rr(rr_mid, rr_ms, duration_sec, aux_df, include_set=include_set)
+        psd_features = psd_metrics.compute_psd_features_from_pr(pr_mid, pr_ms, duration_sec, aux_df, include_set=include_set)
 
     burden = np.nan
     burden_diag = None
@@ -136,13 +136,13 @@ def compute_sleep_combo_summaries_step(ctx: RecordingContext) -> None:
     if ctx.view_pat is None or ctx.sfreq is None or ctx.sfreq <= 0:
         return
     try:
-        rr_sec, rr_mid, duration_sec = hr_metrics.extract_clean_rr_from_pat(ctx.view_pat, ctx.sfreq)
+        pr_sec, pr_mid, duration_sec = hr_metrics.extract_clean_pr_from_pat(ctx.view_pat, ctx.sfreq)
     except Exception as e:
-        print(f"  WARNING: could not extract base RR for sleep-combo summaries: {e}")
+        print(f"  WARNING: could not extract base PR for sleep-combo summaries: {e}")
         return
-    ctx.rr_mid_clean = rr_mid
-    ctx.rr_ms_clean = rr_sec * 1000.0
-    ctx.rr_duration_sec = float(duration_sec)
+    ctx.pr_mid_clean = pr_mid
+    ctx.pr_ms_clean = pr_sec * 1000.0
+    ctx.pr_duration_sec = float(duration_sec)
 
     summaries: dict[str, dict[str, object]] = {}
     t_hr_subset = None
@@ -159,8 +159,8 @@ def compute_sleep_combo_summaries_step(ctx: RecordingContext) -> None:
             label=label,
             include_set=include_set,
             aux_df=ctx.aux_df,
-            rr_mid=rr_mid,
-            rr_ms=ctx.rr_ms_clean,
+            pr_mid=pr_mid,
+            pr_ms=ctx.pr_ms_clean,
             duration_sec=duration_sec,
             t_hr_subset=t_hr_subset,
             hr_raw_subset=hr_raw_subset,
@@ -175,8 +175,8 @@ def compute_sleep_combo_summaries_step(ctx: RecordingContext) -> None:
             label=pre_label,
             include_set=pre_include_set,
             aux_df=pre_aux_df,
-            rr_mid=rr_mid,
-            rr_ms=ctx.rr_ms_clean,
+            pr_mid=pr_mid,
+            pr_ms=ctx.pr_ms_clean,
             duration_sec=duration_sec,
             t_hr_subset=t_hr_subset,
             hr_raw_subset=hr_raw_subset,
@@ -241,11 +241,11 @@ def compute_prv_step(ctx: RecordingContext) -> None:
                 "gated_desat_windows": tuple(bundle.gated_desat_windows),
             }
         try:
-            rr_sec, rr_mid, duration_sec = hr_metrics.extract_clean_rr_from_pat(ctx.view_pat, ctx.sfreq)
-            rr_ms = rr_sec * 1000.0
-            ctx.rr_mid_clean = rr_mid
-            ctx.rr_ms_clean = rr_ms
-            ctx.rr_duration_sec = float(duration_sec)
+            pr_sec, pr_mid, duration_sec = hr_metrics.extract_clean_pr_from_pat(ctx.view_pat, ctx.sfreq)
+            pr_ms = pr_sec * 1000.0
+            ctx.pr_mid_clean = pr_mid
+            ctx.pr_ms_clean = pr_ms
+            ctx.pr_duration_sec = float(duration_sec)
             ctx.sleep_timing = compute_sleep_timing_from_aux(ctx.aux_df) if ctx.aux_df is not None else None
             ctx.prv_midpoint_halves = None
             if ctx.sleep_timing is not None and ctx.aux_df is not None:
@@ -254,18 +254,18 @@ def compute_prv_step(ctx: RecordingContext) -> None:
                 end_sec = float(ctx.sleep_timing.get("sleep_end_rel_sec", np.nan))
                 if np.isfinite(onset_sec) and np.isfinite(split_sec) and np.isfinite(end_sec) and onset_sec < split_sec < end_sec:
                     include_set = {1, 2}
-                    _rr_mid_sleep, _rr_ms_sleep, rr_mid_clean, rr_ms_clean = prv_metrics._subset_rr_by_sleep_and_events(
-                        rr_mid,
-                        rr_ms,
+                    _pr_mid_sleep, _pr_ms_sleep, pr_mid_clean, pr_ms_clean = prv_metrics._subset_pr_by_sleep_and_events(
+                        pr_mid,
+                        pr_ms,
                         ctx.aux_df,
                         include_set=include_set,
                     )
-                    in_sleep_window = (rr_mid_clean >= onset_sec) & (rr_mid_clean < end_sec)
-                    rr_mid_sleep_window = rr_mid_clean[in_sleep_window] - onset_sec
-                    rr_ms_sleep_window = rr_ms_clean[in_sleep_window]
-                    ctx.prv_midpoint_halves = prv_metrics.summarize_prv_halves_from_clean_rr(
-                        rr_mid_sleep_window,
-                        rr_ms_sleep_window,
+                    in_sleep_window = (pr_mid_clean >= onset_sec) & (pr_mid_clean < end_sec)
+                    pr_mid_sleep_window = pr_mid_clean[in_sleep_window] - onset_sec
+                    pr_ms_sleep_window = pr_ms_clean[in_sleep_window]
+                    ctx.prv_midpoint_halves = prv_metrics.summarize_prv_halves_from_clean_pr(
+                        pr_mid_sleep_window,
+                        pr_ms_sleep_window,
                         split_sec=split_sec - onset_sec,
                         duration_sec=end_sec - onset_sec,
                         target_fs=config.PRV_TARGET_FS_HZ,
@@ -298,11 +298,11 @@ def compute_psd_step(ctx: RecordingContext) -> None:
         return
 
     try:
-        rr_sec, rr_mid, duration_sec = hr_metrics.extract_clean_rr_from_pat(ctx.view_pat, ctx.sfreq)
-        rr_ms = rr_sec * 1000.0
-        ctx.psd_features = psd_metrics.compute_psd_features_from_rr(
-            rr_mid,
-            rr_ms,
+        pr_sec, pr_mid, duration_sec = hr_metrics.extract_clean_pr_from_pat(ctx.view_pat, ctx.sfreq)
+        pr_ms = pr_sec * 1000.0
+        ctx.psd_features = psd_metrics.compute_psd_features_from_pr(
+            pr_mid,
+            pr_ms,
             float(duration_sec),
             ctx.aux_df,
         )

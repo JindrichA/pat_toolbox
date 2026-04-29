@@ -275,9 +275,9 @@ PAT_BANDPASS_ORDER = 4
 ENABLE_HR = FEATURES["hr"]
 HR_TARGET_FS_HZ = 1.0
 
-# Physiologic RR limits (seconds).
-HR_MIN_RR_SEC = 0.30
-HR_MAX_RR_SEC = 2.50
+# Physiologic PR limits (seconds).
+HR_MIN_PR_SEC = 0.30
+HR_MAX_PR_SEC = 2.50
 
 # HR clamps (bpm).
 HR_MIN_BPM = 30.0
@@ -299,23 +299,23 @@ HR_HAMPEL_SIGMA = 2.0
 HR_MAX_DELTA_BPM_PER_SEC = 10.0
 
 # HR interpolation will not bridge gaps larger than this.
-HR_MAX_RR_GAP_SEC = 2.5
+HR_MAX_PR_GAP_SEC = 2.5
 
 
 # =============================================================================
-# RR Cleaning Shared By HR And PRV
+# PR Cleaning Shared By HR And PRV
 # =============================================================================
-# These thresholds define how aggressively RR intervals are filtered after PAT
-# peak detection. Tightening them gives cleaner but shorter RR series; loosening
-# them preserves more data but may admit more artifacts.
+# These thresholds define how aggressively PAT pulse intervals (PR) are filtered
+# after peak detection. Tightening them gives cleaner but shorter PR series;
+# loosening them preserves more data but may admit more artifacts.
 
-HR_RR_MEDFILT_KERNEL = 5
-HR_RR_OUTLIER_REL_THR = 0.30
-HR_RR_GAP_FACTOR = 2.4
-HR_RR_JUMP_REL_THR = 0.6
-HR_RR_ALT_SHORT_REL = 0.25
-HR_RR_ALT_LONG_REL = 0.35
-HR_RR_MIN_GOOD_RUN = 3
+HR_PR_MEDFILT_KERNEL = 5
+HR_PR_OUTLIER_REL_THR = 0.30
+HR_PR_GAP_FACTOR = 2.4
+HR_PR_JUMP_REL_THR = 0.6
+HR_PR_ALT_SHORT_REL = 0.25
+HR_PR_ALT_LONG_REL = 0.35
+HR_PR_MIN_GOOD_RUN = 3
 
 
 # =============================================================================
@@ -335,7 +335,7 @@ PRV_HAMPEL_WINDOW_SEC = 30.0
 PRV_HAMPEL_SIGMA = 3.0
 
 # Gap handling for RMSSD windows.
-PRV_MAX_RR_GAP_SEC = 8.0
+PRV_MAX_PR_GAP_SEC = 8.0
 PRV_RMSSD_MIN_SPAN_SEC = 5.0
 
 # Frequency-domain settings.
@@ -346,13 +346,13 @@ PRV_MAX_TACHO_GAP_SEC = 3.0
 # Publication-style fixed LF/HF windows.
 PRV_LFHF_FIXED_WINDOW_SEC = 120.0
 PRV_LFHF_FIXED_HOP_SEC = 120.0
-PRV_LFHF_FIXED_MIN_RR = 0
+PRV_LFHF_FIXED_MIN_PR = 0
 
 
 # =============================================================================
 # RMSSD Robustness Controls
 # =============================================================================
-# These tune how aggressively successive RR differences are cleaned before RMSSD
+# These tune how aggressively successive PR differences are cleaned before RMSSD
 # is computed. They are useful when PAT detections contain occasional spikes.
 
 PRV_RMSSD_DIFF_HARD_CAP_MS = 400.0
@@ -376,7 +376,7 @@ PRV_RMSSD_BIGDIFF_MAX_FRAC = 0.35
 PRV_TV_WINDOW_SEC = 300.0
 PRV_TV_STEP_HZ = 1.0
 PRV_TV_TACHO_RESAMPLE_HZ = 4.0
-PRV_TV_MIN_RR_PER_WINDOW = 10
+PRV_TV_MIN_PR_PER_WINDOW = 10
 PRV_TV_MIN_FREQ_DOMAIN_SEC = 60.0
 PRV_TV_MAX_TACHO_GAP_SEC = 6.0
 

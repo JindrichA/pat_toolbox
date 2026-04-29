@@ -6,6 +6,14 @@ It is meant as a practical guide for anyone reading the PDF reports, per-feature
 
 For a full research-style, step-by-step methods description with the current configuration values and processing thresholds, see `RESEARCH_METHODS_README.md`.
 
+Terminology note:
+
+- `PAT` = Peripheral Arterial Tone.
+- `PR` = PAT-derived pulse-to-pulse interval between adjacent PAT peaks.
+- `PRV` = pulse rate variability derived from those PAT pulse intervals.
+
+This repo uses `PR` for the PAT interval stream instead of ECG `R-R` terminology.
+
 ## Selected-Policy Naming
 
 In the final grouped summary CSV, policy-dependent fields use the prefix `selected_`.
@@ -29,16 +37,16 @@ The main feature switches live in `pat_toolbox/config.py` under `FEATURES`.
 
 - `hr`
   - PAT-derived heart-rate feature
-  - computes HR from cleaned RR intervals
+  - computes HR from cleaned PR intervals
   - contributes HR plots, HR CSV, and HR summary fields
 
 - `prv`
-  - heart-rate variability feature
+  - pulse-rate-variability feature
   - computes RMSSD, SDNN, LF, HF, LF/HF and time-varying PRV series
   - contributes PRV plots, PRV CSV, and PRV summary fields
 
 - `psd`
-  - spectral feature set derived from the RR/tachogram signal
+  - spectral feature set derived from the PR/tachogram signal
   - contributes PSD plots and PSD summary fields
 
 - `delta_hr`
@@ -66,9 +74,9 @@ The main workflow is:
 1. Read `VIEW_PAT`
 2. Band-pass filter PAT
 3. Detect PAT peaks
-4. Convert peaks to RR intervals
-5. Clean RR intervals
-6. Compute enabled features from the cleaned RR stream and auxiliary masks
+4. Convert peaks to PR intervals
+5. Clean PR intervals
+6. Compute enabled features from the cleaned PR stream and auxiliary masks
 
 Auxiliary CSV information is used to define:
 
@@ -86,12 +94,12 @@ For most exported values, the most important question is not only "what does thi
 
 In this repository, the main provenance terms are:
 
-- `physio-clean RR`
-  - RR intervals obtained from PAT after beat detection and low-level RR cleaning
+- `physio-clean PR`
+  - PR intervals obtained from PAT after beat detection and low-level PR cleaning
   - this happens before sleep/event/desaturation masking
 
 - `sleep_keep`
-  - time or RR samples retained by the selected sleep-stage policy
+  - time or PR samples retained by the selected sleep-stage policy
 
 - `combined_keep`
   - final clean analysis mask after sleep policy plus event/quality/desaturation exclusion
@@ -114,7 +122,7 @@ In this repository, the main provenance terms are:
 Important clarification:
 
 - `combo_*` summaries are not sliced from the already computed `selected_*` outputs
-- they are recomputed separately for each subset using the same upstream RR cleaning and the same event/quality/desaturation rejection logic
+- they are recomputed separately for each subset using the same upstream PR cleaning and the same event/quality/desaturation rejection logic
 - what changes across subsets is the sleep-stage inclusion set
 
 ## Sleep And Exclusion Terms
@@ -129,7 +137,7 @@ You will see several kinds of masking/exclusion in the report.
 
 - `Metric invalid`
   - the region was allowed by stage and event rules, but the metric still could not be computed there
-  - examples: too few RR intervals, too large RR gaps, or insufficient valid data for spectral estimation
+  - examples: too few PR intervals, too large PR gaps, or insufficient valid data for spectral estimation
 
 - `Pre-final-exclusion`
   - a gray line shown in some plots before the final event exclusion is applied
@@ -137,11 +145,11 @@ You will see several kinds of masking/exclusion in the report.
 
 ## HR Feature
 
-The HR feature computes PAT-derived heart rate from the cleaned RR intervals.
+The HR feature computes PAT-derived heart rate from the cleaned PR intervals.
 
 ### Main idea
 
-- RR intervals are converted to HR in beats per minute
+- PR intervals are converted to HR in beats per minute
 - HR is interpolated to a regular grid
 - smoothing and plausibility limits may be applied
 - the final clean HR signal uses the same shared mask logic style as other features
@@ -231,20 +239,20 @@ The main selected-policy PRV summary now mixes two styles by design:
 
 - time-domain
   - `RMSSD mean`, `RMSSD median`
-    - derived from valid sliding RMSSD windows on the clean RR signal
+    - derived from valid sliding RMSSD windows on the clean PR signal
   - `SDNN mean`, `SDNN median`
-    - derived from valid sliding SDNN windows on the clean RR signal
+    - derived from valid sliding SDNN windows on the clean PR signal
 
 - frequency-domain
   - `LF`, `HF`, `LF/HF`
-    - derived from repeated fixed windows on the clean RR signal
+    - derived from repeated fixed windows on the clean PR signal
     - then summarized across valid windows
 
 So if you compare `RMSSD`/`SDNN` and `LF`/`HF`, they are both window-based summaries, but they use different window definitions.
 
 ### LF/HF Summary Fields
 
-These are computed on the selected-policy clean RR signal using:
+These are computed on the selected-policy clean PR signal using:
 
 - `window_sec = PRV_LFHF_FIXED_WINDOW_SEC`
 - `hop_sec = PRV_LFHF_FIXED_HOP_SEC`
@@ -489,7 +497,7 @@ Current midpoint-half fields are:
 
 ## PSD Feature
 
-The PSD feature computes spectral summaries from the RR/tachogram signal.
+The PSD feature computes spectral summaries from the PR/tachogram signal.
 
 ### Main PSD fields
 
@@ -750,9 +758,9 @@ These quantify mask-based loss within the selected-policy interval:
 Important note:
 
 - these are mask-based exclusions only
-- they do not include upstream RR-cleaning / PAT-artifact loss before the final mask is applied
+- they do not include upstream PR-cleaning / PAT-artifact loss before the final mask is applied
 
-So if a recording has poor PAT peak detection or poor physiologic RR quality before masking, that loss is not fully represented by these selected-policy exclusion rows.
+So if a recording has poor PAT peak detection or poor physiologic PR quality before masking, that loss is not fully represented by these selected-policy exclusion rows.
 
 ## Common Output Files
 
@@ -786,11 +794,11 @@ If you only want the core summary meaning:
   - average and variability of the accepted heart-rate signal
 
 - `PRV` fields
-  - variability/autonomic-style summaries derived from clean RR intervals
+  - variability/autonomic-style summaries derived from clean PR intervals
   - for `LF`, `HF`, and `LF/HF`, the main reported values now come from window-based means
 
 - `PSD` fields
-  - spectral organization of the RR/tachogram signal
+  - spectral organization of the PR/tachogram signal
 
 - `Event-response HR` fields
   - how much HR rises from the event period into the recovery period

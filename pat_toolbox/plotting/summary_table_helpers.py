@@ -163,7 +163,7 @@ def _build_mask_breakdown_rows(
     rows += [["  Quality-flag-only excluded [min]", _fmt_num(_min(only_quality), 1)], ["  Quality-flag-only excluded [% of selected-policy]", _fmt_pct(_pct(only_quality), 1)]]
     rows += [["  Desat-only excluded [min]", _fmt_num(_min(only_desat), 1)], ["  Desat-only excluded [% of selected-policy]", _fmt_pct(_pct(only_desat), 1)]]
     rows += [["  Overlap excluded [min]", _fmt_num(_min(overlap), 1)], ["  Overlap excluded [% of selected-policy]", _fmt_pct(_pct(overlap), 1)]]
-    rows += [["", ""], ["Note", "Mask-based only; upstream RR cleaning / PAT artifact loss is not included here."]]
+    rows += [["", ""], ["Note", "Mask-based only; upstream PR cleaning / PAT artifact loss is not included here."]]
     return rows
 
 

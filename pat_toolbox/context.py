@@ -53,9 +53,9 @@ class RecordingContext:
     prv_tv: Optional[Dict[str, np.ndarray]] = None
     prv_mask_info: Optional[Dict[str, object]] = None
     prv_midpoint_halves: Optional[Dict[str, Dict[str, float]]] = None
-    rr_mid_clean: Optional[np.ndarray] = None
-    rr_ms_clean: Optional[np.ndarray] = None
-    rr_duration_sec: Optional[float] = None
+    pr_mid_clean: Optional[np.ndarray] = None
+    pr_ms_clean: Optional[np.ndarray] = None
+    pr_duration_sec: Optional[float] = None
     sleep_timing: Optional[Dict[str, object]] = None
     sleep_combo_summaries: Optional[Dict[str, Dict[str, object]]] = None
 

@@ -330,9 +330,9 @@ def _plot_segment_prv(
             prv_raw_arr = cast(np.ndarray, prv_raw)
             yc_seg = prv_clean[mask]
             yr_seg = prv_raw_arr[mask]
-            rr_only_excluded = np.isfinite(yr_seg) & ~np.isfinite(yc_seg)
-            if np.any(rr_only_excluded):
-                _shade_masked_regions(ax, t_sec=t_sec_seg, masked=rr_only_excluded, color="tab:blue", alpha=0.22)
+            pr_only_excluded = np.isfinite(yr_seg) & ~np.isfinite(yc_seg)
+            if np.any(pr_only_excluded):
+                _shade_masked_regions(ax, t_sec=t_sec_seg, masked=pr_only_excluded, color="tab:blue", alpha=0.22)
                 legend_patches.append(Patch(facecolor="tab:blue", alpha=0.22, label="Additional calc exclusion"))
             raw_missing = ~np.isfinite(yr_seg)
             if np.any(raw_missing):

@@ -4,14 +4,24 @@ PAT Toolbox is a config-driven Python pipeline for processing EDF recordings wit
 
 It is designed for whole-night batch processing of recordings that contain `VIEW_PAT` and optional derived channels such as PAT amplitude and actigraphy. The pipeline computes PAT-derived HR, PRV, PSD features, PAT burden, and multi-page PDF reports.
 
+## Terminology
+
+In this repository:
+
+- `PAT` means Peripheral Arterial Tone.
+- `PR` means a PAT-derived pulse-to-pulse interval between adjacent detected PAT peaks.
+- `PRV` means pulse rate variability derived from those PAT pulse intervals.
+
+This repository does not treat the PAT-derived interval stream as ECG `R-R` intervals. The `PR` abbreviation here is repository shorthand for PAT pulse intervals, not the ECG PR interval.
+
 ## What The Project Does
 
 - Reads PAT-centered EDF recordings.
-- Extracts and cleans RR intervals from PAT peaks.
+- Extracts and cleans PAT pulse intervals (`PR`) from adjacent PAT peaks.
 - Computes PAT-derived HR on a regular time grid.
 - Computes PRV metrics including RMSSD, SDNN, LF, HF, LF/HF, and time-varying PRV series.
 - Applies shared sleep-stage, event, and desaturation masking across metrics and plots.
-- Computes PSD summaries from an RR/tachogram representation.
+- Computes PSD summaries from a PR tachogram representation.
 - Optionally computes PAT burden from PAT amplitude around masked event regions.
 - Produces summary CSV outputs and multi-page PDF reports.
 
@@ -45,8 +55,8 @@ flowchart TD
     A[EDF input] --> B[Load VIEW_PAT\nconfig: VIEW_PAT_CHANNEL_NAME]
     B --> C[Filter PAT\nconfig: PAT_BANDPASS_*]
     C --> D[Detect peaks\nconfig: HR_PEAK_PROMINENCE_FACTOR]
-    D --> E[Extract RR intervals]
-    E --> F[Clean RR\nconfig: HR_RR_*]
+    D --> E[Extract PAT pulse intervals (PR)]
+    E --> F[Clean PR\nconfig: HR_PR_*]
 
     A --> G[Load PAT AMP if available\nconfig: PAT_AMP_CHANNEL_NAME]
     A --> H[Load aux CSV if available\nconfig: AUX_* and COL_NAMES]
@@ -85,7 +95,7 @@ flowchart TD
     Q --> U[Append summary CSV row]
 ```
 
-In short: PAT drives the RR series, RR drives HR/PRV/PSD, aux data drives masking, and all of them come together in the final PDF and summary outputs.
+In short: PAT drives the PR series, PR drives HR/PRV/PSD, aux data drives masking, and all of them come together in the final PDF and summary outputs.
 
 ## Repository Layout
 
@@ -115,7 +125,7 @@ In short: PAT drives the RR series, RR drives HR/PRV/PSD, aux data drives maskin
    |- workflow_steps_output.py
    |- core/
    |  |- __init__.py
-   |  |- rr_cleaning.py
+   |  |- pr_cleaning.py
    |  `- windows.py
    |- io/
    |  |- __init__.py
@@ -201,9 +211,9 @@ In short: PAT drives the RR series, RR drives HR/PRV/PSD, aux data drives maskin
 
 ### Shared low-level logic
 
-- `pat_toolbox/core/rr_cleaning.py`
+- `pat_toolbox/core/pr_cleaning.py`
   - PAT peak detection
-  - RR extraction and RR cleaning
+  - PR extraction and PR cleaning
 - `pat_toolbox/core/windows.py`
   - gap-aware interpolation helpers
   - contiguous run helpers
@@ -242,7 +252,7 @@ Public facade:
 Internal split:
 
 - `pat_toolbox/metrics/hr_compute.py`
-  - PAT peak to RR to HR computation
+  - PAT peak to PR to HR computation
 - `pat_toolbox/metrics/hr_io.py`
   - per-EDF HR wrapper and CSV save path
 - `pat_toolbox/metrics/hr_debug.py`
@@ -261,7 +271,7 @@ Internal split:
 - `pat_toolbox/metrics/prv_time_domain.py`
   - RMSSD / SDNN helpers and RMSSD series logic
 - `pat_toolbox/metrics/prv_frequency_domain.py`
-  - LF / HF / LF-HF spectral computations from RR
+  - LF / HF / LF-HF spectral computations from PR
 - `pat_toolbox/metrics/prv_pipeline.py`
   - top-level PRV orchestration and summaries
 - `pat_toolbox/metrics/prv_io.py`
@@ -440,7 +450,7 @@ Common configuration areas include:
 - exclusion window logic
 - PAT filtering
 - HR thresholds and smoothing
-- RR cleaning thresholds
+- PR cleaning thresholds
 - PRV windows and spectral settings
 - PSD band definitions
 - delta-HR settings
@@ -533,9 +543,9 @@ python main.py
 - Output paths look wrong
   - check `BASE_OUTPUT_DIR`, `RUN_TAG`, and sleep-stage policy
 - HR/PRV outputs are sparse or empty
-  - inspect PAT quality, RR cleaning, masking policy, and exclusion windows
+  - inspect PAT quality, PR cleaning, masking policy, and exclusion windows
 - PSD features are missing
-  - the RR series may be too fragmented after masking
+  - the PR series may be too fragmented after masking
 - aux overlays are missing
   - inspect aux CSV naming, time parsing, and `COL_NAMES`
 - report content differs from expectation

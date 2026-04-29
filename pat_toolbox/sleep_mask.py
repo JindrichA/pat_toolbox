@@ -193,7 +193,7 @@ def build_sleep_include_mask_for_times(
 ) -> Optional[np.ndarray]:
     """
     Same as build_sleep_include_mask(), but for arbitrary times
-    (e.g. RR mid-times).
+    (e.g. PR mid-times).
 
     Behavior:
       - masking OFF  -> all True

@@ -8,7 +8,7 @@ import numpy as np
 
 from .. import config, masking, paths
 from . import hr as hr_metrics
-from .spectral_utils import find_peak_in_band, integrate_band_power, tachogram_psd_from_rr
+from .spectral_utils import find_peak_in_band, integrate_band_power, tachogram_psd_from_pr
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -28,22 +28,22 @@ def _empty_psd_features(reason: str) -> Dict[str, float]:
     }
 
 
-def _iter_valid_fixed_rr_windows(
-    rr_mid: np.ndarray,
-    rr_ms: np.ndarray,
+def _iter_valid_fixed_pr_windows(
+    pr_mid: np.ndarray,
+    pr_ms: np.ndarray,
     duration_sec: float,
     *,
     window_sec: float,
     hop_sec: float,
     max_gap_sec: float,
-    min_rr: int,
+    min_pr: int,
 ):
     half = 0.5 * float(window_sec)
     centers = np.arange(half, max(half, float(duration_sec) - half) + 1e-9, float(hop_sec))
     if centers.size == 0:
         return
 
-    n = rr_mid.size
+    n = pr_mid.size
     left = 0
     right = 0
 
@@ -51,30 +51,30 @@ def _iter_valid_fixed_rr_windows(
         start = c - half
         end = c + half
 
-        while left < n and rr_mid[left] < start:
+        while left < n and pr_mid[left] < start:
             left += 1
         if right < left:
             right = left
-        while right < n and rr_mid[right] < end:
+        while right < n and pr_mid[right] < end:
             right += 1
 
         k = right - left
         if k < 4:
             continue
-        if min_rr and k < int(min_rr):
+        if min_pr and k < int(min_pr):
             continue
 
-        rr_win_ms = rr_ms[left:right]
-        rr_mid_win = rr_mid[left:right]
-        if rr_mid_win.size < 2:
+        pr_win_ms = pr_ms[left:right]
+        pr_mid_win = pr_mid[left:right]
+        if pr_mid_win.size < 2:
             continue
-        if np.any(np.diff(rr_mid_win) > float(max_gap_sec)):
+        if np.any(np.diff(pr_mid_win) > float(max_gap_sec)):
             continue
-        span = float(rr_mid_win[-1] - rr_mid_win[0])
+        span = float(pr_mid_win[-1] - pr_mid_win[0])
         if span < 0.8 * float(window_sec):
             continue
 
-        yield rr_mid_win, rr_win_ms
+        yield pr_mid_win, pr_win_ms
 
 
 def _compute_prv_matched_psd(
@@ -82,27 +82,27 @@ def _compute_prv_matched_psd(
     fs_pat: float,
     aux_df: Optional["pd.DataFrame"],
 ) -> Tuple[np.ndarray, np.ndarray, int, Dict[str, Any]]:
-    rr_sec, rr_mid, duration_sec = hr_metrics.extract_clean_rr_from_pat(pat_signal, fs_pat)
-    if rr_sec.size < 1:
-        return np.array([]), np.array([]), 0, {"reason": "no_rr"}
+    pr_sec, pr_mid, duration_sec = hr_metrics.extract_clean_pr_from_pat(pat_signal, fs_pat)
+    if pr_sec.size < 1:
+        return np.array([]), np.array([]), 0, {"reason": "no_pr"}
 
-    rr_ms = rr_sec * 1000.0
-    bundle = masking.build_rr_mask_bundle(rr_mid, aux_df)
+    pr_ms = pr_sec * 1000.0
+    bundle = masking.build_pr_mask_bundle(pr_mid, aux_df)
 
-    rr_mid_sleep = rr_mid[bundle.sleep_keep]
-    rr_ms_sleep = rr_ms[bundle.sleep_keep]
-    if rr_ms_sleep.size < 4:
-        return np.array([]), np.array([]), 0, {"reason": "rr_removed_by_sleep_mask"}
+    pr_mid_sleep = pr_mid[bundle.sleep_keep]
+    pr_ms_sleep = pr_ms[bundle.sleep_keep]
+    if pr_ms_sleep.size < 4:
+        return np.array([]), np.array([]), 0, {"reason": "pr_removed_by_sleep_mask"}
 
-    rr_mid_clean = rr_mid[bundle.combined_keep]
-    rr_ms_clean = rr_ms[bundle.combined_keep]
-    if rr_ms_clean.size < 4:
-        return np.array([]), np.array([]), 0, {"reason": "rr_removed_by_event_mask"}
+    pr_mid_clean = pr_mid[bundle.combined_keep]
+    pr_ms_clean = pr_ms[bundle.combined_keep]
+    if pr_ms_clean.size < 4:
+        return np.array([]), np.array([]), 0, {"reason": "pr_removed_by_event_mask"}
 
     window_sec = float(getattr(config, "PRV_LFHF_FIXED_WINDOW_SEC", 300.0))
     hop_sec = float(getattr(config, "PRV_LFHF_FIXED_HOP_SEC", window_sec))
-    max_gap_sec = float(getattr(config, "PRV_MAX_RR_GAP_SEC", 4.0))
-    min_rr = int(getattr(config, "PRV_LFHF_FIXED_MIN_RR", 0))
+    max_gap_sec = float(getattr(config, "PRV_MAX_PR_GAP_SEC", 4.0))
+    min_pr = int(getattr(config, "PRV_LFHF_FIXED_MIN_PR", 0))
     fs_resample = float(getattr(config, "PRV_TACHO_RESAMPLE_HZ", 4.0))
 
     centers = np.arange(0.5 * window_sec, max(0.5 * window_sec, float(duration_sec) - 0.5 * window_sec) + 1e-9, hop_sec)
@@ -113,16 +113,16 @@ def _compute_prv_matched_psd(
     acc: Optional[np.ndarray] = None
     n_valid = 0
 
-    for rr_mid_win, rr_win_ms in _iter_valid_fixed_rr_windows(
-        rr_mid_clean,
-        rr_ms_clean,
+    for pr_mid_win, pr_win_ms in _iter_valid_fixed_pr_windows(
+        pr_mid_clean,
+        pr_ms_clean,
         duration_sec,
         window_sec=window_sec,
         hop_sec=hop_sec,
         max_gap_sec=max_gap_sec,
-        min_rr=min_rr,
+        min_pr=min_pr,
     ):
-        f, pxx = tachogram_psd_from_rr(rr_win_ms, rr_mid_win, fs_resample=fs_resample)
+        f, pxx = tachogram_psd_from_pr(pr_win_ms, pr_mid_win, fs_resample=fs_resample)
         if f.size == 0:
             continue
         if f_ref is None:
@@ -144,39 +144,39 @@ def _compute_prv_matched_psd(
     }
 
 
-def compute_psd_features_from_rr(
-    rr_mid: np.ndarray,
-    rr_ms: np.ndarray,
+def compute_psd_features_from_pr(
+    pr_mid: np.ndarray,
+    pr_ms: np.ndarray,
     duration_sec: float,
     aux_df: Optional["pd.DataFrame"],
     *,
     include_set: Optional[set[int]] = None,
 ) -> Dict[str, float]:
-    rr_mid = np.asarray(rr_mid, dtype=float)
-    rr_ms = np.asarray(rr_ms, dtype=float)
+    pr_mid = np.asarray(pr_mid, dtype=float)
+    pr_ms = np.asarray(pr_ms, dtype=float)
 
-    if rr_mid.size != rr_ms.size or rr_mid.size < 1:
-        return _empty_psd_features("no_rr")
+    if pr_mid.size != pr_ms.size or pr_mid.size < 1:
+        return _empty_psd_features("no_pr")
 
-    bundle = masking.build_rr_mask_bundle(
-        rr_mid,
+    bundle = masking.build_pr_mask_bundle(
+        pr_mid,
         aux_df,
         policy=masking.policy_from_config(include_stages=include_set, force_sleep=(include_set is not None)),
     )
-    rr_mid_sleep = rr_mid[bundle.sleep_keep]
-    rr_ms_sleep = rr_ms[bundle.sleep_keep]
-    if rr_ms_sleep.size < 4:
-        return _empty_psd_features("rr_removed_by_sleep_mask")
+    pr_mid_sleep = pr_mid[bundle.sleep_keep]
+    pr_ms_sleep = pr_ms[bundle.sleep_keep]
+    if pr_ms_sleep.size < 4:
+        return _empty_psd_features("pr_removed_by_sleep_mask")
 
-    rr_mid_clean = rr_mid[bundle.combined_keep]
-    rr_ms_clean = rr_ms[bundle.combined_keep]
-    if rr_ms_clean.size < 4:
-        return _empty_psd_features("rr_removed_by_event_mask")
+    pr_mid_clean = pr_mid[bundle.combined_keep]
+    pr_ms_clean = pr_ms[bundle.combined_keep]
+    if pr_ms_clean.size < 4:
+        return _empty_psd_features("pr_removed_by_event_mask")
 
     window_sec = float(getattr(config, "PRV_LFHF_FIXED_WINDOW_SEC", 300.0))
     hop_sec = float(getattr(config, "PRV_LFHF_FIXED_HOP_SEC", window_sec))
-    max_gap_sec = float(getattr(config, "PRV_MAX_RR_GAP_SEC", 4.0))
-    min_rr = int(getattr(config, "PRV_LFHF_FIXED_MIN_RR", 0))
+    max_gap_sec = float(getattr(config, "PRV_MAX_PR_GAP_SEC", 4.0))
+    min_pr = int(getattr(config, "PRV_LFHF_FIXED_MIN_PR", 0))
     fs_resample = float(getattr(config, "PRV_TACHO_RESAMPLE_HZ", 4.0))
 
     centers = np.arange(0.5 * window_sec, max(0.5 * window_sec, float(duration_sec) - 0.5 * window_sec) + 1e-9, hop_sec)
@@ -186,16 +186,16 @@ def compute_psd_features_from_rr(
     f_ref: Optional[np.ndarray] = None
     acc: Optional[np.ndarray] = None
     n_valid = 0
-    for rr_mid_win, rr_win_ms in _iter_valid_fixed_rr_windows(
-        rr_mid_clean,
-        rr_ms_clean,
+    for pr_mid_win, pr_win_ms in _iter_valid_fixed_pr_windows(
+        pr_mid_clean,
+        pr_ms_clean,
         duration_sec,
         window_sec=window_sec,
         hop_sec=hop_sec,
         max_gap_sec=max_gap_sec,
-        min_rr=min_rr,
+        min_pr=min_pr,
     ):
-        f, pxx = tachogram_psd_from_rr(rr_win_ms, rr_mid_win, fs_resample=fs_resample)
+        f, pxx = tachogram_psd_from_pr(pr_win_ms, pr_mid_win, fs_resample=fs_resample)
         if f.size == 0:
             continue
         if f_ref is None:
@@ -261,10 +261,10 @@ def compute_psd_figures_and_peaks(
 
     psd_mode = "matched"
     if f.size == 0 or pxx.size == 0 or n_windows == 0:
-        rr_sec, rr_mid, _dur = hr_metrics.extract_clean_rr_from_pat(signal_raw, sfreq)
-        rr_ms = rr_sec * 1000.0
+        pr_sec, pr_mid, _dur = hr_metrics.extract_clean_pr_from_pat(signal_raw, sfreq)
+        pr_ms = pr_sec * 1000.0
         fs_resample = float(getattr(config, "PRV_TACHO_RESAMPLE_HZ", 4.0))
-        f, pxx = tachogram_psd_from_rr(rr_ms, rr_mid, fs_resample=fs_resample)
+        f, pxx = tachogram_psd_from_pr(pr_ms, pr_mid, fs_resample=fs_resample)
         n_windows = 0
         diag = {"reason": "fallback_whole_tachogram"}
         psd_mode = "fallback"
@@ -328,7 +328,7 @@ def compute_psd_figures_and_peaks(
         ax_psd_zoom.axvline(resp_peak_hz, linestyle="--", alpha=0.9, linewidth=1.0)
         ax_psd_zoom.text(resp_peak_hz, resp_peak_db, f" {resp_peak_hz:.3f}Hz", fontsize=9, fontweight="bold", va="bottom")
 
-    mask_status = "PRV-matched RR PSD" if (psd_mode == "matched" and aux_df is not None) else ("RR PSD" if psd_mode == "matched" else "Fallback whole-tachogram PSD")
+    mask_status = "PRV-matched PR PSD" if (psd_mode == "matched" and aux_df is not None) else ("PR PSD" if psd_mode == "matched" else "Fallback whole-tachogram PSD")
     ax_psd_zoom.set_title(
         f"{edf_base} - PSD ({mask_status}, N={n_windows} windows)\n"
         f"Mayer Pwr: {pow_mayer:.2e} ({norm_mayer:.1f}%) | Resp Pwr: {pow_resp:.2e} ({norm_resp:.1f}%)",

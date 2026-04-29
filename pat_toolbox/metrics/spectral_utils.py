@@ -8,33 +8,33 @@ from scipy.signal import welch
 from .. import config
 
 
-def tachogram_psd_from_rr(
-    rr_ms: np.ndarray,
-    rr_mid_times_sec: np.ndarray,
+def tachogram_psd_from_pr(
+    pr_ms: np.ndarray,
+    pr_mid_times_sec: np.ndarray,
     *,
     fs_resample: float,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
-    Compute Welch PSD on a resampled RR tachogram.
+    Compute Welch PSD on a resampled PR tachogram.
     Returns frequency and linear PSD in sec^2/Hz.
     """
-    if rr_ms.size < 4 or rr_mid_times_sec.size < 4:
+    if pr_ms.size < 4 or pr_mid_times_sec.size < 4:
         return np.array([]), np.array([])
 
-    t = rr_mid_times_sec
+    t = pr_mid_times_sec
     if t.size < 2 or t[-1] <= t[0]:
         return np.array([]), np.array([])
 
-    rr_sec = rr_ms / 1000.0
-    rr_detr = rr_sec - np.mean(rr_sec)
+    pr_sec = pr_ms / 1000.0
+    pr_detr = pr_sec - np.mean(pr_sec)
 
     t_grid = np.arange(t[0], t[-1], 1.0 / float(fs_resample))
     if t_grid.size < 8:
         return np.array([]), np.array([])
 
-    rr_interp = np.interp(t_grid, t, rr_detr)
+    pr_interp = np.interp(t_grid, t, pr_detr)
 
-    nperseg = min(len(rr_interp), 256)
+    nperseg = min(len(pr_interp), 256)
     if nperseg < 8:
         return np.array([]), np.array([])
 
@@ -42,7 +42,7 @@ def tachogram_psd_from_rr(
     nfft = max(nfft, int(nperseg))
 
     f, pxx = welch(
-        rr_interp,
+        pr_interp,
         fs=float(fs_resample),
         nperseg=int(nperseg),
         nfft=int(nfft),
@@ -52,19 +52,19 @@ def tachogram_psd_from_rr(
 
 def integrate_band_power(
     f_arr: np.ndarray,
-    p_arr_lin: np.ndarray,
+    p_apr_lin: np.ndarray,
     band: tuple[float, float],
 ) -> float:
     low, high = band
     mask = (f_arr >= low) & (f_arr <= high)
     if not np.any(mask):
         return 0.0
-    return float(np.trapz(p_arr_lin[mask], f_arr[mask]))
+    return float(np.trapz(p_apr_lin[mask], f_arr[mask]))
 
 
 def find_peak_in_band(
     f_arr: np.ndarray,
-    p_arr_db: np.ndarray,
+    p_apr_db: np.ndarray,
     band: tuple[float, float],
     f_max_limit: float,
 ) -> Tuple[Optional[float], Optional[float]]:
@@ -74,6 +74,6 @@ def find_peak_in_band(
     if not np.any(mask):
         return None, None
     f_sub = f_arr[mask]
-    p_sub = p_arr_db[mask]
+    p_sub = p_apr_db[mask]
     idx = int(np.argmax(p_sub))
     return float(f_sub[idx]), float(p_sub[idx])

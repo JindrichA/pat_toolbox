@@ -51,7 +51,7 @@ def _overview_header_text(title: str) -> str:
             )
     elif title == "HR Overview":
         parts.append(
-            f"HR uses PAT-derived RR extraction and current HR settings (target fs={float(getattr(config, 'HR_TARGET_FS_HZ', 1.0)):.1f} Hz)."
+            f"HR uses PAT-derived PR extraction and current HR settings (target fs={float(getattr(config, 'HR_TARGET_FS_HZ', 1.0)):.1f} Hz)."
         )
     elif title == "Event-Response HR Overview":
         parts.append(
