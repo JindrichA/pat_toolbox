@@ -232,8 +232,17 @@ def _add_pat_zoom_inset(
     start_sec: float,
     end_sec: float,
 ) -> None:
+    if not bool(getattr(config, "PUBLICATION_PRV_SHOW_PEAK_ZOOM", True)):
+        return
+
     peak_times_sec = peaks.astype(float) / sfreq
-    zoom_start_sec, zoom_end_sec = _select_pat_zoom_window(start_sec, end_sec, peak_times_sec)
+    zoom_sec = float(getattr(config, "PUBLICATION_PRV_PEAK_ZOOM_SEC", 20.0))
+    if zoom_sec <= 0:
+        return
+    if (end_sec - start_sec) <= zoom_sec:
+        return
+
+    zoom_start_sec, zoom_end_sec = _select_pat_zoom_window(start_sec, end_sec, peak_times_sec, zoom_sec=zoom_sec)
     zoom_start_idx = max(0, int(np.floor(zoom_start_sec * sfreq)))
     zoom_end_idx = min(signal_raw.size, int(np.ceil(zoom_end_sec * sfreq)))
     if zoom_end_idx <= zoom_start_idx:
@@ -475,7 +484,7 @@ def save_publication_prv_png(
     fig.text(
         0.5,
         0.975,
-        "From the original 40 Hz PAT waveform. Segment selected automatically as the highest-coverage contiguous 10 min NREM interval. The PAT panel includes an inset peak-detection zoom. RMSSD/SDNN are shown as native overlapping sliding-window estimates; LF, HF, and LF/HF are shown as native fixed-window estimates.",
+        f"From the original 40 Hz PAT waveform. Segment selected automatically as the highest-coverage contiguous {((end_sec - start_sec) / 60.0):.0f} min NREM interval. {'The PAT panel includes an inset peak-detection zoom. ' if bool(getattr(config, 'PUBLICATION_PRV_SHOW_PEAK_ZOOM', True)) and (end_sec - start_sec) > float(getattr(config, 'PUBLICATION_PRV_PEAK_ZOOM_SEC', 20.0)) else ''}RMSSD/SDNN are shown as native overlapping sliding-window estimates; LF, HF, and LF/HF are shown as native fixed-window estimates.",
         ha="center",
         va="top",
         fontsize=9,

@@ -14,6 +14,14 @@ Terminology note:
 
 This repo uses `PR` for the PAT interval stream instead of ECG `R-R` terminology.
 
+Signal interpretation in this file follows the same three-level view used elsewhere in the repository:
+
+- the original PAT waveform
+- the derived PR interval stream from adjacent PAT peaks
+- the downstream HR, PRV, PSD, burden, and event-response summaries
+
+So when you read the exported features below, most timing-derived quantities should be interpreted as pulse-based vascular summaries built from the PAT pulse train.
+
 ## Selected-Policy Naming
 
 In the final grouped summary CSV, policy-dependent fields use the prefix `selected_`.
@@ -67,6 +75,8 @@ The main feature switches live in `pat_toolbox/config.py` under `FEATURES`.
 - `peaks_debug_pdf`
   - enables the PAT peak-debug PDF
 
+Separate from the `FEATURES` block, the repository can also export a publication-style PRV PNG through the config switch `EXPORT_PUBLICATION_PRV_PNG`. That output is not a separate feature family with its own metrics; it is a high-resolution visualization of already computed PAT/HR/PRV signals.
+
 ## Core Signal Flow
 
 The main workflow is:
@@ -83,6 +93,8 @@ Auxiliary CSV information is used to define:
 - sleep-stage filtering
 - event exclusion windows
 - desaturation-related logic
+
+Physiologically, this means the repository first derives a pulse-timing representation from the PAT waveform, and only then asks which parts of that physiology should contribute to the final reported values.
 
 ## How To Read Provenance
 
@@ -777,6 +789,10 @@ Typical outputs for one recording are:
 
 - sleep timing CSV
   - `__Sleep_Timing.csv`
+
+- publication-style PRV PNG
+  - `__publication_prv_nrem_10min.png`
+  - a high-resolution single-segment figure showing local hypnogram context, PAT with detected peaks, HR, RMSSD, SDNN, LF, HF, and LF/HF
 
 - PAT burden episode CSV
   - `__PAT_Burden_Episodes.csv`

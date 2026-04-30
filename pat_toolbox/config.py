@@ -20,7 +20,7 @@ EDF_FOLDER = Path(
 )
 
 # Set to an integer for short debug runs, or keep None to process everything.
-MAX_FILES = 10
+MAX_FILES = None
 
 # RUN_ID is generated automatically at import time.
 RUN_ID = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -60,9 +60,11 @@ FEATURES = {
 # from the report PDF pipeline so it can use a cleaner layout and high-resolution
 # PNG output for manuscripts.
 EXPORT_PUBLICATION_PRV_PNG = True
-PUBLICATION_PRV_SEGMENT_MIN_SEC = 10.0 * 60.0
+PUBLICATION_PRV_SEGMENT_MIN_SEC = 10 * 60.0
 PUBLICATION_PRV_SELECTION_STEP_SEC = 30.0
 PUBLICATION_PRV_DPI = 300
+PUBLICATION_PRV_SHOW_PEAK_ZOOM = True
+PUBLICATION_PRV_PEAK_ZOOM_SEC = 20.0
 
 
 def _slug(s: str) -> str:

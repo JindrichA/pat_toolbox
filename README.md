@@ -1,8 +1,10 @@
 # PAT Toolbox
 
-PAT Toolbox is a config-driven Python pipeline for processing EDF recordings with PAT-derived physiology signals, synchronized auxiliary sleep/event CSVs, and report-style outputs.
+PAT Toolbox is a config-driven Python pipeline for processing whole-night EDF recordings with PAT-derived physiology signals, synchronized auxiliary sleep/event CSVs, and report-style outputs.
 
-It is designed for whole-night batch processing of recordings that contain `VIEW_PAT` and optional derived channels such as PAT amplitude and actigraphy. The pipeline computes PAT-derived HR, PRV, PSD features, PAT burden, and multi-page PDF reports.
+It is designed for recordings that contain `VIEW_PAT` and, when available, optional derived channels such as PAT amplitude and actigraphy. The pipeline computes PAT-derived heart rate (HR), pulse rate variability (PRV), optional PSD and PAT burden summaries, and multi-page PDF reports.
+
+Physiologically, the repository starts from the peripheral arterial tone waveform and treats it as a pulsatile vascular signal. Detected PAT pulse peaks are converted into pulse-to-pulse intervals, and those intervals are then used to derive HR, PRV, and tachogram-based spectral summaries. In other words, the main derived quantities are vascular pulse-based rather than ECG-based.
 
 ## Terminology
 
@@ -14,6 +16,30 @@ In this repository:
 
 This repository does not treat the PAT-derived interval stream as ECG `R-R` intervals. The `PR` abbreviation here is repository shorthand for PAT pulse intervals, not the ECG PR interval.
 
+## Signal Interpretation
+
+For a first-time reader, it is helpful to think of the pipeline in three layers:
+
+1. `PAT waveform`
+   - the original pulsatile peripheral vascular signal recorded in the EDF
+2. `PR interval stream`
+   - the sequence of pulse-to-pulse intervals obtained from adjacent PAT peaks
+3. `derived summaries`
+   - HR, PRV, spectral PRV measures, and optional burden/event-response summaries
+
+This means that the report pages and CSV outputs are not abstract signal-processing products only. They are intended to describe how vascular pulse timing and amplitude vary across the night and across different sleep or event conditions.
+
+## Start Here
+
+If you are opening this repository for the first time, the shortest practical path is:
+
+1. Edit the dataset and output paths in `pat_toolbox/config.py`.
+2. Decide which outputs you want in the top-level `FEATURES` block.
+3. Run `python main.py` from the repository root.
+4. Check the generated PDF report, PRV/HR CSV files, and summary CSV output.
+
+The rest of this README explains what the pipeline computes, how the codebase is organized, and which config groups control the main steps.
+
 ## What The Project Does
 
 - Reads PAT-centered EDF recordings.
@@ -24,6 +50,13 @@ This repository does not treat the PAT-derived interval stream as ECG `R-R` inte
 - Computes PSD summaries from a PR tachogram representation.
 - Optionally computes PAT burden from PAT amplitude around masked event regions.
 - Produces summary CSV outputs and multi-page PDF reports.
+
+In practical terms, the toolbox answers questions such as:
+
+- how stable or variable is pulse timing during different parts of sleep?
+- how do respiratory events and quality exclusions change the usable physiology?
+- how do time-domain and frequency-domain PRV summaries differ across the night?
+- which short segments provide clean examples of PAT pulse detection and downstream PRV estimation?
 
 ## High-Level Pipeline
 
@@ -45,6 +78,12 @@ For each EDF file, the current processing path is:
 12. Append one summary CSV row for the recording
 
 The public workflow entry remains `pat_toolbox/workflows.py`, but the implementation is now split into smaller load / metric / output step modules.
+
+From a physiology point of view, the key transition is:
+
+- PAT waveform -> PAT peaks -> PR intervals -> HR / PRV / spectral summaries
+
+The auxiliary CSV then decides which parts of the night are considered biologically relevant for the selected analysis, for example by restricting the analysis to chosen sleep stages or excluding event-contaminated intervals.
 
 ## Pipeline Diagram
 
@@ -205,6 +244,7 @@ In short: PAT drives the PR series, PR drives HR/PRV/PSD, aux data drives maskin
 
 - Main report PDF generation
 - Peaks debug PDF generation
+- publication-style PRV PNG export
 - Summary CSV append
 
 ## Core Modules
@@ -303,6 +343,7 @@ Public plotting entry points:
 
 - `pat_toolbox/plotting/report.py`
 - `pat_toolbox/plotting/peaks_debug.py`
+- `pat_toolbox/plotting/publication_prv.py`
 
 ### Report assembly
 
@@ -319,6 +360,11 @@ Public plotting entry points:
   - PRV overview and stagegram/TV figure builders
 - `pat_toolbox/plotting/prv_plot_utils.py`
   - legends, event overlays, mask shading, binning helpers
+
+### Publication figure export
+
+- `pat_toolbox/plotting/publication_prv.py`
+  - high-resolution single-recording publication PNG export for an automatically selected NREM segment
 
 ### Summary pages
 
@@ -493,6 +539,13 @@ python main.py
 
 This is the standard batch workflow and uses the current values in `pat_toolbox/config.py`.
 
+In most cases, the only required edits before the first run are:
+
+- `EDF_FOLDER`
+- `BASE_OUTPUT_DIR`
+- `FEATURES`
+- sleep-stage policy and exclusion settings if you want a different analysis subset
+
 ### Stand-alone scripts
 
 ```bash
@@ -512,6 +565,7 @@ Typical outputs include:
 - PRV CSV outputs
 - PSD figures
 - optional PAT peak debug PDFs
+- optional publication-style PRV PNG figures
 - appended summary CSV rows
 
 Output folder names include a run-specific suffix derived from:

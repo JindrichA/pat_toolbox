@@ -12,6 +12,14 @@ Terminology used below:
 
 These `PR` intervals are PAT-derived pulse intervals. They are not ECG `R-R` intervals, and the repository uses `PR` terminology consistently for that reason.
 
+Conceptually, the method can be read in three physiological layers:
+
+1. the recorded PAT waveform, which reflects pulsatile peripheral vascular tone
+2. the derived PR interval stream, which captures pulse-to-pulse timing
+3. the downstream summaries, which describe pulse timing variability, spectral organization, and optional amplitude-related burden
+
+Accordingly, the reported HR and PRV measures in this repository should be interpreted as PAT-derived vascular pulse metrics rather than ECG-derived cardiac interval metrics.
+
 ## Current Active Setup
 
 The current `FEATURES` configuration is:
@@ -23,7 +31,7 @@ The current `FEATURES` configuration is:
 - `pat_burden = False`
 - `sleep_combo_summary = True`
 - `report_pdf = True`
-- `peaks_debug_pdf = False`
+- `peaks_debug_pdf = True`
 
 This means the current run produces:
 
@@ -32,11 +40,13 @@ This means the current run produces:
 - PRV frequency-domain features based on PR intervals
 - sleep-subset comparison summaries
 - the main PDF report
+- a publication-style PRV PNG export
+- a PAT peaks debug PDF
 
 The current sleep-stage policy is:
 
-- `SLEEP_STAGE_POLICY = "nrem_only"`
-- included sleep stages = `{1, 2}`
+- `SLEEP_STAGE_POLICY = "all_sleep_incluidng_wake"`
+- included sleep stages = `{0, 1, 2, 3}`
 
 Under the current stage mapping:
 
@@ -45,7 +55,7 @@ Under the current stage mapping:
 - `2 = Deep sleep`
 - `3 = REM`
 
-Therefore, in the main selected-policy analysis, only light sleep and deep sleep are included. Wake and REM are excluded from the main selected-policy HR and PRV analysis.
+Therefore, in the main selected-policy analysis, wake, light sleep, deep sleep, and REM are all included.
 
 ## Input Data
 
@@ -58,6 +68,8 @@ For each recording, the workflow reads the EDF channel:
 This is the PAT waveform used for peak detection, PR extraction, HR, and PRV.
 
 The code uses the sampling frequency stored in the EDF for that channel. In practice, your recordings may use a 40 Hz PAT signal, but the algorithm itself uses the EDF-native sampling frequency rather than a hard-coded value.
+
+From a physiological perspective, this PAT channel is the primary source signal for the analysis. All timing-derived outputs in the repository begin with this vascular pulse waveform.
 
 ### Auxiliary CSV input
 
@@ -97,7 +109,14 @@ For each EDF file, the processing order is:
 9. Compute separate PSD features if enabled.
 10. Export per-feature CSVs.
 11. Build the PDF report.
-12. Append one row to the grouped summary CSV.
+12. Optionally export a publication-style PRV PNG for an automatically selected NREM segment.
+13. Append one row to the grouped summary CSV.
+
+In compact form, the physiological flow is:
+
+- PAT waveform -> PAT peaks -> PR intervals -> HR / PRV / PR-tachogram summaries
+
+The auxiliary CSV is then used to determine which parts of the night should contribute to the final reported values.
 
 ## PAT Preprocessing
 
@@ -127,6 +146,8 @@ Operationally, the detector:
 4. Keeps only PR intervals within the physiologic range `0.30 to 2.50 s`.
 
 PR mid-times are defined as the midpoint between consecutive peaks.
+
+This conversion step is the key bridge between the vascular waveform and all later timing-derived outputs. Once the PAT signal has been reduced to a cleaned PR interval stream, the downstream HR, PRV, and spectral analyses all use that same shared interval representation.
 
 ## Low-Level PR Cleaning
 
@@ -161,14 +182,14 @@ This produces the shared physiologically cleaned PR series used by HR and PRV.
 
 ## Sleep-Stage Policy
 
-The main selected-policy analysis uses:
+The main selected-policy analysis currently uses:
 
-- `nrem_only = {1, 2}`
+- `all_sleep_incluidng_wake = {0, 1, 2, 3}`
 
 This means:
 
-- included: light sleep and deep sleep
-- excluded: wake and REM
+- included: wake, light sleep, deep sleep, and REM
+- excluded: none at the sleep-stage level
 
 ### How sleep-stage masking is applied
 
@@ -195,6 +216,8 @@ These are separate summaries, not alternative masks applied to the main selected
 ## Event And Quality Exclusion Logic
 
 After sleep-stage selection, the code applies event and quality exclusions using the auxiliary CSV.
+
+The signal-quality component of this exclusion logic is important because the downstream timing and spectral metrics are only meaningful when the underlying PAT pulse train is interpretable. In practice, the auxiliary quality flags (`Exclude HR`, `Exclude PAT`) are treated conservatively: when they are active, the surrounding interval is removed with the same padded window logic used for respiratory event exclusions. This is done to reduce contamination from motion, signal dropout, poor pulse definition, or other waveform conditions that can distort peak detection, corrupt PR intervals, and propagate implausible values into HR, PRV, or spectral estimates.
 
 ### Active exclusion columns in the current configuration
 
@@ -237,7 +260,7 @@ The current configuration also enables desaturation-gated masking:
 - `PRV_EXCLUSION_USE_DESAT_WINDOWS = True`
 - desaturation column: `desat_flag`
 - desaturation start padding: `15 s`
-- desaturation end padding: `0 s`
+- desaturation end padding: `30 s`
 - minimum desaturation run: `5.0 s`
 - event lookback for gating: `0.0 s`
 - event lookahead for gating: `0.0 s`
@@ -247,7 +270,7 @@ Operationally:
 1. Consecutive desaturation samples are grouped into runs.
 2. If a desaturation run lasts at least `5 s`, it becomes one exclusion window.
 3. Shorter runs are converted into per-sample exclusion windows.
-4. Each desaturation window is padded by `15 s` at the start and `0 s` at the end.
+4. Each desaturation window is padded by `15 s` at the start and `30 s` at the end.
 5. A desaturation window is only activated if at least one active exclusion event falls inside the exact desaturation window because both lookback and lookahead are set to `0 s`.
 
 This is a conservative event-gated desaturation logic. Desaturation alone does not exclude data unless it coincides with an active event window under this gating rule.
@@ -299,7 +322,9 @@ The PRV feature uses the shared cleaned PR intervals and then creates two distin
 1. time-domain PRV outputs
 2. frequency-domain PRV outputs
 
-These two families do not use exactly the same window definition in the current setup.
+These two families do not use exactly the same window definition in the current setup. This is intentional: time-domain metrics use overlapping windows to track gradual temporal variation in pulse timing, whereas the main reported frequency-domain metrics use non-overlapping fixed windows so that spectral values are not interpreted as having the same effective temporal resolution.
+
+The exclusion logic also interacts differently with these two domains. Time-domain RMSSD and SDNN can still be estimated in a window as long as enough valid PR intervals remain after masking and the local gap/coverage rules are satisfied. Frequency-domain metrics are more restrictive because spectral estimation requires a more continuous interval sequence over a longer effective support window. Consequently, a short quality-related interruption may leave enough valid data for a time-domain estimate while still invalidating the corresponding spectral window. This difference is expected and reflects the different physiological and statistical requirements of beat-to-beat variability summaries versus windowed spectral decomposition.
 
 ## Time-Domain PRV: RMSSD And SDNN
 
@@ -420,12 +445,16 @@ However, the main exported `lf`, `hf`, and `lf_hf` summary values are currently 
 
 ## Time-Varying Spectral Plots In The Current Setup
 
-The current report plotting was recently aligned with the actual reported spectral summary.
+The current report plotting is aligned with the actual reported spectral summary.
 
 Therefore:
 
 - RMSSD and SDNN plots use the `5 min` sliding-window time-domain analysis
 - plotted `LF`, `HF`, and `LF/HF` traces use the same `2 min` fixed-window spectral analysis used by the selected-policy summary tables
+
+For whole-night summary-style plots, these traces are then displayed as binned summaries. The current default bin size is `10 min`, with a lower valid-count threshold for spectral bins than for dense `1 Hz` RMSSD/SDNN traces because the spectral estimates are much sparser in time.
+
+This plotting choice is meant to preserve the physiological meaning of the estimates: RMSSD and SDNN behave like densely re-estimated windowed trends, whereas LF, HF, and LF/HF remain lower-resolution summaries of longer spectral support windows.
 
 This means the spectral plot pages and the spectral summary table now correspond to the same window definition.
 
@@ -457,6 +486,8 @@ In the current midpoint-half PRV comparison:
 - the half analysis is restricted to NREM only, using stages `{1, 2}`
 - the NREM PR stream is cut into first and second halves relative to the sleep midpoint
 - each half is then summarized with the same selected-policy PRV summary engine
+
+This NREM-restricted midpoint analysis is a secondary comparison only. It does not mean that the main selected-policy analysis is currently NREM-only.
 
 This is why the comparison table is labeled:
 
@@ -528,9 +559,9 @@ For the current configuration, the main selected-policy PRV workflow can be summ
 5. Keep only physiologic PR intervals between `0.30 and 2.50 s`.
 6. Apply low-level PR cleaning using median-based outlier rejection, gap rejection, jump rejection, alternans rejection, and a minimum good-run length of `3`.
 7. Read the auxiliary CSV and convert sleep stages into numeric stage codes.
-8. Build the selected sleep-stage mask using `nrem_only = {1, 2}`.
+8. Build the selected sleep-stage mask using `all_sleep_incluidng_wake = {0, 1, 2, 3}`.
 9. Build event and quality exclusion windows from respiratory event flags and `Exclude HR` / `Exclude PAT` flags using `15 s` pre-padding and `30 s` post-padding.
-10. Build event-gated desaturation windows using the desaturation flag, `15 s` start padding, `0 s` end padding, and minimum run length `5 s`.
+10. Build event-gated desaturation windows using the desaturation flag, `15 s` start padding, `30 s` end padding, and minimum run length `5 s`.
 11. Combine sleep, event, quality, and gated-desaturation masks into the final selected-policy keep mask.
 12. Derive PAT HR from the cleaned PR stream, interpolate to `1 Hz`, smooth, despike, and apply the final selected-policy mask.
 13. Derive RMSSD and SDNN on `5 min` sliding windows evaluated on a `1 Hz` grid.
