@@ -94,7 +94,7 @@ flowchart TD
     A[EDF input] --> B[Load VIEW_PAT\nconfig: VIEW_PAT_CHANNEL_NAME]
     B --> C[Filter PAT\nconfig: PAT_BANDPASS_*]
     C --> D[Detect peaks\nconfig: HR_PEAK_PROMINENCE_FACTOR]
-    D --> E[Extract PAT pulse intervals (PR)]
+    D --> E[Extract PAT pulse intervals\nPR stream]
     E --> F[Clean PR\nconfig: HR_PR_*]
 
     A --> G[Load PAT AMP if available\nconfig: PAT_AMP_CHANNEL_NAME]
