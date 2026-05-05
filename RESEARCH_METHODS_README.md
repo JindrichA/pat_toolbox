@@ -324,7 +324,7 @@ The PRV feature uses the shared cleaned PR intervals and then creates two distin
 
 These two families do not use exactly the same window definition in the current setup. This is intentional: time-domain metrics use overlapping windows to track gradual temporal variation in pulse timing, whereas the main reported frequency-domain metrics use non-overlapping fixed windows so that spectral values are not interpreted as having the same effective temporal resolution.
 
-The exclusion logic also interacts differently with these two domains. Time-domain RMSSD and SDNN can still be estimated in a window as long as enough valid PR intervals remain after masking and the local gap/coverage rules are satisfied. Frequency-domain metrics are more restrictive because spectral estimation requires a more continuous interval sequence over a longer effective support window. Consequently, a short quality-related interruption may leave enough valid data for a time-domain estimate while still invalidating the corresponding spectral window. This difference is expected and reflects the different physiological and statistical requirements of beat-to-beat variability summaries versus windowed spectral decomposition.
+The exclusion logic also interacts differently with these two domains. Time-domain RMSSD and SDNN are now evaluated on the same accepted-window set: a window must pass the shared gap/coverage rules and also survive the RMSSD-oriented robustness checks before either metric is retained. Frequency-domain metrics are more restrictive in a different way because spectral estimation requires a more continuous interval sequence over a longer effective support window. Consequently, a short quality-related interruption may still invalidate a spectral window even when enough valid PR intervals remain for time-domain estimation. This difference is expected and reflects the different physiological and statistical requirements of beat-to-beat variability summaries versus windowed spectral decomposition.
 
 ## Time-Domain PRV: RMSSD And SDNN
 
@@ -382,6 +382,8 @@ The time-varying SDNN series is computed on the same `300 s` sliding windows use
 For each valid window:
 
 - `SDNN = standard deviation of PR intervals in ms`
+
+Importantly, the accepted-window logic is shared with RMSSD. In other words, SDNN is reported only for windows that satisfy the common time-domain gate and also survive the RMSSD-oriented robustness rejection steps. This keeps the displayed and summarized RMSSD and SDNN series aligned to the same retained physiological support.
 
 In addition to the time-varying series, the summary tables report:
 

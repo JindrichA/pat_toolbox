@@ -50,6 +50,48 @@ def _sdnn(pr_ms: np.ndarray) -> float:
     return float(np.std(pr_ms, ddof=1))
 
 
+def _time_domain_metrics_from_window(
+    pr_mid_win: np.ndarray,
+    pr_win_ms: np.ndarray,
+    *,
+    window_sec: float,
+    min_intervals: int,
+    max_gap_sec: float,
+    min_span_sec: float,
+    min_cov: float,
+) -> Tuple[float, float]:
+    """Return RMSSD and SDNN only when the shared time-domain window passes."""
+    if not passes_time_domain_window_gate(
+        pr_mid_win,
+        window_sec=float(window_sec),
+        min_intervals=int(min_intervals),
+        max_gap_sec=float(max_gap_sec),
+        min_span_sec=float(min_span_sec),
+        min_cov=float(min_cov),
+    ):
+        return np.nan, np.nan
+
+    veto_bigdiff = bool(getattr(config, "PRV_RMSSD_VETO_BIGDIFF", True))
+    bigdiff_thr_ms = float(getattr(config, "PRV_RMSSD_BIGDIFF_THR_MS", 250.0))
+    bigdiff_max_frac = float(getattr(config, "PRV_RMSSD_BIGDIFF_MAX_FRAC", 0.20))
+    if veto_bigdiff and pr_win_ms.size >= 3:
+        diffs = np.abs(np.diff(pr_win_ms.astype(float)))
+        if diffs.size > 0:
+            frac_big = float(np.mean(diffs > bigdiff_thr_ms))
+            if frac_big > bigdiff_max_frac:
+                return np.nan, np.nan
+
+    rmssd_win = _rmssd(pr_win_ms)
+    if not np.isfinite(rmssd_win):
+        return np.nan, np.nan
+
+    sdnn_win = _sdnn(pr_win_ms)
+    if not np.isfinite(sdnn_win):
+        return np.nan, np.nan
+
+    return float(rmssd_win), float(sdnn_win)
+
+
 def _calculate_rmssd_series(
     t_prv: np.ndarray,
     pr_mid: np.ndarray,
@@ -67,12 +109,6 @@ def _calculate_rmssd_series(
 
     min_intervals = int(getattr(config, "PRV_MIN_INTERVALS_PER_WINDOW", 4))
     min_cov = float(getattr(config, "PRV_MIN_WINDOW_COVERAGE", 0.0))
-
-    veto_bigdiff = bool(getattr(config, "PRV_RMSSD_VETO_BIGDIFF", True))
-    bigdiff_thr_ms = float(getattr(config, "PRV_RMSSD_BIGDIFF_THR_MS", 250.0))
-    bigdiff_max_frac = float(getattr(config, "PRV_RMSSD_BIGDIFF_MAX_FRAC", 0.20))
-
-    rmssd_floor_ms = float(getattr(config, "PRV_RMSSD_FLOOR_MS", 2.0))
 
     rmssd_1hz = np.full_like(t_prv, fill_value=np.nan, dtype=float)
     rmssd_windows_list: List[float] = []
@@ -98,25 +134,16 @@ def _calculate_rmssd_series(
         pr_win_ms = pr_ms[left:right]
         pr_mid_win = pr_mid[left:right]
 
-        if not passes_time_domain_window_gate(
+        rmssd_win, _sdnn_win = _time_domain_metrics_from_window(
             pr_mid_win,
+            pr_win_ms,
             window_sec=float(window_sec),
             min_intervals=min_intervals,
             max_gap_sec=float(max_gap_sec),
             min_span_sec=float(min_span_sec),
             min_cov=min_cov,
-        ):
-            continue
-
-        if veto_bigdiff and pr_win_ms.size >= 3:
-            diffs = np.abs(np.diff(pr_win_ms.astype(float)))
-            if diffs.size > 0:
-                frac_big = float(np.mean(diffs > bigdiff_thr_ms))
-                if frac_big > bigdiff_max_frac:
-                    continue
-
-        rmssd_win = _rmssd(pr_win_ms)
-        if not np.isfinite(rmssd_win) or rmssd_win < rmssd_floor_ms:
+        )
+        if not np.isfinite(rmssd_win):
             continue
 
         rmssd_1hz[i] = rmssd_win

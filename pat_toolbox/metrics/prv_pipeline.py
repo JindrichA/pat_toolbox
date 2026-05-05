@@ -5,14 +5,13 @@ from typing import TYPE_CHECKING, Dict, Optional, Tuple
 import numpy as np
 
 from .. import config, masking
-from ..core.windows import passes_time_domain_window_gate
 from . import hr as hr_metrics
 from .prv_frequency_domain import (
     _calculate_lfhf_fixed_windows,
     _lf_hf_from_pr,
     _lf_hf_from_pr_segmented,
 )
-from .prv_time_domain import _calculate_rmssd_series, _rmssd, _sdnn
+from .prv_time_domain import _calculate_rmssd_series, _rmssd, _sdnn, _time_domain_metrics_from_window
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -77,20 +76,18 @@ def _calculate_prv_windowed_series(
         pr_win_ms = pr_ms[left:right]
         pr_mid_win = pr_mid[left:right]
 
-        td_ok = passes_time_domain_window_gate(
+        rmssd_i, sdnn_i = _time_domain_metrics_from_window(
             pr_mid_win,
+            pr_win_ms,
             window_sec=float(window_sec),
             min_intervals=min_intervals_td,
             max_gap_sec=max_gap_td,
             min_span_sec=min_span_td,
             min_cov=min_cov_td,
         )
-        if not td_ok:
+        if not (np.isfinite(rmssd_i) and np.isfinite(sdnn_i)):
             n_fail_time_domain += 1
             continue
-
-        rmssd_i = _rmssd(pr_win_ms)
-        sdnn_i = _sdnn(pr_win_ms)
 
         out["rmssd_ms"][i] = rmssd_i
         out["sdnn_ms"][i] = sdnn_i
@@ -184,16 +181,18 @@ def _calculate_sdnn_series(
 
         pr_win_ms = pr_ms[left:right]
         pr_mid_win = pr_mid[left:right]
-        if not passes_time_domain_window_gate(
+        rmssd_i, sdnn_i = _time_domain_metrics_from_window(
             pr_mid_win,
+            pr_win_ms,
             window_sec=float(window_sec),
             min_intervals=min_intervals_td,
             max_gap_sec=max_gap_td,
             min_span_sec=min_span_td,
             min_cov=min_cov_td,
-        ):
+        )
+        if not np.isfinite(sdnn_i):
             continue
-        out[i] = _sdnn(pr_win_ms)
+        out[i] = sdnn_i
     return out
 
 
@@ -775,6 +774,14 @@ def compute_prv_from_pat_signal_with_tv_metrics(
         rmssd_1hz_clean[~center_keep] = np.nan
         sdnn_clean[~center_keep] = np.nan
 
+    # Keep displayed time-domain coverage aligned across RMSSD and SDNN. RMSSD has
+    # additional robustness rejection on successive PR differences; when that
+    # invalidates a window, we hide the corresponding SDNN estimate as well so the
+    # two time-domain traces reflect the same accepted windows.
+    rmssd_clean_valid = np.isfinite(np.asarray(rmssd_1hz_clean, dtype=float))
+    sdnn_clean = np.asarray(sdnn_clean, dtype=float)
+    sdnn_clean[~rmssd_clean_valid] = np.nan
+
     summary = _build_summary_from_clean_pr_and_times(
         pr_mid_for_calc,
         pr_ms_for_calc,
@@ -862,13 +869,18 @@ def compute_prv_from_pat_signal_with_tv_metrics(
         min_span_sec=float(min_freq_span_sec_tv),
         max_gap_sec=float(max_gap_sec_tv),
     )
+    sdnn_tv_raw = np.asarray(tv_raw.get("sdnn_ms", np.full_like(t_prv, np.nan, dtype=float)), dtype=float)
+    rmssd_raw_valid = np.isfinite(np.asarray(rmssd_1hz_raw, dtype=float))
+    sdnn_tv_raw[~rmssd_raw_valid] = np.nan
+
     sdnn_tv_clean = np.asarray(tv_clean.get("sdnn_ms", np.full_like(t_prv, np.nan, dtype=float)), dtype=float)
     if center_keep.size == t_prv.size:
         sdnn_tv_clean[~center_keep] = np.nan
+    sdnn_tv_clean[~rmssd_clean_valid] = np.nan
 
     tv = {
         "rmssd_ms": np.asarray(rmssd_1hz_clean, dtype=float),
-        "sdnn_ms_raw": np.asarray(tv_raw.get("sdnn_ms", np.full_like(t_prv, np.nan, dtype=float)), dtype=float),
+        "sdnn_ms_raw": sdnn_tv_raw,
         "sdnn_ms": sdnn_tv_clean,
         "lf_raw": np.asarray(tv_raw.get("lf", np.full_like(t_prv, np.nan, dtype=float)), dtype=float),
         "lf": np.asarray(tv_clean.get("lf", np.full_like(t_prv, np.nan, dtype=float)), dtype=float),

@@ -19,6 +19,13 @@ EDF_FOLDER = Path(
     "/Users/jindrich/Projects/mayo_sleep_pat/SmallDataset21Oct25/Data/Dataset_21Oct25/Data_Only"
 )
 
+
+# EDF_FOLDER = Path(
+#     "/Users/jindrich/Downloads/missing cases"
+# )
+
+
+
 # Set to an integer for short debug runs, or keep None to process everything.
 MAX_FILES = None
 
@@ -53,14 +60,14 @@ FEATURES = {
     "pat_burden": False,
     "sleep_combo_summary": True,
     "report_pdf": True,
-    "peaks_debug_pdf": True,
+    "peaks_debug_pdf": False,
 }
 
 # Optional publication-style single-figure export. This is intentionally separate
 # from the report PDF pipeline so it can use a cleaner layout and high-resolution
 # PNG output for manuscripts.
 EXPORT_PUBLICATION_PRV_PNG = True
-PUBLICATION_PRV_SEGMENT_MIN_SEC = 10 * 60.0
+PUBLICATION_PRV_SEGMENT_MIN_SEC = 3 * 60.0
 PUBLICATION_PRV_SELECTION_STEP_SEC = 30.0
 PUBLICATION_PRV_DPI = 300
 PUBLICATION_PRV_SHOW_PEAK_ZOOM = True
@@ -240,8 +247,8 @@ PRV_EXCLUSION_POST_SEC = 30.0
 # be driven by desaturation runs rather than fixed event padding.
 PRV_EXCLUSION_USE_DESAT_WINDOWS = True
 PRV_EXCLUSION_DESAT_COLUMN_KEY = "desat_flag"
-PRV_EXCLUSION_DESAT_START_PAD_SEC = 15
-PRV_EXCLUSION_DESAT_END_PAD_SEC = 30
+PRV_EXCLUSION_DESAT_START_PAD_SEC = 10
+PRV_EXCLUSION_DESAT_END_PAD_SEC = 10
 PRV_EXCLUSION_DESAT_MIN_RUN_SEC = 5.0
 PRV_EXCLUSION_DESAT_LOOKBACK_SEC = 0.0
 PRV_EXCLUSION_DESAT_LOOKAHEAD_SEC = 0.0

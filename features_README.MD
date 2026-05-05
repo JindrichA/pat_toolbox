@@ -262,6 +262,8 @@ The main selected-policy PRV summary now mixes two styles by design:
 
 So if you compare `RMSSD`/`SDNN` and `LF`/`HF`, they are both window-based summaries, but they use different window definitions.
 
+One implementation detail is important for interpretation: the repository now keeps RMSSD and SDNN on the same accepted time-domain window set. That means SDNN is not allowed to remain visible in windows that were rejected by the RMSSD robustness logic. As a result, differences between RMSSD and SDNN values reflect the metrics themselves rather than mismatched window acceptance.
+
 ### LF/HF Summary Fields
 
 These are computed on the selected-policy clean PR signal using:
@@ -334,6 +336,8 @@ This is important because a metric can have a plausible value but still be based
 
 - `prv_tv_*_valid_min`
   - valid coverage in minutes for each sliding-window PRV trace
+
+For the time-domain traces specifically, RMSSD and SDNN coverage are intentionally aligned because both are now restricted to the same accepted sliding windows.
 
 Current sliding-window naming uses explicit stage wording, for example:
 

@@ -333,9 +333,11 @@ def _plot_local_hypnogram(ax, aux_df: Optional["pd.DataFrame"], start_sec: float
         x1 = edges[i + 1]
         yi = y[i]
         si = s[i]
-        ax.hlines(yi, x0, x1, colors=stage_colors.get(int(si), "black"), linewidth=4.0, zorder=3)
+        color = stage_colors.get(int(si), "black")
+        ax.hlines(yi, x0, x1, colors=color, linewidth=4.0, zorder=3)
         if i < y.size - 1:
-            ax.vlines(x1, yi, y[i + 1], colors="black", linewidth=1.5, zorder=3)
+            next_color = stage_colors.get(int(s[i + 1]), color)
+            ax.vlines(x1, yi, y[i + 1], colors=next_color, linewidth=1.0, alpha=0.9, zorder=3)
 
     sleep_timing = compute_sleep_timing_from_aux(aux_df)
     if sleep_timing:
@@ -354,7 +356,9 @@ def _plot_local_hypnogram(ax, aux_df: Optional["pd.DataFrame"], start_sec: float
     ax.set_yticklabels(["REM", "Wake", "Light", "Deep"])
     ax.set_ylim(-0.7, 3.7)
     ax.set_xlim(0.0, max(0.0, (end_sec - start_sec) / 60.0))
-    ax.grid(True, axis="x", alpha=0.25)
+    ax.grid(True, axis="x", alpha=0.18)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
 
 
 def save_publication_prv_png(
