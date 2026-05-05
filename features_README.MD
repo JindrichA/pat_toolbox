@@ -35,7 +35,7 @@ This means:
 - `combo_*`
   - fixed sleep-subset summaries computed separately for predefined subsets such as all sleep, NREM, deep, or REM
 
-- raw aux/event count fields without `selected_`
+- aux/event count fields without `selected_`
   - descriptive whole-recording counts from the auxiliary CSV
   - not filtered by the currently selected sleep policy
 

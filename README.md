@@ -212,7 +212,7 @@ In short: PAT drives the PR series, PR drives HR/PRV/PSD, aux data drives maskin
 - Lists EDF files from `config.EDF_FOLDER`
 - Prints startup information
 - Runs the per-recording workflow
-- Keeps batch execution resilient so one bad file does not kill the whole run
+- Keeps batch execution resilient so one failed file does not stop the full batch run
 
 ### `pat_toolbox/workflows.py`
 

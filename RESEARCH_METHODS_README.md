@@ -161,7 +161,7 @@ After initial PR extraction, the repository applies an additional low-level PR c
 - PR jump relative threshold: `0.6`
 - alternans short relative threshold: `0.25`
 - alternans long relative threshold: `0.35`
-- minimum retained contiguous good run length: `3 PR intervals`
+- minimum retained contiguous artifact-free run length: `3 PR intervals`
 
 ### PR cleaning procedure
 
@@ -170,13 +170,13 @@ The cleaned PR stream is produced as follows:
 1. Compute the raw PR sequence from consecutive PAT peaks.
 2. Remove PR intervals outside the physiologic range `0.30 to 2.50 s`.
 3. Compute a local median PR using a median filter of length `5`.
-4. Mark a PR interval as bad if its relative deviation from the local median exceeds `30%`.
-5. Mark a PR interval as bad if it exceeds `2.4 x` the local median PR.
-6. Mark abrupt jumps as bad when the relative jump between consecutive PR intervals exceeds `0.6`.
+4. Mark a PR interval as artifactual if its relative deviation from the local median exceeds `30%`.
+5. Mark a PR interval as artifactual if it exceeds `2.4 x` the local median PR.
+6. Mark abrupt jumps as artifactual when the relative jump between consecutive PR intervals exceeds `0.6`.
 7. Reject short-long or long-short alternans-like pairs using:
    - short threshold: `< (1 - 0.25) x local median`
    - long threshold: `> (1 + 0.35) x local median`
-8. After all point-wise rejection, keep only contiguous runs of good PR intervals of length at least `3`.
+8. After all point-wise rejection, keep only contiguous runs of artifact-free PR intervals of length at least `3`.
 
 This produces the shared physiologically cleaned PR series used by HR and PRV.
 
@@ -346,7 +346,7 @@ The exclusion logic also interacts differently with these two domains. Time-doma
 - RMSSD floor: `2.0 ms`
 - large-difference veto: `False`
 - if enabled, the unused veto parameters would be:
-  - big difference threshold: `300 ms`
+  - large-difference threshold: `300 ms`
   - max fraction of large differences: `0.35`
 
 ### RMSSD derivation procedure
@@ -373,7 +373,7 @@ This is done twice:
 - `rmssd_raw`: after sleep-stage masking only
 - `rmssd_clean`: after the full selected-policy combined mask
 
-The main report and summary tables use the final clean signal.
+The main report and summary tables use the final analysis signal.
 
 ### SDNN derivation procedure
 
@@ -559,7 +559,7 @@ For the current configuration, the main selected-policy PRV workflow can be summ
 3. Detect PAT peaks using a minimum peak distance corresponding to `0.30 s` and a prominence threshold of `0.30 x signal SD`.
 4. Convert consecutive peaks into PR intervals and PR midpoint times.
 5. Keep only physiologic PR intervals between `0.30 and 2.50 s`.
-6. Apply low-level PR cleaning using median-based outlier rejection, gap rejection, jump rejection, alternans rejection, and a minimum good-run length of `3`.
+6. Apply low-level PR cleaning using median-based outlier rejection, gap rejection, jump rejection, alternans rejection, and a minimum artifact-free run length of `3`.
 7. Read the auxiliary CSV and convert sleep stages into numeric stage codes.
 8. Build the selected sleep-stage mask using `all_sleep_incluidng_wake = {0, 1, 2, 3}`.
 9. Build event and quality exclusion windows from respiratory event flags and `Exclude HR` / `Exclude PAT` flags using `15 s` pre-padding and `30 s` post-padding.
