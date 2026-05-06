@@ -9,7 +9,7 @@ For a full research-style, step-by-step methods description with the current con
 Terminology note:
 
 - `PAT` = Peripheral Arterial Tone.
-- `PR` = PAT-derived pulse-to-pulse interval between adjacent PAT peaks.
+- `PR` = PAT-derived pulse-to-pulse interval (PRI) between adjacent PAT peaks.
 - `PRV` = pulse rate variability derived from those PAT pulse intervals.
 
 This repo uses `PR` for the PAT interval stream instead of ECG `R-R` terminology.

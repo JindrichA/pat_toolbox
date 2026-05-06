@@ -11,10 +11,10 @@ Physiologically, the repository starts from the peripheral arterial tone wavefor
 In this repository:
 
 - `PAT` means Peripheral Arterial Tone.
-- `PR` means a PAT-derived pulse-to-pulse interval between adjacent detected PAT peaks.
+- `PR` means a PAT-derived pulse-to-pulse interval (PRI) between adjacent detected PAT peaks.
 - `PRV` means pulse rate variability derived from those PAT pulse intervals.
 
-This repository does not treat the PAT-derived interval stream as ECG `R-R` intervals. The `PR` abbreviation here is repository shorthand for PAT pulse intervals, not the ECG PR interval.
+This repository does not treat the PAT-derived interval stream as ECG `R-R` intervals. The `PR` abbreviation here is repository shorthand for PAT pulse intervals (more precisely, a PAT-derived pulse interval or PRI), not the ECG PR interval.
 
 ## Signal Interpretation
 
