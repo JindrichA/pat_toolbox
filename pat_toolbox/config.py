@@ -14,9 +14,9 @@ from typing import Dict
 # or a new output location. They change where files are read from and where all
 # generated artifacts are written.
 
-BASE_OUTPUT_DIR = Path("/Users/jindrich/Projects/PAT_022026_output_data/")
+BASE_OUTPUT_DIR = Path("/Users/jindrich/Projects/mayo_data/output/")
 EDF_FOLDER = Path(
-    "/Users/jindrich/Projects/mayo_sleep_pat/SmallDataset21Oct25/Data/Dataset_21Oct25/Data_Only"
+    "/Users/jindrich/Projects/mayo_data/input/SmallDataset21Oct25/Data/Dataset_21Oct25/Data_Only/"
 )
 
 
@@ -27,7 +27,7 @@ EDF_FOLDER = Path(
 
 
 # Set to an integer for short debug runs, or keep None to process everything.
-MAX_FILES = None
+MAX_FILES = 10
 
 # RUN_ID is generated automatically at import time.
 RUN_ID = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -233,8 +233,7 @@ PRV_EXCLUSION_EVENT_COLUMNS = [
     "evt_central_3",
     "evt_obstructive_3",
     "evt_unclassified_3",
-    "exclude_hr_flag",
-    "exclude_pat_flag",
+   # "exclude_pat_flag",
     # "desat_flag",
 ]
 

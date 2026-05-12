@@ -8,6 +8,7 @@ import numpy as np
 
 from .. import config, features, paths
 from ..io.aux_events import compute_sleep_timing_from_aux
+from ..masking import policy_from_config
 
 
 def append_hr_prv_summary(
@@ -329,6 +330,10 @@ def append_hr_prv_summary(
     row: Dict[str, Any] = {
         "edf_file": edf_path.name,
     }
+
+    active_aux_columns = set(policy_from_config().exclusion_columns)
+    if bool(getattr(config, "PRV_EXCLUSION_USE_DESAT_WINDOWS", False)):
+        active_aux_columns.add(str(getattr(config, "PRV_EXCLUSION_DESAT_COLUMN_KEY", "desat_flag")))
     has_aux_summary_context = features.any_enabled("prv", "psd", "delta_hr", "pat_burden", "sleep_combo_summary")
 
     if features.is_enabled("psd"):
@@ -519,6 +524,8 @@ def append_hr_prv_summary(
             ("evt_unclassified_4", "evt_unclassified_4"),
         ]
         for short, col in aux_keys:
+            if col not in active_aux_columns:
+                continue
             c, p = _count_flags(aux_df, col)
             if c is not None:
                 row[f"{short}_n"] = c

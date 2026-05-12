@@ -7,7 +7,7 @@ import numpy as np
 from matplotlib.lines import Line2D
 from matplotlib.ticker import FuncFormatter
 
-from .. import config, sleep_mask
+from .. import config, masking, sleep_mask
 from ..metrics.hr_event_response import extract_event_hr_windows
 from .prv_plot_utils import _add_colored_event_key, _overlay_events_on_single_axis_whole_night, _shade_prv_mask_layers
 from .segment_plot_helpers import _overlay_pat_burden_area
@@ -79,6 +79,9 @@ def _overview_header_legend(title: str) -> list[Line2D]:
     if title == "HR Overview":
         handles = [
             Line2D([0], [0], color="tab:blue", linewidth=1.2, label="HR used"),
+            Line2D([0], [0], color="#c1121f", linewidth=6, alpha=0.15, label="Event-excluded"),
+            Line2D([0], [0], color="#6c757d", linewidth=6, alpha=0.18, label="Stage-policy excluded"),
+            Line2D([0], [0], color="#d4a017", linewidth=6, alpha=0.22, label="Metric invalid"),
             Line2D([0], [0], color="tab:blue", linewidth=1.4, alpha=0.55, label="Event/desaturation markers"),
         ]
         if show_raw_debug:
@@ -110,7 +113,7 @@ def _overview_header_legend(title: str) -> list[Line2D]:
             Line2D([0], [0], color="tab:blue", linewidth=1.2, label="HF"),
             Line2D([0], [0], color="#6c757d", linewidth=6, alpha=0.10, label="Stage-policy excluded"),
             Line2D([0], [0], color="#c1121f", linewidth=6, alpha=0.08, label="Event-excluded"),
-            Line2D([0], [0], color="#d4a017", linewidth=6, alpha=0.22, label="Metric invalid"),
+            Line2D([0], [0], color="#d4a017", linewidth=6, alpha=0.22, label="Metric invalid (one or more series)"),
         ]
         if show_raw_debug:
             handles.insert(0, Line2D([0], [0], color="tab:gray", linewidth=0.7, alpha=0.35, label="Pre-final-exclusion LF and HF traces"))
@@ -215,6 +218,26 @@ def _shade_metric_invalid_regions(
     )
 
 
+def _shade_sleep_policy_regions(
+    ax: Any,
+    t_sec: np.ndarray,
+    aux_df: Optional["pd.DataFrame"],
+) -> Optional[np.ndarray]:
+    if aux_df is None or t_sec is None or np.size(t_sec) == 0:
+        return None
+
+    bundle = masking.build_mask_bundle(np.asarray(t_sec, dtype=float), aux_df)
+    sleep_keep = np.asarray(bundle.sleep_keep, dtype=bool)
+    _shade_masked_regions(
+        ax,
+        t_sec=t_sec,
+        masked=~sleep_keep,
+        color="#6c757d",
+        alpha=0.18,
+    )
+    return np.asarray(bundle.combined_keep, dtype=bool)
+
+
 def _finalize_overview_figure(fig: Any, axes: list[Any], ylabel: str) -> Any:
     for i, ax in enumerate(axes):
         ax.set_ylabel(ylabel)
@@ -248,19 +271,22 @@ def _build_hr_overview_figure(
     use_raw = show_raw_debug and hr_raw is not None and np.size(hr_raw) == np.size(hr_clean)
 
     for idx, (ax, (start_sec, end_sec)) in enumerate(zip(axes, bounds)):
-        _prepare_panel(ax, start_sec, end_sec, exclusion_zones, aux_df, event_spec, show_exclusion_spans=False)
+        _prepare_panel(ax, start_sec, end_sec, exclusion_zones, aux_df, event_spec, show_exclusion_spans=True)
         mask = (t_hr >= start_sec) & (t_hr <= end_sec)
         if not np.any(mask):
             continue
         t_panel = t_hr[mask]
         th = t_panel / 3600.0
+        combined_keep = _shade_sleep_policy_regions(ax, t_panel, aux_df)
         if use_raw:
             yr = np.asarray(hr_raw)[mask].astype(float)
             if np.any(np.isfinite(yr)):
                 ax.plot(th, np.ma.masked_invalid(yr), label="HR raw", linewidth=0.7, color="tab:gray", alpha=0.6, zorder=1)
         yc = np.asarray(hr_clean)[mask].astype(float)
-        masked = ~np.isfinite(yc)
-        _shade_masked_regions(ax, t_sec=t_panel, masked=masked, color="0.6", alpha=0.20)
+        invalid_mask = ~np.isfinite(yc)
+        if combined_keep is not None and np.size(combined_keep) == np.size(invalid_mask):
+            invalid_mask = invalid_mask & np.asarray(combined_keep, dtype=bool)
+        _shade_masked_regions(ax, t_sec=t_panel, masked=invalid_mask, color="#d4a017", alpha=0.22)
         if np.any(np.isfinite(yc)):
             ax.plot(th, np.ma.masked_invalid(yc), label="HR used", linewidth=1.2, color="tab:blue", zorder=2)
         if idx == 0:
@@ -428,7 +454,7 @@ def _build_multi_series_overview_figure(
                 yy_panel = np.asarray(y)[panel_mask].astype(float)
                 panel_nonfinite_masks.append(~np.isfinite(yy_panel))
             if panel_nonfinite_masks:
-                masked = np.logical_and.reduce(panel_nonfinite_masks)
+                masked = np.logical_or.reduce(panel_nonfinite_masks)
                 _shade_metric_invalid_regions(
                     ax,
                     np.asarray(t_sec)[panel_mask],

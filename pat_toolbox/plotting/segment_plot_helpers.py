@@ -226,11 +226,8 @@ def _plot_segment_hr(
     hr_edf = None
     t_hr_edf_raw = None
     hr_edf_raw = None
+    legend_patches: List[Patch] = []
     _add_exclusion_spans(ax, exclusion_zones, t_seg_h_start, t_seg_h_end, label_once=True)
-    if aux_df is not None and t_seg_sec.size > 0:
-        m_keep = sleep_mask.build_global_include_mask_for_times(t_seg_sec, aux_df, apply_sleep=True, apply_events=True)
-        if m_keep is not None:
-            _shade_masked_regions(ax, t_sec=t_seg_sec, masked=~m_keep, color="0.6", alpha=0.22)
 
     seg_hr_min: Optional[float] = None
     seg_hr_max: Optional[float] = None
@@ -276,6 +273,27 @@ def _plot_segment_hr(
             t_sec_seg = t_hr_calc[mask_clean]
             y_clean = hr_calc[mask_clean].astype(float)
 
+    combined_keep = None
+    if aux_df is not None and t_sec_seg is not None and t_sec_seg.size > 0:
+        if bool(getattr(config, "ENABLE_SLEEP_STAGE_MASKING", False)):
+            m_sleep_keep = sleep_mask.build_sleep_include_mask_for_times(t_sec_seg, aux_df)
+            if m_sleep_keep is not None:
+                _shade_masked_regions(ax, t_sec=t_sec_seg, masked=~m_sleep_keep, color="0.7", alpha=0.18)
+                legend_patches.append(Patch(facecolor="0.7", alpha=0.18, label="Sleep masked"))
+        m_evt_keep = io_aux_csv.build_time_exclusion_mask(t_sec_seg, aux_df)
+        if m_evt_keep is not None:
+            _shade_masked_regions(ax, t_sec=t_sec_seg, masked=~m_evt_keep, color="tab:red", alpha=0.12)
+            legend_patches.append(Patch(facecolor="tab:red", alpha=0.12, label="Events excluded"))
+        combined_keep = sleep_mask.build_global_include_mask_for_times(t_sec_seg, aux_df, apply_sleep=True, apply_events=True)
+
+    if y_clean is not None and t_sec_seg is not None:
+        invalid_mask = ~np.isfinite(y_clean)
+        if combined_keep is not None and np.size(combined_keep) == np.size(invalid_mask):
+            invalid_mask = invalid_mask & np.asarray(combined_keep, dtype=bool)
+        if np.any(invalid_mask):
+            _shade_masked_regions(ax, t_sec=t_sec_seg, masked=invalid_mask, color="gold", alpha=0.45)
+            legend_patches.append(Patch(facecolor="gold", alpha=0.45, label="Metric invalid"))
+
     if y_clean is not None and t_sec_seg is not None and np.any(np.isfinite(y_clean)):
         _plot_no_bridge(ax, x_sec=t_sec_seg, y=y_clean, label="HR used", linestyle="-", linewidth=1.4, color="tab:blue", alpha=0.95, zorder=3)
         _update_limits(y_clean)
@@ -283,8 +301,20 @@ def _plot_segment_hr(
     ax.set_ylabel("HR [bpm]")
     ax.grid(True)
     handles, labels = ax.get_legend_handles_labels()
-    if any(label and label != "_nolegend_" for label in labels):
-        ax.legend(loc="upper right", fontsize=8, framealpha=0.9)
+    seen = set()
+    h2, l2 = [], []
+    for h, l in zip(handles, labels):
+        if l and l != "_nolegend_" and l not in seen:
+            h2.append(h)
+            l2.append(l)
+            seen.add(l)
+    for patch in legend_patches:
+        if patch.get_label() not in seen:
+            h2.append(patch)
+            l2.append(patch.get_label())
+            seen.add(patch.get_label())
+    if h2:
+        ax.legend(h2, l2, loc="upper right", fontsize=8, framealpha=0.9)
     if seg_hr_min is not None and seg_hr_max is not None:
         margin = 0.1 * (seg_hr_max - seg_hr_min + 1e-6)
         ax.set_ylim(seg_hr_min - margin, seg_hr_max + margin)
@@ -316,6 +346,7 @@ def _plot_segment_prv(
     mask = (t_prv >= seg_start_sec) & (t_prv <= seg_end_sec)
     if np.any(mask):
         t_sec_seg = t_prv[mask].astype(float)
+        combined_keep = None
         if aux_df is not None and bool(getattr(config, "ENABLE_SLEEP_STAGE_MASKING", False)):
             m_sleep_keep = sleep_mask.build_sleep_include_mask_for_times(t_sec_seg, aux_df)
             if m_sleep_keep is not None:
@@ -326,6 +357,7 @@ def _plot_segment_prv(
             if m_evt_keep is not None:
                 _shade_masked_regions(ax, t_sec=t_sec_seg, masked=~m_evt_keep, color="tab:red", alpha=0.12)
                 legend_patches.append(Patch(facecolor="tab:red", alpha=0.12, label="Events excluded"))
+            combined_keep = sleep_mask.build_global_include_mask_for_times(t_sec_seg, aux_df, apply_sleep=True, apply_events=True)
         if use_raw:
             prv_raw_arr = cast(np.ndarray, prv_raw)
             yc_seg = prv_clean[mask]
@@ -334,11 +366,13 @@ def _plot_segment_prv(
             if np.any(pr_only_excluded):
                 _shade_masked_regions(ax, t_sec=t_sec_seg, masked=pr_only_excluded, color="tab:blue", alpha=0.22)
                 legend_patches.append(Patch(facecolor="tab:blue", alpha=0.22, label="Additional calc exclusion"))
-            raw_missing = ~np.isfinite(yr_seg)
-            if np.any(raw_missing):
-                _shade_masked_regions(ax, t_sec=t_sec_seg, masked=raw_missing, color="gold", alpha=0.45)
-                legend_patches.append(Patch(facecolor="gold", alpha=0.45, label="Metric invalid"))
         yc = prv_clean[mask].astype(float)
+        invalid_mask = ~np.isfinite(yc)
+        if combined_keep is not None and np.size(combined_keep) == np.size(invalid_mask):
+            invalid_mask = invalid_mask & np.asarray(combined_keep, dtype=bool)
+        if np.any(invalid_mask):
+            _shade_masked_regions(ax, t_sec=t_sec_seg, masked=invalid_mask, color="gold", alpha=0.45)
+            legend_patches.append(Patch(facecolor="gold", alpha=0.45, label="Metric invalid"))
         if use_raw:
             prv_raw_arr = cast(np.ndarray, prv_raw)
             yr = prv_raw_arr[mask].astype(float)

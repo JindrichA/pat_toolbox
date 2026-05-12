@@ -89,6 +89,34 @@ def _fmt_int(x: Optional[float]) -> str:
     return f"{int(x)}"
 
 
+def _active_aux_flag_rows(aux_df, policy: masking.MaskPolicy) -> List[List[str]]:
+    labels = {
+        "desat_flag": "Desaturation flags",
+        "exclude_hr_flag": "Exclude HR flags",
+        "exclude_pat_flag": "Exclude PAT flags",
+        "evt_central_3": "Central A/H 3%",
+        "evt_obstructive_3": "Obstructive A/H 3%",
+        "evt_unclassified_3": "Unclassified A/H 3%",
+        "evt_central_4": "Central A/H 4%",
+        "evt_obstructive_4": "Obstructive A/H 4%",
+        "evt_unclassified_4": "Unclassified A/H 4%",
+    }
+    active_cols = list(policy.exclusion_columns)
+    if policy.use_desat_windows:
+        desat_col = str(getattr(config, "PRV_EXCLUSION_DESAT_COLUMN_KEY", "desat_flag"))
+        if desat_col not in active_cols:
+            active_cols.append(desat_col)
+
+    rows: List[List[str]] = []
+    for col in active_cols:
+        label = labels.get(col)
+        if label is None:
+            continue
+        n, pct = _count_flags(aux_df, col)
+        rows.append([f"  {label}", f"{n:d} ({pct})"])
+    return rows
+
+
 def _append_coverage_rows(rows: List[List[str]], label: str, stats: Dict[str, Optional[float]]) -> None:
     rows.append([f"  {label} valid [min]", _fmt_num(stats.get("valid_min"), 1)])
     rows.append([f"  {label} valid [%]", _fmt_pct(stats.get("valid_pct"), 1)])
@@ -731,17 +759,8 @@ def build_summary_pages(
     if has_aux_summary_context and aux_df is not None:
         policy = masking.policy_from_config()
         aux_total = len(aux_df)
-        desat_n, desat_pct = _count_flags(aux_df, "desat_flag")
-        excl_pat_n, excl_pat_pct = _count_flags(aux_df, "exclude_pat_flag")
-        cen3_n, cen3_pct = _count_flags(aux_df, "evt_central_3")
-        obs3_n, obs3_pct = _count_flags(aux_df, "evt_obstructive_3")
-        unc3_n, unc3_pct = _count_flags(aux_df, "evt_unclassified_3")
-        cen4_n, cen4_pct = _count_flags(aux_df, "evt_central_4")
-        obs4_n, obs4_pct = _count_flags(aux_df, "evt_obstructive_4")
-        unc4_n, unc4_pct = _count_flags(aux_df, "evt_unclassified_4")
-        rows_p4 += [["Overall event summary (aux CSV)", ""], ["  Samples (rows)", f"{aux_total:d}"], ["  Active exclusion columns", _wrap_csv_columns(list(policy.exclusion_columns))], ["  Desaturation flags", f"{desat_n:d} ({desat_pct})"], ["  Exclude PAT flags", f"{excl_pat_n:d} ({excl_pat_pct})"], ["  Central A/H 3%", f"{cen3_n:d} ({cen3_pct})"], ["  Obstructive A/H 3%", f"{obs3_n:d} ({obs3_pct})"], ["  Unclassified A/H 3%", f"{unc3_n:d} ({unc3_pct})"]]
-        if (cen4_n + obs4_n + unc4_n) > 0:
-            rows_p4 += [["  Central A/H 4%", f"{cen4_n:d} ({cen4_pct})"], ["  Obstructive A/H 4%", f"{obs4_n:d} ({obs4_pct})"], ["  Unclassified A/H 4%", f"{unc4_n:d} ({unc4_pct})"]]
+        rows_p4 += [["Overall event summary (aux CSV)", ""], ["  Samples (rows)", f"{aux_total:d}"], ["  Active exclusion columns", _wrap_csv_columns(list(policy.exclusion_columns))]]
+        rows_p4 += _active_aux_flag_rows(aux_df, policy)
         rows_p4 += [["", ""]]
         rows_p4 += _sleep_stage_rows(aux_df)
     elif has_aux_summary_context:
