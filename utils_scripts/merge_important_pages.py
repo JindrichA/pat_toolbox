@@ -2,7 +2,7 @@ import os
 from PyPDF2 import PdfReader, PdfWriter
 
 # Folder containing the PDFs
-PDF_FOLDER = "/Users/jindrich/Projects/mayo_data/output/ViewPatPlotsOverlay__20260511_123010__all_sleep_incluidng_wake__ready/"
+PDF_FOLDER = "/Users/jindrich/Projects/mayo_data/output/ViewPatPlotsOverlay__20260512_163249__all_sleep_incluidng_wake__ready"
 
 # Output names by page number (0-based index)
 OUTPUTS = {

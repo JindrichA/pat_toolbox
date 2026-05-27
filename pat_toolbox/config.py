@@ -27,7 +27,7 @@ EDF_FOLDER = Path(
 
 
 # Set to an integer for short debug runs, or keep None to process everything.
-MAX_FILES = 10
+MAX_FILES = None
 
 # RUN_ID is generated automatically at import time.
 RUN_ID = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -116,7 +116,7 @@ ENABLE_SLEEP_STAGE_MASKING = True
 #   "deep_only"               -> include only deep sleep
 #   "nrem_light_only"         -> include only light sleep
 #   "custom"                  -> use SLEEP_INCLUDE_LABELS / SLEEP_INCLUDE_NUMERIC
-SLEEP_STAGE_POLICY = "all_sleep_incluidng_wake"
+SLEEP_STAGE_POLICY = "nrem_only"
 
 # Used only when SLEEP_STAGE_POLICY == "custom".
 # Numeric codes take priority; labels are a fallback convenience.
