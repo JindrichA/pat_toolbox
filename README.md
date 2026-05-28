@@ -436,6 +436,138 @@ The main outputs are aligned boolean masks such as:
 
 This improves consistency between the values reported in summary tables and the data shown in the PDF figures.
 
+## Delta-HR
+
+`delta_hr` is the repository's event-response HR feature. It asks how strongly PAT-derived HR changes around excluded respiratory-event regions rather than summarizing HR variability across the whole night.
+
+### What it does
+
+For each detected excluded event run:
+
+1. Build an event window starting at the excluded-run onset.
+2. Use a fixed event duration from `HR_EVENT_WINDOW_SEC`.
+3. Optionally extend the event window to the end of any overlapping gated desaturation window when `HR_EVENT_USE_DESAT_EXTENSION = True`.
+4. Build a recovery window immediately after the event window, ending at `HR_EVENT_RECOVERY_END_SEC`.
+5. Smooth HR first using `HR_EVENT_SMOOTH_SEC`.
+6. Require at least `HR_EVENT_MIN_SAMPLES` valid HR samples in both the event and recovery windows.
+
+For each accepted event, the code extracts:
+
+- event-window minimum HR
+- event-window mean HR
+- recovery-window maximum HR
+- trough-to-peak response = `recovery max - event minimum`
+- mean-to-peak delta HR = `recovery max - event mean`
+
+### How to interpret it
+
+Physiologically, this feature is meant to describe autonomic / cardio-vascular responsiveness around respiratory-event-related stress periods.
+
+- Higher `trough-to-peak response` means a larger rebound from the event-window trough to the recovery-window peak.
+- Higher `mean-to-peak delta HR` means a larger recovery peak relative to the average HR maintained during the event window.
+- A larger number of usable windows means the estimate is based on more valid events rather than on isolated examples.
+
+This is an event-centered response metric, not a whole-night HR variability metric.
+
+### Outputs
+
+When `FEATURES["delta_hr"] = True`, the pipeline now produces:
+
+- selected-policy summary metrics in the main summary CSV
+- event-response rows in report summary pages
+- an event-response overview page in the PDF
+- a delta-HR subplot on segment pages
+- an event-level CSV export in `EVENT_HR__.../<edf>__Event_HR_Windows.csv`
+
+## PAT Burden
+
+`pat_burden` quantifies cumulative PAT amplitude suppression during excluded event/desaturation periods inside the selected sleep policy.
+
+### What it does
+
+The burden logic uses the PAT amplitude channel `DERIVED_PAT_AMP`.
+
+1. Restrict analysis to samples inside the selected sleep policy.
+2. Mark burden episodes inside excluded event/desaturation regions.
+3. Group contiguous excluded regions into burden episodes.
+4. Skip episodes shorter than `PAT_BURDEN_MIN_EPISODE_SEC`.
+5. For each remaining episode, estimate a local baseline from the preceding `PAT_BURDEN_BASELINE_LOOKBACK_SEC` using the `PAT_BURDEN_BASELINE_PCTL` percentile of valid baseline samples.
+6. Compute the drop below baseline during the episode.
+7. Integrate that drop over time.
+8. Sum area across episodes and normalize by sleep hours.
+
+If `PAT_BURDEN_RELATIVE = True`, the drop is normalized by the local baseline before integration.
+
+### How to interpret it
+
+Physiologically, PAT burden is intended to reflect how strongly peripheral pulse amplitude is attenuated during respiratory-event-related disturbed periods.
+
+- Higher burden means larger and/or longer PAT amplitude suppression during event-linked intervals.
+- Lower burden means smaller and/or shorter suppression.
+- Because the metric is normalized by sleep hours, it is closer to a burden intensity per hour than a raw total-area measure.
+
+This is not the same as event count or desaturation count. It is a cumulative depth-times-duration measure of PAT attenuation during those intervals.
+
+### Outputs
+
+When `FEATURES["pat_burden"] = True`, the pipeline now produces:
+
+- summary fields in the main summary CSV
+- a dedicated PAT burden summary page in the PDF
+- a PAT burden overview page
+- a PAT AMP segment subplot with burden shading
+- an episode-level CSV export in `PATBurden__.../<edf>__PAT_Burden_Episodes.csv`
+- a per-recording summary export in `PATBurden__.../<edf>__PAT_Burden_Summary.csv`
+
+The burden diagnostics now also report items such as episode counts, skipped episode reasons, finite PAT AMP coverage, inside-event/desaturation minutes, and invalid PAT AMP minutes inside burden regions.
+
+## PWA-Drop
+
+`pwa_drop` is a discrete pulse-wave-amplitude drop detector derived from the PAT waveform itself. Unlike PAT burden, which summarizes cumulative amplitude suppression inside excluded event/desaturation regions, PWA-drop identifies individual drop events and characterizes their timing and morphology.
+
+### What it does
+
+The current implementation follows the logic style of the external MATLAB `PWA_drop` project:
+
+1. Start from the raw `VIEW_PAT` waveform.
+2. Smooth and detrend the waveform.
+3. Extract a beat-to-beat pulse-wave-amplitude (`PWA`) series from local maxima and minima.
+4. Remove obvious artefactual or sensor-loss segments.
+5. Build a baseline-stability mask from local variance.
+6. Find candidate drops from local variance peaks paired with negative local derivative.
+7. For each candidate, estimate a local baseline from preceding stable beats.
+8. Re-express the local tract as percent change from baseline.
+9. Keep the candidate only if it passes primary and secondary amplitude/depth criteria.
+10. Save discrete event properties such as duration, amplitude, slopes, and area under the drop curve.
+
+The feature then summarizes the accepted drops within the selected sleep policy.
+
+### How to interpret it
+
+Physiologically, PWA-drop is intended to represent discrete transient reductions in pulse-wave amplitude, which may reflect short-lived vascular tone changes, autonomic activation, or respiratory-event-related peripheral vasoconstrictive responses.
+
+- Higher drop count means more detected discrete PWA suppression events.
+- Higher drop rate per sleep hour means these events occur more frequently during the analyzed sleep period.
+- Higher mean amplitude means deeper drops relative to local baseline.
+- Higher mean AUC means larger cumulative suppression per drop event.
+
+This feature is event-detection oriented. It is different from PAT burden:
+
+- `PAT burden` = cumulative burden inside excluded event/desaturation intervals
+- `PWA-drop` = discrete detected PWA-drop events from the waveform-derived PWA series
+
+### Outputs
+
+When `FEATURES["pwa_drop"] = True`, the pipeline now produces:
+
+- selected-policy summary metrics in the main summary CSV
+- sleep-subset comparison metrics for the fixed subset summaries
+- summary-table rows in the PDF
+- a full-night PWA-drop overview page
+- a 15-minute PWA-drop segment subplot
+- an event-level CSV export in `PWADrop__.../<edf>__PWA_Drop_Events.csv`
+- a per-recording summary export in `PWADrop__.../<edf>__PWA_Drop_Summary.csv`
+
 ## Configuration Philosophy
 
 The project is deliberately config-driven.
@@ -457,6 +589,7 @@ FEATURES = {
     "psd": True,
     "delta_hr": False,
     "pat_burden": False,
+    "pwa_drop": False,
     "sleep_combo_summary": False,
     "report_pdf": True,
     "peaks_debug_pdf": False,
@@ -475,6 +608,8 @@ What these top-level switches mean:
   - enables event-response HR summaries and event-response HR plots on the original HR signal
 - `pat_burden`
   - enables PAT amplitude loading, burden calculation, burden plotting, and burden summary outputs
+- `pwa_drop`
+  - enables waveform-derived pulse-wave-amplitude drop detection, summary outputs, plots, and CSV export
 - `sleep_combo_summary`
   - enables extra fixed sleep-subset comparison summaries
 - `report_pdf`

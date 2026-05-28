@@ -27,26 +27,29 @@ The current `FEATURES` configuration is:
 - `hr = True`
 - `prv = True`
 - `psd = False`
-- `delta_hr = False`
-- `pat_burden = False`
+- `delta_hr = True`
+- `pat_burden = True`
+- `pwa_drop = True`
 - `sleep_combo_summary = True`
 - `report_pdf = True`
-- `peaks_debug_pdf = True`
+- `peaks_debug_pdf = False`
 
 This means the current run produces:
 
 - PAT-derived HR
 - PRV time-domain features
 - PRV frequency-domain features based on PR intervals
+- event-response HR summaries and plots
+- PAT burden summaries and plots
+- PWA-drop summaries and plots
 - sleep-subset comparison summaries
 - the main PDF report
 - a publication-style PRV PNG export
-- a PAT peaks debug PDF
 
 The current sleep-stage policy is:
 
-- `SLEEP_STAGE_POLICY = "all_sleep_incluidng_wake"`
-- included sleep stages = `{0, 1, 2, 3}`
+- `SLEEP_STAGE_POLICY = "nrem_only"`
+- included sleep stages = `{1, 2}`
 
 Under the current stage mapping:
 
@@ -55,7 +58,7 @@ Under the current stage mapping:
 - `2 = Deep sleep`
 - `3 = REM`
 
-Therefore, in the main selected-policy analysis, wake, light sleep, deep sleep, and REM are all included.
+Therefore, in the main selected-policy analysis, only NREM stages (light and deep sleep) are included, while wake and REM are excluded.
 
 ## Input Data
 
@@ -184,12 +187,12 @@ This produces the shared physiologically cleaned PR series used by HR and PRV.
 
 The main selected-policy analysis currently uses:
 
-- `all_sleep_incluidng_wake = {0, 1, 2, 3}`
+- `nrem_only = {1, 2}`
 
 This means:
 
-- included: wake, light sleep, deep sleep, and REM
-- excluded: none at the sleep-stage level
+- included: light sleep and deep sleep
+- excluded: wake and REM
 
 ### How sleep-stage masking is applied
 
@@ -217,15 +220,13 @@ These are separate summaries, not alternative masks applied to the main selected
 
 After sleep-stage selection, the code applies event and quality exclusions using the auxiliary CSV.
 
-The signal-quality component of this exclusion logic is important because the downstream timing and spectral metrics are only meaningful when the underlying PAT pulse train is interpretable. In practice, the auxiliary quality flags (`Exclude HR`, `Exclude PAT`) are treated conservatively: when they are active, the surrounding interval is removed with the same padded window logic used for respiratory event exclusions. This is done to reduce contamination from motion, signal dropout, poor pulse definition, or other waveform conditions that can distort peak detection, corrupt PR intervals, and propagate implausible values into HR, PRV, or spectral estimates.
+The signal-quality component of this exclusion logic is important because the downstream timing and spectral metrics are only meaningful when the underlying PAT pulse train is interpretable. When quality-style auxiliary flags are included in the active exclusion list, the surrounding interval is removed with the same padded window logic used for respiratory event exclusions. This is done to reduce contamination from motion, signal dropout, poor pulse definition, or other waveform conditions that can distort peak detection, corrupt PR intervals, and propagate implausible values into HR, PRV, or spectral estimates.
 
 ### Active exclusion columns in the current configuration
 
 - `evt_central_3`
 - `evt_obstructive_3`
 - `evt_unclassified_3`
-- `exclude_hr_flag`
-- `exclude_pat_flag`
 
 The desaturation flag is not used as a standalone fixed exclusion column. Instead, desaturations are used through gated desaturation windows, described below.
 
@@ -314,6 +315,47 @@ Heart rate is derived from the cleaned PR intervals.
 9. Apply the selected-policy `combined_keep` mask, setting excluded samples to `NaN`.
 
 The final selected-policy HR summary statistics are computed from the finite HR samples remaining after this masking.
+
+## Event-Response HR (Delta-HR)
+
+The `delta_hr` feature is an event-centered HR response analysis derived from the PAT-based HR signal. It is intended to quantify how strongly HR changes across the transition from an excluded event window into a post-event recovery window.
+
+### Event-response HR settings
+
+- HR smoothing before event analysis: `5.0 s`
+- event window length: `15.0 s`
+- recovery window end: `45.0 s` from event onset
+- minimum valid samples in both event and recovery windows: `3`
+- desaturation-aware extension: `True`
+
+### Event-response HR procedure
+
+For each excluded event run in the selected sleep policy:
+
+1. Define the event window starting at the beginning of the run.
+2. Set the nominal event end to `start + 15 s`.
+3. If desaturation-aware extension is enabled, extend the event window to the end of any overlapping gated desaturation window that begins before the nominal recovery endpoint.
+4. Define the recovery window as the interval immediately after the event window until `45 s` from event onset, preserving the configured recovery duration.
+5. Skip the event if the next event begins before the recovery window ends.
+6. Smooth HR first using a `5 s` moving average.
+7. Require at least `3` valid smoothed HR samples in both the event and recovery windows.
+8. Compute:
+   - event-window minimum HR
+   - event-window mean HR
+   - recovery-window maximum HR
+   - trough-to-peak response = `recovery max - event minimum`
+   - mean-to-peak delta HR = `recovery max - event mean`
+
+### Delta-HR outputs and interpretation
+
+The selected-policy summary reports:
+
+- number of event windows detected
+- number of event windows used
+- mean trough-to-peak response
+- mean mean-to-peak delta HR
+
+Physiologically, larger values indicate a stronger HR rebound around event-linked disturbed intervals. This is an event-response metric rather than a whole-night HR variability metric.
 
 ## PRV Calculation Overview
 
@@ -473,6 +515,96 @@ So in the present setup:
 
 If enabled, that feature would compute averaged PR-based PSDs over the same fixed `120 s` windows and report Mayer-band and respiratory-band power summaries.
 
+## PAT Burden
+
+The `pat_burden` feature quantifies cumulative PAT amplitude suppression during excluded event/desaturation periods within the selected sleep policy.
+
+### PAT burden settings
+
+- baseline lookback: `30 s`
+- baseline minimum samples: `5`
+- baseline percentile: `95th percentile`
+- minimum episode length: `5 s`
+- relative burden mode: `False`
+
+### PAT burden procedure
+
+1. Load the PAT amplitude channel `DERIVED_PAT_AMP` when available.
+2. Build the selected-policy sleep mask and the event/desaturation exclusion mask.
+3. Define burden episodes as contiguous time spent inside excluded event/desaturation regions while still inside the selected sleep policy.
+4. Skip episodes shorter than `5 s`.
+5. For each episode, gather valid baseline PAT amplitude samples from the `30 s` interval immediately before the episode, restricted to selected sleep and outside the excluded event/desaturation region.
+6. Require at least `5` valid baseline samples.
+7. Define the episode baseline as the `95th percentile` of those baseline samples.
+8. Within the episode, compute the non-negative drop below baseline.
+9. Integrate the drop over time to produce episode area.
+10. Sum episode areas across the night and divide by sleep hours.
+
+In the current setup, burden is reported in `amp·min/h` because relative normalization is disabled. If relative mode is enabled, the drop is normalized by the local baseline first and the unit becomes `rel·min/h`.
+
+### PAT burden diagnostics and interpretation
+
+The burden summary now reports:
+
+- burden per sleep hour
+- sleep hours
+- total burden area
+- episodes total, used, and skipped
+- finite PAT AMP coverage
+- inside-event/desaturation minutes
+- invalid PAT AMP minutes inside burden regions
+- skipped episode reasons
+
+Physiologically, higher PAT burden means deeper and/or longer PAT amplitude attenuation during respiratory-event-related disturbed periods. It is therefore closer to a cumulative vascular/autonomic burden measure than to a simple event count.
+
+## PWA-Drop
+
+The `pwa_drop` feature is a waveform-derived pulse-wave-amplitude drop detector modeled after the external MATLAB `PWA_drop` project. It is designed to identify discrete transient decreases in pulse-wave amplitude rather than to compute cumulative burden inside pre-defined exclusion intervals.
+
+### PWA-drop settings
+
+- primary amplitude threshold: `40%` decrease from baseline
+- secondary amplitude threshold: `30%` decrease from baseline
+- minimum primary-threshold points: `2`
+- minimum secondary-threshold points: `4`
+- baseline length: `5` cardiac cycles
+- sensor-loss threshold: `5`
+- maximum accepted heart rate for the beat-to-beat PWA stream: `250 bpm`
+
+### PWA-drop procedure
+
+1. Start from the raw PAT waveform `VIEW_PAT`.
+2. Detrend and smooth the waveform.
+3. Identify local maxima and minima and derive a beat-to-beat `PWA` series from their amplitude difference.
+4. Reject implausible beat timing using the maximum accepted heart-rate constraint.
+5. Mark sensor-loss and abrupt PWA discontinuity artefacts and remove those PWA samples.
+6. Detrend and smooth the PWA time series itself.
+7. Estimate local variance and derivative on the PWA series.
+8. Build a baseline mask from low-variance stable tracts.
+9. Select candidate drops where local variance peaks coincide with negative local derivative.
+10. For each candidate, define a local observation interval using neighboring local maxima and minima.
+11. Estimate baseline from preceding stable PWA beats.
+12. Express the candidate interval as percentage decrease from baseline.
+13. Keep the event only if the decrease satisfies both the primary and secondary threshold-duration criteria.
+14. Extract per-drop parameters such as start, end, and center time, duration, amplitude percentage, AUC, and descending / ascending slopes.
+15. Restrict the final reported events to the selected sleep policy and summarize them per sleep hour.
+
+### PWA-drop outputs and interpretation
+
+The selected-policy summary reports:
+
+- number of detected drops
+- drop rate per sleep hour
+- mean amplitude percentage
+- mean duration
+- mean AUC
+- number and percentage of drops overlapping excluded event/desaturation regions
+
+Physiologically, this feature is intended to capture discrete transient PWA suppression events, which may reflect peripheral vasoconstrictive or autonomic responses. It is complementary to PAT burden:
+
+- `PAT burden` quantifies cumulative suppression within event-linked regions
+- `PWA-drop` counts and characterizes individual waveform-derived suppression events
+
 ## Sleep Timing And Sleep-Half Analysis
 
 Sleep timing is computed from the auxiliary sleep-stage timeline.
@@ -510,10 +642,11 @@ For each subset, the code can produce:
 - HF mean
 - LF/HF mean
 
-In the current setup, because `delta_hr`, `pat_burden`, and `psd` are disabled:
+In the current setup, because `delta_hr`, `pat_burden`, and `pwa_drop` are enabled while `psd` is disabled:
 
-- event-response columns are absent
-- PAT burden columns are absent
+- event-response columns are present
+- PAT burden columns are present
+- PWA-drop columns are present
 - PSD-window-count columns are absent
 
 ## What “Pre-Final Exclusion” Means
@@ -561,12 +694,15 @@ For the current configuration, the main selected-policy PRV workflow can be summ
 5. Keep only physiologic PR intervals between `0.30 and 2.50 s`.
 6. Apply low-level PR cleaning using median-based outlier rejection, gap rejection, jump rejection, alternans rejection, and a minimum artifact-free run length of `3`.
 7. Read the auxiliary CSV and convert sleep stages into numeric stage codes.
-8. Build the selected sleep-stage mask using `all_sleep_incluidng_wake = {0, 1, 2, 3}`.
-9. Build event and quality exclusion windows from respiratory event flags and `Exclude HR` / `Exclude PAT` flags using `15 s` pre-padding and `30 s` post-padding.
+8. Build the selected sleep-stage mask using `nrem_only = {1, 2}`.
+9. Build event and quality exclusion windows from the currently active exclusion columns using `15 s` pre-padding and `30 s` post-padding.
 10. Build event-gated desaturation windows using the desaturation flag, `15 s` start padding, `30 s` end padding, and minimum run length `5 s`.
 11. Combine sleep, event, quality, and gated-desaturation masks into the final selected-policy keep mask.
 12. Derive PAT HR from the cleaned PR stream, interpolate to `1 Hz`, smooth, despike, and apply the final selected-policy mask.
-13. Derive RMSSD and SDNN on `5 min` sliding windows evaluated on a `1 Hz` grid.
-14. Derive LF, HF, and LF/HF on non-overlapping fixed `2 min` windows using PR-tachogram Welch PSD.
-15. Summarize the surviving values over the selected-policy valid windows.
-16. Recompute the same family of metrics for fixed subsets such as all sleep, NREM, deep, REM, wake+sleep, and pre-sleep wake.
+13. Derive event-response HR windows and summarize trough-to-peak and mean-to-peak delta HR across valid events.
+14. Derive RMSSD and SDNN on `5 min` sliding windows evaluated on a `1 Hz` grid.
+15. Derive LF, HF, and LF/HF on non-overlapping fixed `2 min` windows using PR-tachogram Welch PSD.
+16. Derive PAT burden from PAT amplitude inside excluded event/desaturation regions relative to a local pre-episode baseline.
+17. Derive discrete PWA-drop events from the waveform-derived PWA series and summarize their count, rate, and morphology.
+18. Summarize the surviving values over the selected-policy valid windows.
+19. Recompute the same family of metrics for fixed subsets such as all sleep, NREM, deep, REM, wake+sleep, and pre-sleep wake.

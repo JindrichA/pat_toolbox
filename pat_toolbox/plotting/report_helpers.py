@@ -12,6 +12,7 @@ from ..metrics.psd import compute_psd_figures_and_peaks
 from .feature_overview_builders import (
     _build_event_response_overview_figure,
     _build_hr_overview_figure,
+    _build_pwa_drop_overview_figure,
     _build_prv_rmssd_overview_figure,
     _build_multi_series_overview_figure,
     _build_pat_burden_overview_figure,
@@ -73,6 +74,8 @@ def _build_summary_pages_for_enabled_features(
     mayer_peak_freq,
     resp_peak_freq,
     aux_df,
+    hr_event_response_summary,
+    pwa_drop_summary,
     t_hr_calc,
     hr_calc,
     t_prv,
@@ -105,6 +108,8 @@ def _build_summary_pages_for_enabled_features(
         prv_raw=prv_rmssd_raw,
         prv_tv=prv_tv,
         psd_features=psd_features,
+        hr_event_response_summary=hr_event_response_summary,
+        pwa_drop_summary=pwa_drop_summary,
         pat_burden=pat_burden,
         pat_burden_diag=pat_burden_diag,
         sleep_combo_summaries=sleep_combo_summaries,
@@ -170,6 +175,8 @@ def _build_feature_overview_figures(
     exclusion_zones,
     event_spec,
     aux_df,
+    hr_event_response_summary,
+    pwa_drop_summary,
     t_hr_calc,
     hr_calc,
     hr_calc_raw,
@@ -180,6 +187,9 @@ def _build_feature_overview_figures(
     prv_mask_info,
     t_pat_amp,
     pat_amp,
+    t_pwa,
+    pwa_series,
+    pwa_drop_events,
 ) -> list[Any]:
     figs: list[Any] = []
 
@@ -278,6 +288,7 @@ def _build_feature_overview_figures(
             exclusion_zones=exclusion_zones,
             duration_sec_fallback=duration_sec,
             event_spec=event_spec,
+            hr_event_response_summary=hr_event_response_summary,
         )
         if fig is not None:
             figs.append(fig)
@@ -287,6 +298,21 @@ def _build_feature_overview_figures(
             edf_base=edf_base,
             t_pat_amp=t_pat_amp,
             pat_amp=pat_amp,
+            aux_df=aux_df,
+            exclusion_zones=exclusion_zones,
+            duration_sec_fallback=duration_sec,
+            event_spec=event_spec,
+        )
+        if fig is not None:
+            figs.append(fig)
+
+    if features.is_enabled("pwa_drop"):
+        fig = _build_pwa_drop_overview_figure(
+            edf_base=edf_base,
+            t_pwa=t_pwa,
+            pwa_series=pwa_series,
+            pwa_drop_events=pwa_drop_events,
+            pwa_drop_summary=pwa_drop_summary,
             aux_df=aux_df,
             exclusion_zones=exclusion_zones,
             duration_sec_fallback=duration_sec,
@@ -315,6 +341,8 @@ def _build_report_figures(
     prv_tv,
     prv_summary,
     aux_df,
+    hr_event_response_summary,
+    pwa_drop_summary,
     pat_burden,
     pat_burden_diag,
     sleep_combo_summaries,
@@ -323,12 +351,17 @@ def _build_report_figures(
     hr_calc_raw,
     t_pat_amp,
     pat_amp,
+    t_pwa,
+    pwa_series,
+    pwa_drop_events,
 ):
     summary_pages = _build_summary_pages_for_enabled_features(
         edf_base=edf_base,
         mayer_peak_freq=mayer_peak_freq,
         resp_peak_freq=resp_peak_freq,
         aux_df=aux_df,
+        hr_event_response_summary=hr_event_response_summary,
+        pwa_drop_summary=pwa_drop_summary,
         t_hr_calc=t_hr_calc,
         hr_calc=hr_calc,
         t_prv=t_prv,
@@ -367,6 +400,8 @@ def _build_report_figures(
         exclusion_zones=exclusion_zones,
         event_spec=event_spec,
         aux_df=aux_df,
+        hr_event_response_summary=hr_event_response_summary,
+        pwa_drop_summary=pwa_drop_summary,
         t_hr_calc=t_hr_calc,
         hr_calc=hr_calc,
         hr_calc_raw=hr_calc_raw,
@@ -377,6 +412,9 @@ def _build_report_figures(
         prv_mask_info=prv_mask_info,
         t_pat_amp=t_pat_amp,
         pat_amp=pat_amp,
+        t_pwa=t_pwa,
+        pwa_series=pwa_series,
+        pwa_drop_events=pwa_drop_events,
     )
 
     return {

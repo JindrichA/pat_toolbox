@@ -7,7 +7,9 @@ from .context import RecordingContext
 from .io_aux_csv import save_sleep_timing_to_csv
 from .metrics import hr as hr_metrics
 from .metrics import prv as prv_metrics
-from .metrics.pat_burden_io import save_pat_burden_episodes_to_csv
+from .metrics.hr_event_response import save_event_hr_windows_to_csv
+from .metrics.pat_burden_io import save_pat_burden_episodes_to_csv, save_pat_burden_summary_to_csv
+from .metrics.pwa_drop_io import save_pwa_drop_events_to_csv, save_pwa_drop_summary_to_csv
 
 
 def build_pdf_step(ctx: RecordingContext) -> None:
@@ -17,7 +19,7 @@ def build_pdf_step(ctx: RecordingContext) -> None:
     assert ctx.view_pat is not None and ctx.view_pat_filt is not None and ctx.sfreq is not None
     out_folder = paths.get_output_folder()
     suffix = "_multi_sleep_summary" if getattr(ctx, "sleep_combo_summaries", None) else (config.sleep_stage_suffix() if getattr(config, "ENABLE_SLEEP_STAGE_MASKING", False) else "")
-    feature_parts = ["VIEW_PAT", *features.enabled_feature_parts(("hr", "prv", "psd", "delta_hr", "pat_burden"))]
+    feature_parts = ["VIEW_PAT", *features.enabled_feature_parts(("hr", "prv", "psd", "delta_hr", "pat_burden", "pwa_drop"))]
     pdf_name = f"{ctx.edf_base}__{'_'.join(feature_parts)}_{config.SEGMENT_MINUTES}min_overlay{suffix}.pdf"
     ctx.pdf_path = out_folder / pdf_name
     psd_results_dict = plotting.plot_pat_and_hr_segments_to_pdf(
@@ -45,10 +47,15 @@ def build_pdf_step(ctx: RecordingContext) -> None:
         rmse=None,
         prv_summary=ctx.prv_summary,
         aux_df=ctx.aux_df,
+        hr_event_response_summary=getattr(ctx, "hr_event_response_summary", None),
         t_pat_amp=ctx.t_pat_amp,
         pat_amp=ctx.pat_amp,
         pat_burden=getattr(ctx, "pat_burden", None),
         pat_burden_diag=getattr(ctx, "pat_burden_diag", None),
+        t_pwa=getattr(ctx, "t_pwa", None),
+        pwa_series=getattr(ctx, "pwa_series", None),
+        pwa_drop_summary=getattr(ctx, "pwa_drop_summary", None),
+        pwa_drop_events=getattr(ctx, "pwa_drop_events", None),
         sleep_combo_summaries=getattr(ctx, "sleep_combo_summaries", None),
         prv_mask_info=getattr(ctx, "prv_mask_info", None),
         prv_midpoint_halves=getattr(ctx, "prv_midpoint_halves", None),
@@ -66,6 +73,14 @@ def export_feature_csvs_step(ctx: RecordingContext) -> None:
             ctx.hr_csv_path = hr_metrics.save_hr_series_to_csv(ctx.edf_path, ctx.t_hr_calc, ctx.hr_calc)
         except Exception as e:
             print(f"  WARNING: could not save HR CSV for {ctx.edf_path.name}: {e}")
+
+    if features.is_enabled("delta_hr") and getattr(ctx, "hr_event_windows", None):
+        try:
+            windows = ctx.hr_event_windows
+            if windows is not None:
+                ctx.hr_event_csv_path = save_event_hr_windows_to_csv(ctx.edf_path, cast(list[dict[str, Any]], windows))
+        except Exception as e:
+            print(f"  WARNING: could not save delta HR CSV for {ctx.edf_path.name}: {e}")
 
     if features.is_enabled("prv") and ctx.t_prv is not None and ctx.prv_rmssd_clean is not None:
         try:
@@ -85,6 +100,24 @@ def export_feature_csvs_step(ctx: RecordingContext) -> None:
                 ctx.pat_burden_csv_path = save_pat_burden_episodes_to_csv(ctx.edf_path, cast(list[dict[str, Any]], episodes))
         except Exception as e:
             print(f"  WARNING: could not save PAT burden CSV for {ctx.edf_path.name}: {e}")
+    if features.is_enabled("pat_burden") and (getattr(ctx, "pat_burden_diag", None) is not None or getattr(ctx, "pat_burden", None) is not None):
+        try:
+            ctx.pat_burden_summary_csv_path = save_pat_burden_summary_to_csv(ctx.edf_path, ctx.pat_burden, getattr(ctx, "pat_burden_diag", None))
+        except Exception as e:
+            print(f"  WARNING: could not save PAT burden summary CSV for {ctx.edf_path.name}: {e}")
+
+    if features.is_enabled("pwa_drop") and getattr(ctx, "pwa_drop_events", None):
+        try:
+            events = ctx.pwa_drop_events
+            if events is not None:
+                ctx.pwa_drop_csv_path = save_pwa_drop_events_to_csv(ctx.edf_path, cast(list[dict[str, Any]], events))
+        except Exception as e:
+            print(f"  WARNING: could not save PWA drop event CSV for {ctx.edf_path.name}: {e}")
+    if features.is_enabled("pwa_drop") and getattr(ctx, "pwa_drop_summary", None) is not None:
+        try:
+            ctx.pwa_drop_summary_csv_path = save_pwa_drop_summary_to_csv(ctx.edf_path, getattr(ctx, "pwa_drop_summary", None))
+        except Exception as e:
+            print(f"  WARNING: could not save PWA drop summary CSV for {ctx.edf_path.name}: {e}")
 
     if ctx.aux_df is not None:
         try:
@@ -153,6 +186,8 @@ def append_summary_step(ctx: RecordingContext) -> None:
         prv_mask_info=ctx.prv_mask_info,
         prv_midpoint_halves=getattr(ctx, "prv_midpoint_halves", None),
         aux_df=ctx.aux_df,
+        hr_event_response_summary=getattr(ctx, "hr_event_response_summary", None),
+        pwa_drop_summary=getattr(ctx, "pwa_drop_summary", None),
         psd_features=getattr(ctx, "psd_features", None),
         pat_burden=getattr(ctx, "pat_burden", None),
         pat_burden_diag=getattr(ctx, "pat_burden_diag", None),

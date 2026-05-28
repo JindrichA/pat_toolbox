@@ -27,7 +27,7 @@ EDF_FOLDER = Path(
 
 
 # Set to an integer for short debug runs, or keep None to process everything.
-MAX_FILES = None
+MAX_FILES = 5
 
 # RUN_ID is generated automatically at import time.
 RUN_ID = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -56,8 +56,9 @@ FEATURES = {
     "hr": True,
     "prv": True,
     "psd": False,
-    "delta_hr": False,
-    "pat_burden": False,
+    "delta_hr": True,
+    "pat_burden": True,
+    "pwa_drop": True,
     "sleep_combo_summary": True,
     "report_pdf": True,
     "peaks_debug_pdf": False,
@@ -116,7 +117,7 @@ ENABLE_SLEEP_STAGE_MASKING = True
 #   "deep_only"               -> include only deep sleep
 #   "nrem_light_only"         -> include only light sleep
 #   "custom"                  -> use SLEEP_INCLUDE_LABELS / SLEEP_INCLUDE_NUMERIC
-SLEEP_STAGE_POLICY = "nrem_only"
+SLEEP_STAGE_POLICY = "all_sleep"
 
 # Used only when SLEEP_STAGE_POLICY == "custom".
 # Numeric codes take priority; labels are a fallback convenience.
@@ -183,8 +184,10 @@ def run_suffix() -> str:
 OUTPUT_SUBFOLDER = f"ViewPatPlotsOverlay__{run_suffix()}"
 HR_OUTPUT_SUBFOLDER = f"HR__{run_suffix()}"
 PRV_OUTPUT_SUBFOLDER = f"PRV__{run_suffix()}"
+DELTA_HR_OUTPUT_SUBFOLDER = f"EVENT_HR__{run_suffix()}"
 PUBLICATION_PRV_OUTPUT_SUBFOLDER = f"PublicationPRV__{run_suffix()}"
 PAT_BURDEN_OUTPUT_SUBFOLDER = f"PATBurden__{run_suffix()}"
+PWA_DROP_OUTPUT_SUBFOLDER = f"PWADrop__{run_suffix()}"
 PSD_OUTPUT_SUBFOLDER = f"PSD__{run_suffix()}"
 
 
@@ -455,6 +458,24 @@ HR_EVENT_WINDOW_SEC = 15.0
 HR_EVENT_RECOVERY_END_SEC = 45.0
 HR_EVENT_MIN_SAMPLES = 3
 HR_EVENT_USE_DESAT_EXTENSION = True
+
+
+# =============================================================================
+# PWA-Drop Feature
+# =============================================================================
+# This feature ports the logic of the external PWA-drop detector into the
+# repository workflow so discrete pulse-wave-amplitude drops can be summarized,
+# exported, and plotted like the other feature families.
+
+ENABLE_PWA_DROP = FEATURES["pwa_drop"]
+PWA_DROP_PRIMARY_THR_PCT = 40.0
+PWA_DROP_SECONDARY_THR_PCT = 30.0
+PWA_DROP_MIN_POINTS_PRIMARY = 2
+PWA_DROP_MIN_POINTS_SECONDARY = 4
+PWA_DROP_BASELINE_CYCLES = 5
+PWA_DROP_SENSORLOSS_THR = 5.0
+PWA_DROP_MAX_HR_BPM = 250.0
+PWA_DROP_SUMMARY_MIN_BASELINE_POINTS = 3
 
 
 # =============================================================================

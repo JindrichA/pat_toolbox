@@ -15,6 +15,7 @@ from .segment_plot_helpers import (
     _plot_segment_hr,
     _plot_segment_prv,
     _plot_segment_pat_amp,
+    _plot_segment_pwa_drop,
 )
 from .specs import EventSpec
 
@@ -51,6 +52,9 @@ def _add_segment_pages_to_pdf(
     event_spec: List[EventSpec],
     t_pat_amp: Optional[np.ndarray],
     pat_amp: Optional[np.ndarray],
+    t_pwa: Optional[np.ndarray],
+    pwa_series: Optional[np.ndarray],
+    pwa_drop_events: Optional[list[dict[str, float]]],
     t_hr_calc_raw: Optional[np.ndarray],
     hr_calc_raw: Optional[np.ndarray],
     t_hr_edf_raw: Optional[np.ndarray],
@@ -63,6 +67,7 @@ def _add_segment_pages_to_pdf(
     use_prv = features.segment_plot_requested("prv") and t_prv is not None and prv_clean is not None and np.size(prv_clean) > 0
     use_prv_sdnn = use_prv and prv_sdnn_clean is not None and np.size(prv_sdnn_clean) == np.size(t_prv)
     use_pat_amp = features.segment_plot_requested("pat_burden") and t_pat_amp is not None and pat_amp is not None and np.size(pat_amp) > 0
+    use_pwa_drop = features.segment_plot_requested("pwa_drop") and t_pwa is not None and pwa_series is not None and np.size(pwa_series) > 0 and np.size(pwa_series) == np.size(t_pwa)
 
     for start in range(0, n_samples, samples_per_segment):
         end = min(start + samples_per_segment, n_samples)
@@ -79,7 +84,7 @@ def _add_segment_pages_to_pdf(
         has_any_delta = hr_calc_raw is not None and t_hr_calc is not None
         use_delta_subplot = enable_delta and (delta_mode == "subplot") and has_any_delta
 
-        n_rows = (1 if use_hr else 0) + (1 if use_delta_subplot else 0) + (1 if use_prv else 0) + (1 if use_prv_sdnn else 0) + (1 if use_pat_amp else 0)
+        n_rows = (1 if use_hr else 0) + (1 if use_delta_subplot else 0) + (1 if use_prv else 0) + (1 if use_prv_sdnn else 0) + (1 if use_pat_amp else 0) + (1 if use_pwa_drop else 0)
         if n_rows == 0:
             continue
         height_ratios: List[float] = []
@@ -92,6 +97,8 @@ def _add_segment_pages_to_pdf(
         if use_prv_sdnn:
             height_ratios.append(1.0)
         if use_pat_amp:
+            height_ratios.append(1.0)
+        if use_pwa_drop:
             height_ratios.append(1.0)
         fig, axes = plt.subplots(n_rows, 1, figsize=(11.69, 8.27), sharex=True, gridspec_kw={"height_ratios": height_ratios})
         if n_rows == 1:
@@ -113,6 +120,9 @@ def _add_segment_pages_to_pdf(
         if use_prv_sdnn:
             idx += 1
         ax_pat_amp = axes[idx] if use_pat_amp else None
+        if use_pat_amp:
+            idx += 1
+        ax_pwa_drop = axes[idx] if use_pwa_drop else None
 
         hr_ylim = None
         if ax_hr is not None:
@@ -138,9 +148,14 @@ def _add_segment_pages_to_pdf(
         if ax_pat_amp is not None and t_pat_amp is not None and pat_amp is not None:
             amp_ylim = _plot_segment_pat_amp(ax_pat_amp, t_pat_amp, pat_amp, seg_start_sec, seg_end_sec, exclusion_zones, t_h_start, t_h_end, aux_df=aux_df)
 
+        if ax_pwa_drop is not None and t_pwa is not None and pwa_series is not None:
+            _plot_segment_pwa_drop(ax_pwa_drop, t_pwa, pwa_series, pwa_drop_events, seg_start_sec, seg_end_sec, exclusion_zones, t_h_start, t_h_end, aux_df=aux_df)
+
         _overlay_events_on_axes(aux_df, seg_start_sec, seg_end_sec, ax_hr=ax_hr, ax_prv=ax_prv if use_prv else None, ax_prv_sdnn=ax_prv_sdnn if use_prv_sdnn else None, ax_amp=ax_pat_amp if use_pat_amp else None, ax_delta=ax_delta if use_delta_subplot else None, hr_ylim=hr_ylim, prv_ylim=prv_ylim, prv_sdnn_ylim=prv_sdnn_ylim, amp_ylim=amp_ylim, delta_ylim=delta_ylim, event_spec=event_spec)
 
-        if ax_pat_amp is not None:
+        if ax_pwa_drop is not None:
+            ax_pwa_drop.set_xlabel("Time (hours from recording start)")
+        elif ax_pat_amp is not None:
             ax_pat_amp.set_xlabel("Time (hours from recording start)")
         elif ax_prv_sdnn is not None:
             ax_prv_sdnn.set_xlabel("Time (hours from recording start)")

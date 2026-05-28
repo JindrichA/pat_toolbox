@@ -26,6 +26,8 @@ def append_hr_prv_summary(
     prv_mask_info: Optional[Dict[str, object]] = None,
     prv_midpoint_halves: Optional[Dict[str, Dict[str, float]]] = None,
     aux_df: Optional[Any] = None,
+    hr_event_response_summary: Optional[Dict[str, float]] = None,
+    pwa_drop_summary: Optional[Dict[str, float]] = None,
     psd_features: Optional[Dict[str, float]] = None,
     pat_burden: Optional[float] = None,
     pat_burden_diag: Optional[dict] = None,
@@ -347,15 +349,42 @@ def append_hr_prv_summary(
             row["selected_pat_burden_total_area_min"] = pat_burden_diag.get("total_area_min")
             row["selected_pat_burden_n_episodes"] = pat_burden_diag.get("n_episodes")
             row["selected_pat_burden_n_episodes_used"] = pat_burden_diag.get("n_episodes_used")
+            row["selected_pat_burden_n_episodes_skipped"] = pat_burden_diag.get("n_episodes_skipped")
             row["selected_pat_burden_relative"] = int(bool(pat_burden_diag.get("relative", False)))
             row["selected_pat_burden_nan_pct"] = pat_burden_diag.get("nan_pct_inside")
+            row["selected_pat_burden_pat_amp_finite_min"] = pat_burden_diag.get("pat_amp_finite_min")
+            row["selected_pat_burden_inside_event_desat_min"] = pat_burden_diag.get("inside_event_desat_min")
+            row["selected_pat_burden_inside_event_desat_finite_min"] = pat_burden_diag.get("inside_event_desat_finite_min")
+            row["selected_pat_burden_pat_amp_invalid_inside_min"] = pat_burden_diag.get("pat_amp_invalid_inside_min")
         else:
             row["selected_pat_burden_sleep_hours"] = np.nan
             row["selected_pat_burden_total_area_min"] = np.nan
             row["selected_pat_burden_n_episodes"] = np.nan
             row["selected_pat_burden_n_episodes_used"] = np.nan
+            row["selected_pat_burden_n_episodes_skipped"] = np.nan
             row["selected_pat_burden_relative"] = np.nan
             row["selected_pat_burden_nan_pct"] = np.nan
+            row["selected_pat_burden_pat_amp_finite_min"] = np.nan
+            row["selected_pat_burden_inside_event_desat_min"] = np.nan
+            row["selected_pat_burden_inside_event_desat_finite_min"] = np.nan
+            row["selected_pat_burden_pat_amp_invalid_inside_min"] = np.nan
+
+    if features.is_enabled("delta_hr"):
+        item = hr_event_response_summary if isinstance(hr_event_response_summary, dict) else {}
+        row["selected_trough_to_peak_response_mean"] = item.get("trough_to_peak_response_mean", np.nan)
+        row["selected_mean_to_peak_response_mean"] = item.get("mean_to_peak_response_mean", np.nan)
+        row["selected_event_windows_total"] = item.get("n_event_windows", np.nan)
+        row["selected_event_windows_used"] = item.get("n_used_windows", np.nan)
+
+    if features.is_enabled("pwa_drop"):
+        item = pwa_drop_summary if isinstance(pwa_drop_summary, dict) else {}
+        row["selected_pwa_drop_n"] = item.get("n_drops", np.nan)
+        row["selected_pwa_drop_rate_h"] = item.get("drop_rate_per_sleep_hour", np.nan)
+        row["selected_pwa_drop_mean_amplitude_pct"] = item.get("mean_amplitude_pct", np.nan)
+        row["selected_pwa_drop_mean_duration_sec"] = item.get("mean_duration_sec", np.nan)
+        row["selected_pwa_drop_mean_auc_pct_sec"] = item.get("mean_auc_pct_sec", np.nan)
+        row["selected_pwa_drop_event_overlap_n"] = item.get("n_drops_event_overlap", np.nan)
+        row["selected_pwa_drop_event_overlap_pct"] = item.get("event_overlap_pct", np.nan)
 
     if features.is_enabled("prv") and prv_summary is not None:
         row.update(
@@ -599,6 +628,17 @@ def append_hr_prv_summary(
                 row[f"{prefix}_event_windows_total"] = hr_response_item.get("n_event_windows", np.nan)
                 row[f"{prefix}_event_windows_used"] = hr_response_item.get("n_used_windows", np.nan)
 
+            pwa_drop_obj = item.get("pwa_drop_summary")
+            pwa_drop_item: Dict[str, Any] = pwa_drop_obj if isinstance(pwa_drop_obj, dict) else {}
+            if features.is_enabled("pwa_drop"):
+                row[f"{prefix}_pwa_drop_n"] = pwa_drop_item.get("n_drops", np.nan)
+                row[f"{prefix}_pwa_drop_rate_h"] = pwa_drop_item.get("drop_rate_per_sleep_hour", np.nan)
+                row[f"{prefix}_pwa_drop_mean_amplitude_pct"] = pwa_drop_item.get("mean_amplitude_pct", np.nan)
+                row[f"{prefix}_pwa_drop_mean_duration_sec"] = pwa_drop_item.get("mean_duration_sec", np.nan)
+                row[f"{prefix}_pwa_drop_mean_auc_pct_sec"] = pwa_drop_item.get("mean_auc_pct_sec", np.nan)
+                row[f"{prefix}_pwa_drop_event_overlap_n"] = pwa_drop_item.get("n_drops_event_overlap", np.nan)
+                row[f"{prefix}_pwa_drop_event_overlap_pct"] = pwa_drop_item.get("event_overlap_pct", np.nan)
+
     base_order = [
         "edf_file",
         "selected_hr_min_bpm", "selected_hr_max_bpm", "selected_hr_mean_bpm", "selected_hr_median_bpm", "selected_hr_std_bpm", "selected_hr_valid_pct", "selected_hr_valid_min",
@@ -615,7 +655,12 @@ def append_hr_prv_summary(
         "selected_mayer_peak_hz", "selected_resp_peak_hz", "selected_psd_pow_vlf", "selected_psd_pow_mayer", "selected_psd_pow_resp", "selected_psd_norm_mayer",
         "selected_psd_norm_resp", "selected_psd_valid_windows", "selected_pat_burden", "selected_pat_burden_sleep_hours",
         "selected_pat_burden_total_area_min", "selected_pat_burden_n_episodes", "selected_pat_burden_n_episodes_used",
-        "selected_pat_burden_relative", "selected_pat_burden_nan_pct", "selected_prv_selected_policy_min", "selected_prv_clean_kept_min",
+        "selected_pat_burden_n_episodes_skipped", "selected_pat_burden_relative", "selected_pat_burden_nan_pct",
+        "selected_pat_burden_pat_amp_finite_min", "selected_pat_burden_inside_event_desat_min", "selected_pat_burden_inside_event_desat_finite_min",
+        "selected_pat_burden_pat_amp_invalid_inside_min", "selected_prv_selected_policy_min", "selected_prv_clean_kept_min",
+        "selected_trough_to_peak_response_mean", "selected_mean_to_peak_response_mean", "selected_event_windows_total", "selected_event_windows_used",
+        "selected_pwa_drop_n", "selected_pwa_drop_rate_h", "selected_pwa_drop_mean_amplitude_pct", "selected_pwa_drop_mean_duration_sec",
+        "selected_pwa_drop_mean_auc_pct_sec", "selected_pwa_drop_event_overlap_n", "selected_pwa_drop_event_overlap_pct",
         "selected_prv_clean_kept_pct_of_selected", "selected_prv_mask_excluded_total_min", "selected_prv_mask_excluded_total_pct_of_selected",
         "selected_prv_excluded_apnea_only_min", "selected_prv_excluded_apnea_only_pct_of_selected",
         "selected_prv_excluded_quality_only_min", "selected_prv_excluded_quality_only_pct_of_selected",

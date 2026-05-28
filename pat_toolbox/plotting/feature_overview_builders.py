@@ -140,8 +140,19 @@ def _overview_header_legend(title: str) -> list[Line2D]:
     if title == "PAT-Burden Overview":
         return [
             Line2D([0], [0], color="tab:orange", linewidth=1.1, label="PAT AMP"),
+            Line2D([0], [0], color="#6c757d", linewidth=6, alpha=0.18, label="Stage-policy excluded"),
+            Line2D([0], [0], color="#c1121f", linewidth=6, alpha=0.12, label="Event-excluded"),
+            Line2D([0], [0], color="#d4a017", linewidth=6, alpha=0.22, label="Metric invalid"),
             Line2D([0], [0], color="0.25", linestyle="--", linewidth=1.1, label="Local burden baseline"),
-            Line2D([0], [0], color="tab:red", linewidth=6, alpha=0.22, label="Burden area shading"),
+            Line2D([0], [0], color="#b56576", linewidth=6, alpha=0.24, label="Burden area shading"),
+        ]
+    if title == "PWA-Drop Overview":
+        return [
+            Line2D([0], [0], color="tab:purple", linewidth=1.1, label="PWA"),
+            Line2D([0], [0], color="#6c757d", linewidth=6, alpha=0.18, label="Stage-policy excluded"),
+            Line2D([0], [0], color="#c1121f", linewidth=6, alpha=0.12, label="Event-excluded"),
+            Line2D([0], [0], color="#d4a017", linewidth=6, alpha=0.22, label="Metric invalid"),
+            Line2D([0], [0], color="#9467bd", linewidth=6, alpha=0.16, label="Detected PWA-drop"),
         ]
     return []
 
@@ -515,9 +526,9 @@ def _build_event_response_overview_figure(
     exclusion_zones,
     duration_sec_fallback: float,
     event_spec: Sequence[EventSpec] = DEFAULT_EVENT_PLOT_SPEC,
+    hr_event_response_summary: Optional[Dict[str, float]] = None,
 ) -> Optional[Any]:
-    show_raw_debug = bool(getattr(config, "PLOT_SHOW_RAW_DEBUG_OVERLAYS", False))
-    if (not show_raw_debug) or t_hr is None or hr_raw is None or np.size(t_hr) == 0 or np.size(hr_raw) != np.size(t_hr):
+    if t_hr is None or hr_raw is None or np.size(t_hr) == 0 or np.size(hr_raw) != np.size(t_hr):
         return None
 
     bounds = _panel_bounds(np.asarray(t_hr), duration_sec_fallback)
@@ -566,6 +577,35 @@ def _build_event_response_overview_figure(
             if handles:
                 ax.legend(loc="lower right", fontsize=5)
 
+            if isinstance(hr_event_response_summary, dict):
+                tr_pk = hr_event_response_summary.get("trough_to_peak_response_mean")
+                mean_pk = hr_event_response_summary.get("mean_to_peak_response_mean")
+                n_used = hr_event_response_summary.get("n_used_windows", 0)
+                n_total = hr_event_response_summary.get("n_event_windows", 0)
+
+                def _fmt_delta(x: object) -> str:
+                    try:
+                        xf = float(x)
+                    except Exception:
+                        return "NA"
+                    return f"{xf:.2f}" if np.isfinite(xf) else "NA"
+
+                ax.text(
+                    0.01,
+                    0.02,
+                    " | ".join([
+                        f"Tr-Pk={_fmt_delta(tr_pk)} bpm",
+                        f"Mean-Pk={_fmt_delta(mean_pk)} bpm",
+                        f"used/tot={int(n_used)}/{int(n_total)}",
+                    ]),
+                    transform=ax.transAxes,
+                    ha="left",
+                    va="bottom",
+                    fontsize=7,
+                    bbox=dict(boxstyle="round", facecolor="white", alpha=0.75, edgecolor="none", pad=0.2),
+                    zorder=5,
+                )
+
     return _finalize_overview_figure(fig, axes, "Event HR [bpm]")
 
 
@@ -595,9 +635,18 @@ def _build_pat_burden_overview_figure(
         t_panel = np.asarray(t_pat_amp)[mask]
         y_panel = np.asarray(pat_amp)[mask].astype(float)
         if aux_df is not None:
+            m_sleep_keep = sleep_mask.build_sleep_include_mask_for_times(t_panel, aux_df)
+            if m_sleep_keep is not None:
+                _shade_masked_regions(ax, t_sec=t_panel, masked=~m_sleep_keep, color="#6c757d", alpha=0.18)
+            m_evt_keep = sleep_mask.build_global_include_mask_for_times(t_panel, aux_df, apply_sleep=False, apply_events=True)
+            if m_evt_keep is not None:
+                _shade_masked_regions(ax, t_sec=t_panel, masked=~np.asarray(m_evt_keep, dtype=bool), color="#c1121f", alpha=0.12)
             m_keep = sleep_mask.build_global_include_mask_for_times(t_panel, aux_df, apply_sleep=True, apply_events=True)
-            if m_keep is not None:
-                _shade_masked_regions(ax, t_sec=t_panel, masked=~m_keep, color="0.6", alpha=0.18)
+            invalid_mask = ~np.isfinite(y_panel)
+            if m_keep is not None and np.size(m_keep) == np.size(invalid_mask):
+                invalid_mask = invalid_mask & np.asarray(m_keep, dtype=bool)
+            if np.any(invalid_mask):
+                _shade_masked_regions(ax, t_sec=t_panel, masked=invalid_mask, color="#d4a017", alpha=0.22)
         if np.any(np.isfinite(y_panel)):
             ax.plot(t_panel / 3600.0, np.ma.masked_invalid(y_panel), linewidth=1.1, color="tab:orange", alpha=0.9, label="PAT AMP", zorder=3)
             _overlay_pat_burden_area(ax, t_sec_all=np.asarray(t_pat_amp), pat_amp_all=np.asarray(pat_amp), aux_df=aux_df, seg_start_sec=start_sec, seg_end_sec=end_sec)
@@ -607,3 +656,82 @@ def _build_pat_burden_overview_figure(
                 ax.legend(loc="lower right", fontsize=5)
 
     return _finalize_overview_figure(fig, axes, "PAT AMP")
+
+
+def _build_pwa_drop_overview_figure(
+    edf_base: str,
+    t_pwa: Optional[np.ndarray],
+    pwa_series: Optional[np.ndarray],
+    pwa_drop_events: Optional[list[dict[str, float]]],
+    pwa_drop_summary: Optional[Dict[str, float]],
+    aux_df: Optional["pd.DataFrame"],
+    exclusion_zones,
+    duration_sec_fallback: float,
+    event_spec: Sequence[EventSpec] = DEFAULT_EVENT_PLOT_SPEC,
+) -> Optional[Any]:
+    if t_pwa is None or pwa_series is None or np.size(t_pwa) == 0 or np.size(t_pwa) != np.size(pwa_series):
+        return None
+
+    bounds = _panel_bounds(np.asarray(t_pwa), duration_sec_fallback)
+    title = "PWA-Drop Overview"
+    fig, axes = _init_overview_figure(edf_base, title, len(bounds))
+    _decorate_overview_figure(fig, title)
+    _add_colored_event_key(fig, list(event_spec))
+
+    events = pwa_drop_events or []
+    for idx, (ax, (start_sec, end_sec)) in enumerate(zip(axes, bounds)):
+        _prepare_panel(ax, start_sec, end_sec, exclusion_zones, aux_df, event_spec)
+        mask = (t_pwa >= start_sec) & (t_pwa <= end_sec)
+        if not np.any(mask):
+            continue
+        t_panel = np.asarray(t_pwa)[mask]
+        y_panel = np.asarray(pwa_series)[mask].astype(float)
+        if aux_df is not None:
+            m_sleep_keep = sleep_mask.build_sleep_include_mask_for_times(t_panel, aux_df)
+            if m_sleep_keep is not None:
+                _shade_masked_regions(ax, t_sec=t_panel, masked=~m_sleep_keep, color="#6c757d", alpha=0.18)
+            m_evt_keep = sleep_mask.build_global_include_mask_for_times(t_panel, aux_df, apply_sleep=False, apply_events=True)
+            if m_evt_keep is not None:
+                _shade_masked_regions(ax, t_sec=t_panel, masked=~np.asarray(m_evt_keep, dtype=bool), color="#c1121f", alpha=0.12)
+            m_keep = sleep_mask.build_global_include_mask_for_times(t_panel, aux_df, apply_sleep=True, apply_events=True)
+            invalid_mask = ~np.isfinite(y_panel)
+            if m_keep is not None and np.size(m_keep) == np.size(invalid_mask):
+                invalid_mask = invalid_mask & np.asarray(m_keep, dtype=bool)
+            if np.any(invalid_mask):
+                _shade_masked_regions(ax, t_sec=t_panel, masked=invalid_mask, color="#d4a017", alpha=0.22)
+        if np.any(np.isfinite(y_panel)):
+            ax.plot(t_panel / 3600.0, np.ma.masked_invalid(y_panel), linewidth=1.1, color="tab:purple", alpha=0.9, label="PWA", zorder=3)
+
+        first = True
+        for event in events:
+            t0 = float(event.get("t_start", np.nan))
+            t1 = float(event.get("t_end", np.nan))
+            if not (np.isfinite(t0) and np.isfinite(t1) and t1 > t0):
+                continue
+            if t1 < start_sec or t0 > end_sec:
+                continue
+            ax.axvspan(t0 / 3600.0, t1 / 3600.0, color="#9467bd", alpha=0.16, label="Detected PWA-drop" if first and idx == 0 else "_nolegend_", zorder=1)
+            first = False
+
+        if idx == 0:
+            handles, labels = ax.get_legend_handles_labels()
+            if handles:
+                ax.legend(loc="lower right", fontsize=5)
+            if isinstance(pwa_drop_summary, dict):
+                ax.text(
+                    0.01,
+                    0.02,
+                    " | ".join([
+                        f"n={int(pwa_drop_summary.get('n_drops', 0))}",
+                        f"rate={float(pwa_drop_summary.get('drop_rate_per_sleep_hour', np.nan)):.2f}/h" if np.isfinite(float(pwa_drop_summary.get('drop_rate_per_sleep_hour', np.nan))) else "rate=NA",
+                        f"amp={float(pwa_drop_summary.get('mean_amplitude_pct', np.nan)):.1f}%" if np.isfinite(float(pwa_drop_summary.get('mean_amplitude_pct', np.nan))) else "amp=NA",
+                    ]),
+                    transform=ax.transAxes,
+                    ha="left",
+                    va="bottom",
+                    fontsize=7,
+                    bbox=dict(boxstyle="round", facecolor="white", alpha=0.75, edgecolor="none", pad=0.2),
+                    zorder=5,
+                )
+
+    return _finalize_overview_figure(fig, axes, "PWA")
