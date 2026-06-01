@@ -27,14 +27,14 @@ EDF_FOLDER = Path(
 
 
 # Set to an integer for short debug runs, or keep None to process everything.
-MAX_FILES = 5
+MAX_FILES = None
 
 # RUN_ID is generated automatically at import time.
 RUN_ID = datetime.now().strftime("%Y%m%d_%H%M%S")
 
 # RUN_TAG is the human-readable label to help distinguish parameter sweeps.
 # Changing it affects output folder names only; it does not change calculations.
-RUN_TAG = "READY"
+RUN_TAG = "RMSSD_times"
 
 # Top-level feature selection. These switches are meant to answer the question
 # "what should this run produce?". If a feature is disabled here, the goal is to
@@ -56,9 +56,9 @@ FEATURES = {
     "hr": True,
     "prv": True,
     "psd": False,
-    "delta_hr": True,
-    "pat_burden": True,
-    "pwa_drop": True,
+    "delta_hr": False,
+    "pat_burden": False,
+    "pwa_drop": False,
     "sleep_combo_summary": True,
     "report_pdf": True,
     "peaks_debug_pdf": False,
@@ -117,7 +117,7 @@ ENABLE_SLEEP_STAGE_MASKING = True
 #   "deep_only"               -> include only deep sleep
 #   "nrem_light_only"         -> include only light sleep
 #   "custom"                  -> use SLEEP_INCLUDE_LABELS / SLEEP_INCLUDE_NUMERIC
-SLEEP_STAGE_POLICY = "all_sleep"
+SLEEP_STAGE_POLICY = "nrem_only"
 
 # Used only when SLEEP_STAGE_POLICY == "custom".
 # Numeric codes take priority; labels are a fallback convenience.
@@ -267,6 +267,8 @@ ENABLE_VIEW_PAT_OVERLAY_PLOTS = FEATURES["report_pdf"]
 ENABLE_PAT_SIGNAL_PLOT = True
 ENABLE_PAT_PEAK_DEBUG_PLOTS = FEATURES["peaks_debug_pdf"]
 PLOT_SHOW_RAW_DEBUG_OVERLAYS = False
+SUMMARY_FRONT_PAGE_MODE = "prv"
+SUMMARY_FRONT_PAGE_BIN_MINUTES = 5
 
 SEGMENT_MINUTES = 15
 PAT_PEAK_DEBUG_SEGMENT_MINUTES = 1.0

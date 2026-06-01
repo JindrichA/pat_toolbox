@@ -5,10 +5,14 @@ from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.ticker import FuncFormatter, MultipleLocator
 
-from .. import config, features, masking
+from .. import config, features, io_aux_csv, masking, sleep_mask
 from ..io.aux_events import compute_sleep_timing_from_aux
-from .utils import _count_flags, _fmt
+from .prv_plot_utils import _add_colored_event_key, _overlay_events_on_single_axis_whole_night
+from .segment_plot_helpers import _overlay_pat_burden_area
+from .summary_hypnogram import _plot_sleep_stagegram_on_axis
+from .utils import _count_flags, _fmt, _shade_masked_regions
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -318,6 +322,10 @@ def _sleep_combo_row_values(item: Dict[str, Any]) -> tuple[str, list[str], list[
         core_secondary.extend([
             f"{_fmt(prv_summary.get('sdnn_mean'), 1)} ms",
             f"{_fmt(prv_summary.get('sdnn_median'), 1)} ms",
+            f"{_fmt(prv_summary.get('rmssd_valid_min'), 1)} min",
+            f"{_fmt(prv_summary.get('rmssd_valid_pct'), 1)}%",
+            f"{_fmt(prv_summary.get('sdnn_valid_min'), 1)} min",
+            f"{_fmt(prv_summary.get('sdnn_valid_pct'), 1)}%",
             f"{_fmt(prv_summary.get('lf'), 2)}",
             f"{_fmt(prv_summary.get('hf'), 2)}",
             f"{_fmt(prv_summary.get('lf_hf'), 2)}",
@@ -355,7 +363,7 @@ def _sleep_combo_tables(sleep_combo_summaries: Optional[Dict[str, Dict[str, obje
 
     secondary_headers = ["Subset"]
     if features.is_enabled("prv"):
-        secondary_headers.extend(["SDNN mean", "SDNN med", "LF mean\n[ms^2]", "HF mean\n[ms^2]", "LF/HF mean\n[-]"])
+        secondary_headers.extend(["SDNN mean", "SDNN med", "RMSSD valid\n[min]", "RMSSD valid\n[%]", "SDNN valid\n[min]", "SDNN valid\n[%]", "LF mean\n[ms^2]", "HF mean\n[ms^2]", "LF/HF mean\n[-]"])
 
     right_headers = ["Subset"]
     if features.is_enabled("psd"):
@@ -643,6 +651,287 @@ def _build_pat_burden_rows(
             for reason, count in sorted(skipped.items()):
                 rows.append([f"    {reason}", _fmt_int(count)])
     return rows
+
+
+def _format_hour_tick(x: float, _pos: float) -> str:
+    total_minutes = int(round(float(x) * 60.0))
+    hours, minutes = divmod(total_minutes, 60)
+    return f"{hours:d}:{minutes:02d}"
+
+
+def _apply_front_page_mask_layers(
+    ax,
+    t_sec: np.ndarray,
+    y: np.ndarray,
+    aux_df: Optional["pd.DataFrame"],
+) -> None:
+    if aux_df is None or t_sec.size == 0:
+        return
+    if bool(getattr(config, "ENABLE_SLEEP_STAGE_MASKING", False)):
+        m_sleep_keep = sleep_mask.build_sleep_include_mask_for_times(t_sec, aux_df)
+        if m_sleep_keep is not None:
+            _shade_masked_regions(ax, t_sec=t_sec, masked=~np.asarray(m_sleep_keep, dtype=bool), color="0.7", alpha=0.16)
+    m_evt_keep = io_aux_csv.build_time_exclusion_mask(t_sec, aux_df)
+    if m_evt_keep is not None:
+        _shade_masked_regions(ax, t_sec=t_sec, masked=~np.asarray(m_evt_keep, dtype=bool), color="tab:red", alpha=0.10)
+    m_keep = sleep_mask.build_global_include_mask_for_times(t_sec, aux_df, apply_sleep=True, apply_events=True)
+    invalid_mask = ~np.isfinite(y)
+    if m_keep is not None and np.size(m_keep) == np.size(invalid_mask):
+        invalid_mask = invalid_mask & np.asarray(m_keep, dtype=bool)
+    if np.any(invalid_mask):
+        _shade_masked_regions(ax, t_sec=t_sec, masked=invalid_mask, color="gold", alpha=0.22)
+
+
+def _panel_badge(ax, text: str) -> None:
+    ax.text(
+        0.99,
+        0.95,
+        text,
+        transform=ax.transAxes,
+        ha="right",
+        va="top",
+        fontsize=8,
+        bbox=dict(boxstyle="round", facecolor="white", alpha=0.78, edgecolor="none", pad=0.25),
+        zorder=10,
+    )
+
+
+def _front_page_bin_edges(aux_df: Optional["pd.DataFrame"], *t_arrays: Optional[np.ndarray]) -> Optional[np.ndarray]:
+    bin_sec = 60.0 * float(getattr(config, "SUMMARY_FRONT_PAGE_BIN_MINUTES", 15.0))
+    if bin_sec <= 0:
+        bin_sec = 900.0
+    t_max = 0.0
+    if aux_df is not None:
+        time_col = getattr(config, "AUX_CSV_TIME_SEC_COLUMN", "time_sec")
+        if time_col in aux_df.columns:
+            tt = np.asarray(aux_df[time_col].to_numpy(dtype=float), dtype=float)
+            if np.any(np.isfinite(tt)):
+                t_max = max(t_max, float(np.nanmax(tt)))
+    for arr in t_arrays:
+        if arr is None:
+            continue
+        aa = np.asarray(arr, dtype=float)
+        if np.any(np.isfinite(aa)):
+            t_max = max(t_max, float(np.nanmax(aa)))
+    if t_max <= 0:
+        return None
+    n_bins = max(1, int(np.ceil(t_max / bin_sec)))
+    return np.arange(0.0, (n_bins + 1) * bin_sec + 1e-9, bin_sec, dtype=float)
+
+
+def _bin_centers(edges_sec: np.ndarray) -> np.ndarray:
+    return 0.5 * (edges_sec[:-1] + edges_sec[1:])
+
+
+def _binned_event_metric(
+    events: Optional[list[Dict[str, float]]],
+    edges_sec: np.ndarray,
+    *,
+    time_key: str,
+    value_key: str,
+    reducer: str = "mean",
+) -> np.ndarray:
+    out = np.full(edges_sec.size - 1, np.nan, dtype=float)
+    if not events:
+        return out
+    for i in range(edges_sec.size - 1):
+        a = float(edges_sec[i])
+        b = float(edges_sec[i + 1])
+        vals = []
+        for ev in events:
+            t = float(ev.get(time_key, np.nan))
+            v = float(ev.get(value_key, np.nan))
+            if np.isfinite(t) and np.isfinite(v) and a <= t < b:
+                vals.append(v)
+        if vals:
+            out[i] = float(np.nansum(vals)) if reducer == "sum" else float(np.nanmean(vals))
+    return out
+
+
+def _binned_event_count(
+    events: Optional[list[Dict[str, float]]],
+    edges_sec: np.ndarray,
+    *,
+    time_key: str,
+) -> np.ndarray:
+    out = np.zeros(edges_sec.size - 1, dtype=float)
+    if not events:
+        return out
+    for i in range(edges_sec.size - 1):
+        a = float(edges_sec[i])
+        b = float(edges_sec[i + 1])
+        out[i] = float(sum(1 for ev in events if np.isfinite(float(ev.get(time_key, np.nan))) and a <= float(ev.get(time_key, np.nan)) < b))
+    return out
+
+
+def _binned_series_mean(t_sec: Optional[np.ndarray], y: Optional[np.ndarray], edges_sec: np.ndarray) -> np.ndarray:
+    out = np.full(edges_sec.size - 1, np.nan, dtype=float)
+    if t_sec is None or y is None:
+        return out
+    tt = np.asarray(t_sec, dtype=float)
+    yy = np.asarray(y, dtype=float)
+    if tt.size == 0 or yy.size != tt.size:
+        return out
+    for i in range(edges_sec.size - 1):
+        a = float(edges_sec[i])
+        b = float(edges_sec[i + 1])
+        m = (tt >= a) & (tt < b) & np.isfinite(yy)
+        if np.any(m):
+            out[i] = float(np.nanmean(yy[m]))
+    return out
+
+
+def _plot_binned_trace(ax, edges_sec: np.ndarray, values: np.ndarray, *, color: str, ylabel: str, title: str | None, badge: str) -> None:
+    centers_h = _bin_centers(edges_sec) / 3600.0
+    ax.plot(centers_h, np.ma.masked_invalid(values), color=color, linewidth=1.4, marker="o", markersize=3.5, alpha=0.95)
+    ax.set_ylabel(ylabel)
+    if title:
+        ax.set_title(title, fontsize=11, pad=8)
+    ax.grid(True, alpha=0.3)
+    _panel_badge(ax, badge)
+
+
+def build_front_page(
+    *,
+    edf_base: str,
+    aux_df: Optional["pd.DataFrame"],
+    t_hr_calc: Optional[np.ndarray],
+    hr_calc: Optional[np.ndarray],
+    hr_calc_raw: Optional[np.ndarray],
+    hr_event_windows: Optional[list[Dict[str, float]]],
+    prv_summary: Optional[Dict[str, float]],
+    t_prv: Optional[np.ndarray],
+    prv_clean: Optional[np.ndarray],
+    hr_event_response_summary: Optional[Dict[str, float]],
+    pat_burden: Optional[float],
+    pat_burden_diag: Optional[Dict[str, float]],
+    pat_burden_episodes: Optional[list[Dict[str, float]]],
+    t_pat_amp: Optional[np.ndarray],
+    pat_amp: Optional[np.ndarray],
+    pwa_drop_summary: Optional[Dict[str, float]],
+    t_pwa: Optional[np.ndarray],
+    pwa_series: Optional[np.ndarray],
+    pwa_drop_events: Optional[list[Dict[str, float]]],
+    event_spec: Optional[list[Any]] = None,
+):
+    mode = str(getattr(config, "SUMMARY_FRONT_PAGE_MODE", "prv")).lower()
+    if mode != "event_vascular":
+        return None
+
+    edges_sec = _front_page_bin_edges(aux_df, t_hr_calc, t_prv, t_pat_amp, t_pwa)
+    if edges_sec is None or edges_sec.size < 2:
+        return None
+
+    fig = plt.figure(figsize=(11.69, 8.27))
+    gs = fig.add_gridspec(5, 1, height_ratios=[1.0, 0.58, 0.58, 0.58, 0.58])
+    fig._event_key_y = 0.965
+    ax_h = fig.add_subplot(gs[0])
+    ax_a = fig.add_subplot(gs[1])
+    ax_p = fig.add_subplot(gs[2], sharex=ax_a)
+    ax_b = fig.add_subplot(gs[3], sharex=ax_a)
+    ax_d = fig.add_subplot(gs[4], sharex=ax_a)
+    ok = _plot_sleep_stagegram_on_axis(
+        ax_h,
+        edf_base=edf_base,
+        aux_df=aux_df,
+        title="Overnight Event-Vascular Overview",
+        show_stats=False,
+    )
+    if not ok:
+        plt.close(fig)
+        return None
+
+    if event_spec is not None:
+        _add_colored_event_key(fig, list(event_spec))
+
+    if aux_df is not None and event_spec is not None:
+        x_end = float(edges_sec[-1]) if edges_sec.size else 0.0
+        for ax in [ax_a, ax_p, ax_b, ax_d]:
+            _overlay_events_on_single_axis_whole_night(
+                ax=ax,
+                aux_df=aux_df,
+                start_sec=0.0,
+                end_sec=x_end,
+                event_spec=list(event_spec),
+                show_legend_labels=False,
+                event_style="short",
+            )
+
+    anchor_vals = _binned_series_mean(t_hr_calc, hr_calc, edges_sec)
+    _plot_binned_trace(
+        ax_a,
+        edges_sec,
+        anchor_vals,
+        color="tab:green",
+        ylabel="HR",
+        title=None,
+        badge=(
+            f"HR {_fmt(float(np.nanmean(np.asarray(hr_calc, dtype=float))) if hr_calc is not None and np.any(np.isfinite(np.asarray(hr_calc, dtype=float))) else np.nan, 1)} bpm"
+            + (
+                f" | RMSSD {_fmt(prv_summary.get('rmssd_mean'), 1)} ms"
+                if isinstance(prv_summary, dict)
+                else ""
+            )
+        ),
+    )
+
+    pwa_vals = _binned_event_count(pwa_drop_events, edges_sec, time_key="t_center")
+    _plot_binned_trace(
+        ax_p,
+        edges_sec,
+        pwa_vals,
+        color="tab:purple",
+        ylabel="Drops",
+        title=None,
+        badge=(
+            f"n {_fmt_int(pwa_drop_summary.get('n_drops'))} | rate {_fmt(pwa_drop_summary.get('drop_rate_per_sleep_hour'), 2)}/h | amp {_fmt(pwa_drop_summary.get('mean_amplitude_pct'), 1)}%"
+            if isinstance(pwa_drop_summary, dict)
+            else "PWA-drop unavailable"
+        ),
+    )
+
+    burden_vals = _binned_event_metric(pat_burden_episodes, edges_sec, time_key="t_start", value_key="area_min", reducer="sum")
+    _plot_binned_trace(
+        ax_b,
+        edges_sec,
+        burden_vals,
+        color="#2a9d8f",
+        ylabel="Burden",
+        title=None,
+        badge=(
+            f"{_fmt(pat_burden, 3)} {'rel·min/h' if isinstance(pat_burden_diag, dict) and pat_burden_diag.get('relative') else 'amp·min/h'} | "
+            f"episodes {_fmt_int(pat_burden_diag.get('n_episodes_used')) if isinstance(pat_burden_diag, dict) else 'NA'}/{_fmt_int(pat_burden_diag.get('n_episodes')) if isinstance(pat_burden_diag, dict) else 'NA'}"
+            if pat_burden is not None or isinstance(pat_burden_diag, dict)
+            else "PAT burden unavailable"
+        ),
+    )
+
+    delta_vals = _binned_event_metric(hr_event_windows, edges_sec, time_key="event_start_t", value_key="mean_to_peak_response", reducer="mean")
+    _plot_binned_trace(
+        ax_d,
+        edges_sec,
+        delta_vals,
+        color="tab:blue",
+        ylabel="dHR",
+        title=None,
+        badge=(
+            f"Tr-Pk {_fmt(hr_event_response_summary.get('trough_to_peak_response_mean'), 2)} bpm | "
+            f"Mean-Pk {_fmt(hr_event_response_summary.get('mean_to_peak_response_mean'), 2)} bpm | "
+            f"used/tot {_fmt_int(hr_event_response_summary.get('n_used_windows'))}/{_fmt_int(hr_event_response_summary.get('n_event_windows'))}"
+            if isinstance(hr_event_response_summary, dict)
+            else "Delta-HR unavailable"
+        ),
+    )
+
+    for ax in [ax_a, ax_p, ax_b, ax_d]:
+        ax.xaxis.set_major_locator(MultipleLocator(1.0))
+        ax.xaxis.set_major_formatter(FuncFormatter(_format_hour_tick))
+    ax_a.tick_params(labelbottom=False)
+    ax_p.tick_params(labelbottom=False)
+    ax_b.tick_params(labelbottom=False)
+    ax_d.set_xlabel("Time since recording start [hours]")
+    fig.tight_layout(rect=(0.03, 0.03, 0.98, 0.98))
+    return fig
 
 
 def _render_table_page(

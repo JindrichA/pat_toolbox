@@ -148,7 +148,7 @@ def _overlay_pat_burden_area(
             continue
 
         ax.plot(tt / 3600.0, np.full_like(tt, baseline, dtype=float), linestyle="--", linewidth=1.1, alpha=0.7, color="0.25", label="_nolegend_", zorder=2)
-        ax.fill_between(tt / 3600.0, yy, baseline, where=below, interpolate=True, alpha=0.24, color="#b56576", label="PAT burden area", zorder=1)
+        ax.fill_between(tt / 3600.0, yy, baseline, where=below, interpolate=True, alpha=0.24, color="#2a9d8f", label="_nolegend_", zorder=1)
 
 
 def _plot_segment_pat_amp(
@@ -162,7 +162,7 @@ def _plot_segment_pat_amp(
     t_seg_h_end: float,
     aux_df: Optional["pd.DataFrame"],
 ) -> tuple[Optional[float], Optional[float]]:
-    _add_exclusion_spans(ax, exclusion_zones, t_seg_h_start, t_seg_h_end, label_once=True)
+    _add_exclusion_spans(ax, exclusion_zones, t_seg_h_start, t_seg_h_end, label_once=False)
     mask = (t_pat_amp >= seg_start_sec) & (t_pat_amp <= seg_end_sec)
     if not np.any(mask):
         ax.set_ylabel("PAT AMP")
@@ -196,6 +196,7 @@ def _plot_segment_pat_amp(
     if np.any(np.isfinite(y_seg)):
         _plot_no_bridge(ax, x_sec=t_sec_seg, y=y_seg, label="PAT AMP", linestyle="-", linewidth=1.1, color="tab:orange", alpha=0.9, zorder=3)
         _overlay_pat_burden_area(ax, t_sec_all=t_pat_amp, pat_amp_all=pat_amp, aux_df=aux_df, seg_start_sec=seg_start_sec, seg_end_sec=seg_end_sec)
+        legend_patches.append(Patch(facecolor="#2a9d8f", alpha=0.24, label="PAT burden area"))
         yy = y_seg[np.isfinite(y_seg)]
         y0 = float(np.min(yy))
         y1 = float(np.max(yy))

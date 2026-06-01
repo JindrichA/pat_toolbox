@@ -19,7 +19,7 @@ from .feature_overview_builders import (
     _build_single_series_overview_figure,
 )
 from .figures_prv import _build_stagegram_and_prv_tv_figure
-from .figures_summary import _build_sleep_stagegram_figure, build_summary_pages
+from .figures_summary import _build_sleep_stagegram_figure, build_front_page, build_summary_pages
 from .segments import _add_segment_pages_to_pdf
 from .specs import active_event_plot_spec
 from .utils import _compute_exclusion_zones, _infer_edf_base
@@ -342,9 +342,11 @@ def _build_report_figures(
     prv_summary,
     aux_df,
     hr_event_response_summary,
+    hr_event_windows,
     pwa_drop_summary,
     pat_burden,
     pat_burden_diag,
+    pat_burden_episodes,
     sleep_combo_summaries,
     prv_mask_info,
     prv_midpoint_halves,
@@ -355,6 +357,29 @@ def _build_report_figures(
     pwa_series,
     pwa_drop_events,
 ):
+    front_page = build_front_page(
+        edf_base=edf_base,
+        aux_df=aux_df,
+        t_hr_calc=t_hr_calc,
+        hr_calc=hr_calc,
+        hr_calc_raw=hr_calc_raw,
+        hr_event_windows=hr_event_windows,
+        prv_summary=prv_summary,
+        t_prv=t_prv,
+        prv_clean=prv_rmssd,
+        hr_event_response_summary=hr_event_response_summary,
+        pat_burden=pat_burden,
+        pat_burden_diag=pat_burden_diag,
+        pat_burden_episodes=pat_burden_episodes,
+        t_pat_amp=t_pat_amp,
+        pat_amp=pat_amp,
+        pwa_drop_summary=pwa_drop_summary,
+        t_pwa=t_pwa,
+        pwa_series=pwa_series,
+        pwa_drop_events=pwa_drop_events,
+        event_spec=list(event_spec),
+    )
+
     summary_pages = _build_summary_pages_for_enabled_features(
         edf_base=edf_base,
         mayer_peak_freq=mayer_peak_freq,
@@ -418,6 +443,7 @@ def _build_report_figures(
     )
 
     return {
+        "front_page": front_page,
         "summary_pages": summary_pages,
         "overview_figures": overview_figures,
         **figure_bundle,
@@ -427,6 +453,7 @@ def _build_report_figures(
 def _write_report_pdf(
     pdf_path: Path,
     *,
+    front_page,
     fig_stage_tv,
     fig_stage,
     fig_psd_zoom,
@@ -438,6 +465,11 @@ def _write_report_pdf(
 ) -> None:
     try:
         with PdfPages(str(pdf_path)) as pdf:
+            if front_page is not None:
+                pdf.savefig(front_page)
+                _close_figure(front_page)
+                front_page = None
+
             if fig_stage_tv is not None:
                 pdf.savefig(fig_stage_tv)
                 _close_figure(fig_stage_tv)

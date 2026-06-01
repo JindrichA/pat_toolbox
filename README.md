@@ -568,6 +568,8 @@ When `FEATURES["pwa_drop"] = True`, the pipeline now produces:
 - an event-level CSV export in `PWADrop__.../<edf>__PWA_Drop_Events.csv`
 - a per-recording summary export in `PWADrop__.../<edf>__PWA_Drop_Summary.csv`
 
+For `delta_hr`, `pat_burden`, and `pwa_drop`, the fixed sleep-subset policies are currently reported in summary/comparison form only. Detailed event/episode CSV exports are generated for the main selected-policy analysis, not as separate per-subset export files.
+
 ## Configuration Philosophy
 
 The project is deliberately config-driven.

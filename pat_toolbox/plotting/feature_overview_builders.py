@@ -144,7 +144,7 @@ def _overview_header_legend(title: str) -> list[Line2D]:
             Line2D([0], [0], color="#c1121f", linewidth=6, alpha=0.12, label="Event-excluded"),
             Line2D([0], [0], color="#d4a017", linewidth=6, alpha=0.22, label="Metric invalid"),
             Line2D([0], [0], color="0.25", linestyle="--", linewidth=1.1, label="Local burden baseline"),
-            Line2D([0], [0], color="#b56576", linewidth=6, alpha=0.24, label="Burden area shading"),
+            Line2D([0], [0], color="#2a9d8f", linewidth=6, alpha=0.24, label="Burden area shading"),
         ]
     if title == "PWA-Drop Overview":
         return [
@@ -628,7 +628,7 @@ def _build_pat_burden_overview_figure(
     _add_colored_event_key(fig, list(event_spec))
 
     for idx, (ax, (start_sec, end_sec)) in enumerate(zip(axes, bounds)):
-        _prepare_panel(ax, start_sec, end_sec, exclusion_zones, aux_df, event_spec)
+        _prepare_panel(ax, start_sec, end_sec, exclusion_zones, aux_df, event_spec, show_exclusion_spans=False)
         mask = (t_pat_amp >= start_sec) & (t_pat_amp <= end_sec)
         if not np.any(mask):
             continue
@@ -650,10 +650,6 @@ def _build_pat_burden_overview_figure(
         if np.any(np.isfinite(y_panel)):
             ax.plot(t_panel / 3600.0, np.ma.masked_invalid(y_panel), linewidth=1.1, color="tab:orange", alpha=0.9, label="PAT AMP", zorder=3)
             _overlay_pat_burden_area(ax, t_sec_all=np.asarray(t_pat_amp), pat_amp_all=np.asarray(pat_amp), aux_df=aux_df, seg_start_sec=start_sec, seg_end_sec=end_sec)
-        if idx == 0:
-            handles, labels = ax.get_legend_handles_labels()
-            if handles:
-                ax.legend(loc="lower right", fontsize=5)
 
     return _finalize_overview_figure(fig, axes, "PAT AMP")
 

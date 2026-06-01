@@ -4,13 +4,13 @@ import pandas as pd
 # ----------------------------
 # File paths
 # ----------------------------
-csv_path = "/Users/jindrich/Projects/mayo_data/output/HR__20260518_092942__nrem_only__ready/HR_PRV_SLEEP_COMBO_summary__multi_sleep_summary__20260518_092942.csv"
+csv_path = "/Users/jindrich/Projects/mayo_data/output/HR__20260529_165428__nrem_only__rmssd_times/HR_PRV_SLEEP_COMBO_summary__multi_sleep_summary__20260529_165428.csv"
 xlsx_path = "/Users/jindrich/Projects/mayo_data/input/SmallDataset21Oct25/Data/20251020_parsed_last_deindentified.xlsx"
 
 output_dir = "/Users/jindrich/Projects/pat_toolbox/experiments/merged_tables_output"
 os.makedirs(output_dir, exist_ok=True)
 
-output_path = os.path.join(output_dir, "merged_table_18052026.csv")
+output_path = os.path.join(output_dir, "merged_table_29052026.csv")
 
 # ----------------------------
 # Read files

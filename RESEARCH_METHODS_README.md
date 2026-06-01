@@ -649,6 +649,8 @@ In the current setup, because `delta_hr`, `pat_burden`, and `pwa_drop` are enabl
 - PWA-drop columns are present
 - PSD-window-count columns are absent
 
+For `delta_hr`, `pat_burden`, and `pwa_drop`, the fixed sleep-subset summaries are currently available in summary/comparison outputs. Detailed event-level or episode-level CSV exports are generated for the main selected-policy analysis only and are not written as separate files for each sleep subset.
+
 ## What “Pre-Final Exclusion” Means
 
 Some plots and coverage tables distinguish:
