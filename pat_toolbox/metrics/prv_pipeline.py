@@ -432,6 +432,7 @@ def summarize_prv_from_pr(
     )
 
     t_prv = np.arange(0, float(duration_sec), 1.0 / float(target_fs))
+    dt_min = (1.0 / float(target_fs)) / 60.0 if float(target_fs) > 0 else 0.0
     rmssd_raw, _ = _calculate_rmssd_series(
         t_prv,
         pr_mid_sleep,
@@ -462,6 +463,10 @@ def summarize_prv_from_pr(
         "pr_n_clean": int(pr_ms_clean.size),
         "rmssd_nan_pct_raw": float(100.0 * np.mean(~np.isfinite(rmssd_raw))) if rmssd_raw.size else np.nan,
         "rmssd_nan_pct_clean": float(100.0 * np.mean(~np.isfinite(rmssd_clean))) if rmssd_clean.size else np.nan,
+        "rmssd_valid_pct": float(100.0 * np.mean(np.isfinite(rmssd_clean))) if rmssd_clean.size else np.nan,
+        "rmssd_valid_min": float(np.count_nonzero(np.isfinite(rmssd_clean)) * dt_min),
+        "sdnn_valid_pct": float(100.0 * np.mean(np.isfinite(sdnn_clean))) if sdnn_clean.size else np.nan,
+        "sdnn_valid_min": float(np.count_nonzero(np.isfinite(sdnn_clean)) * dt_min),
     }
 
     if pr_ms_clean.size < 1:
@@ -549,6 +554,7 @@ def summarize_prv_from_clean_pr(
     duration_sec = float(duration_sec)
 
     t_prv = np.arange(0, duration_sec, 1.0 / float(target_fs)) if duration_sec > 0 else np.array([], dtype=float)
+    dt_min = (1.0 / float(target_fs)) / 60.0 if float(target_fs) > 0 else 0.0
     rmssd_clean, rmssd_windows_list_clean = _calculate_rmssd_series(
         t_prv,
         pr_mid_times_sec,
@@ -569,6 +575,10 @@ def summarize_prv_from_clean_pr(
     summary: Dict[str, float] = {
         "pr_n_clean": int(pr_ms.size),
         "rmssd_nan_pct_clean": float(100.0 * np.mean(~np.isfinite(rmssd_clean))) if rmssd_clean.size else np.nan,
+        "rmssd_valid_pct": float(100.0 * np.mean(np.isfinite(rmssd_clean))) if rmssd_clean.size else np.nan,
+        "rmssd_valid_min": float(np.count_nonzero(np.isfinite(rmssd_clean)) * dt_min),
+        "sdnn_valid_pct": float(100.0 * np.mean(np.isfinite(sdnn_clean))) if sdnn_clean.size else np.nan,
+        "sdnn_valid_min": float(np.count_nonzero(np.isfinite(sdnn_clean)) * dt_min),
     }
 
     if pr_ms.size < 1:
