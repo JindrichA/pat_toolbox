@@ -2,7 +2,7 @@
 
 PAT Toolbox is a config-driven Python pipeline for processing whole-night EDF recordings with PAT-derived physiology signals, synchronized auxiliary sleep/event CSVs, and report-style outputs.
 
-It is designed for recordings that contain `VIEW_PAT` and, when available, optional derived channels such as PAT amplitude and actigraphy. The pipeline computes PAT-derived heart rate (HR), pulse rate variability (PRV), optional PSD and PAT burden summaries, and multi-page PDF reports.
+It is designed for recordings that contain `VIEW_PAT` and, when available, optional derived channels such as PAT amplitude, SpO2, and actigraphy. The pipeline computes PAT-derived heart rate (HR), pulse rate variability (PRV), event-response HR, optional PSD, PAT burden, PWA-drop summaries, and multi-page PDF reports.
 
 Physiologically, the repository starts from the peripheral arterial tone waveform and treats it as a pulsatile vascular signal. Detected PAT pulse peaks are converted into pulse-to-pulse intervals, and those intervals are then used to derive HR, PRV, and tachogram-based spectral summaries. In other words, the main derived quantities are vascular pulse-based rather than ECG-based.
 
@@ -47,8 +47,10 @@ The rest of this README explains what the pipeline computes, how the codebase is
 - Computes PAT-derived HR on a regular time grid.
 - Computes PRV metrics including RMSSD, SDNN, LF, HF, LF/HF, and time-varying PRV series.
 - Applies shared sleep-stage, event, and desaturation masking across metrics and plots.
+- Computes event-response HR / delta-HR summaries around respiratory-event regions.
 - Computes PSD summaries from a PR tachogram representation.
 - Optionally computes PAT burden from PAT amplitude around masked event regions.
+- Optionally computes discrete PWA-drop events from waveform-derived pulse-wave amplitude.
 - Produces summary CSV outputs and multi-page PDF reports.
 
 In practical terms, the toolbox answers questions such as:
@@ -67,15 +69,20 @@ For each EDF file, the current processing path is:
 1. Load `VIEW_PAT`
 2. Band-pass filter PAT
 3. Load PAT amplitude if available
-4. Load and normalize synchronized auxiliary CSV if available
-5. Compute optional sleep-combination summaries
-6. Compute PAT burden
-7. Compute PAT-derived HR
-8. Compute delta-HR
-9. Compute PRV and PRV summary outputs
-10. Build a multi-page report PDF
-11. Optionally build a PAT peaks debug PDF
-12. Append one summary CSV row for the recording
+4. Optionally load SpO2 for validation plots
+5. Load and normalize synchronized auxiliary CSV if available
+6. Compute optional sleep-combination summaries
+7. Compute PAT burden
+8. Compute PWA-drop events
+9. Compute PAT-derived HR
+10. Compute event-response HR / delta-HR
+11. Compute PRV and PRV summary outputs
+12. Compute optional standalone PSD features
+13. Export per-feature CSV files
+14. Build a multi-page report PDF
+15. Optionally build a PAT peaks debug PDF
+16. Optionally export a publication-style PRV PNG
+17. Append one summary CSV row for the recording
 
 The public workflow entry remains `pat_toolbox/workflows.py`, but the implementation is now split into smaller load / metric / output step modules.
 
@@ -176,7 +183,7 @@ In short: PAT drives the PR series, PR drives HR/PRV/PSD, aux data drives maskin
    |  |- hr.py
    |  |- hr_compute.py
    |  |- hr_debug.py
-   |  |- hr_delta.py
+   |  |- hr_event_response.py
    |  |- hr_io.py
    |  |- hr_summary.py
    |  |- prv.py
@@ -185,6 +192,9 @@ In short: PAT drives the PR series, PR drives HR/PRV/PSD, aux data drives maskin
    |  |- prv_pipeline.py
    |  |- prv_time_domain.py
    |  |- pat_burden.py
+   |  |- pat_burden_io.py
+   |  |- pwa_drop.py
+   |  |- pwa_drop_io.py
    |  |- psd.py
    |  |- psd_pipeline.py
    |  `- spectral_utils.py
@@ -192,6 +202,7 @@ In short: PAT drives the PR series, PR drives HR/PRV/PSD, aux data drives maskin
       |- __init__.py
       |- figures_prv.py
       |- figures_summary.py
+      |- feature_overview_builders.py
       |- prv_plot_builders.py
       |- prv_plot_utils.py
       |- peaks_debug.py
@@ -238,12 +249,14 @@ In short: PAT drives the PR series, PR drives HR/PRV/PSD, aux data drives maskin
 - delta-HR computation
 - PRV computation
 - PAT burden computation
+- PWA-drop computation
 - fixed sleep-subset summaries
 
 ### `pat_toolbox/workflow_steps_output.py`
 
 - Main report PDF generation
 - Peaks debug PDF generation
+- Per-feature CSV export
 - publication-style PRV PNG export
 - Summary CSV append
 
@@ -299,6 +312,8 @@ Internal split:
   - debug PDF generation with peak overlays
 - `pat_toolbox/metrics/hr_summary.py`
   - summary CSV append helpers
+- `pat_toolbox/metrics/hr_event_response.py`
+  - event-response HR window extraction, summaries, and CSV export
 
 ### PRV
 
@@ -332,10 +347,14 @@ Internal split:
 
 ### Other metrics
 
-- `pat_toolbox/metrics/hr_delta.py`
-  - delta-HR series generation
 - `pat_toolbox/metrics/pat_burden.py`
   - PAT burden metric from PAT amplitude in event/desaturation regions
+- `pat_toolbox/metrics/pat_burden_io.py`
+  - PAT burden episode and summary CSV export
+- `pat_toolbox/metrics/pwa_drop.py`
+  - discrete PWA-drop detection from PAT-derived pulse-wave amplitude
+- `pat_toolbox/metrics/pwa_drop_io.py`
+  - PWA-drop event and summary CSV export
 
 ## Plotting And Reporting Overview
 
@@ -404,6 +423,7 @@ When present, these may be used in selected metrics or reports:
 - `DERIVED_HR`
 - `DERIVED_PAT_AMP`
 - `ACTIGRAPH`
+- SpO2 channels matching `SPO2_CHANNEL_CANDIDATES`, when SpO2 validation plots are enabled
 
 Channel names are configurable in `pat_toolbox/config.py`.
 
@@ -529,7 +549,7 @@ The burden diagnostics now also report items such as episode counts, skipped epi
 
 The current implementation follows the logic style of the external MATLAB `PWA_drop` project:
 
-1. Start from the raw `VIEW_PAT` waveform.
+1. Start from the filtered `VIEW_PAT` waveform used by the workflow.
 2. Smooth and detrend the waveform.
 3. Extract a beat-to-beat pulse-wave-amplitude (`PWA`) series from local maxima and minima.
 4. Remove obvious artefactual or sensor-loss segments.
@@ -700,6 +720,11 @@ Typical outputs include:
 - per-run PDF reports
 - HR CSV outputs
 - PRV CSV outputs
+- PRV mask CSV outputs
+- event-response HR window CSV outputs
+- PAT burden episode and summary CSV outputs
+- PWA-drop event and summary CSV outputs
+- sleep timing CSV outputs
 - PSD figures
 - optional PAT peak debug PDFs
 - optional publication-style PRV PNG figures

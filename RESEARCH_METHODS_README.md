@@ -48,8 +48,8 @@ This means the current run produces:
 
 The current sleep-stage policy is:
 
-- `SLEEP_STAGE_POLICY = "nrem_only"`
-- included sleep stages = `{1, 2}`
+- `SLEEP_STAGE_POLICY = "all_sleep_incluidng_wake"`
+- included stages = `{0, 1, 2, 3}`
 
 Under the current stage mapping:
 
@@ -58,7 +58,7 @@ Under the current stage mapping:
 - `2 = Deep sleep`
 - `3 = REM`
 
-Therefore, in the main selected-policy analysis, only NREM stages (light and deep sleep) are included, while wake and REM are excluded.
+Therefore, in the main selected-policy analysis, wake, light sleep, deep sleep, and REM are all included. The misspelling in `all_sleep_incluidng_wake` is the current config token used by the code.
 
 ## Input Data
 
@@ -104,16 +104,19 @@ For each EDF file, the processing order is:
 1. Read the PAT channel from EDF.
 2. Band-pass filter the PAT waveform.
 3. Optionally load PAT amplitude if burden analysis is enabled.
-4. Load and normalize the auxiliary CSV.
-5. Compute sleep-subset summaries.
-6. Compute PAT burden if enabled.
-7. Compute PAT-derived HR.
-8. Compute PRV and PR-based summaries.
-9. Compute separate PSD features if enabled.
-10. Export per-feature CSVs.
-11. Build the PDF report.
-12. Optionally export a publication-style PRV PNG for an automatically selected NREM segment.
-13. Append one row to the grouped summary CSV.
+4. Optionally load SpO2 for validation plots.
+5. Load and normalize the auxiliary CSV.
+6. Compute sleep-subset summaries.
+7. Compute PAT burden if enabled.
+8. Compute PWA-drop events if enabled.
+9. Compute PAT-derived HR.
+10. Compute event-response HR / delta-HR if enabled.
+11. Compute PRV and PR-based summaries.
+12. Compute separate PSD features if enabled.
+13. Export per-feature CSVs.
+14. Build the PDF report.
+15. Optionally export a publication-style PRV PNG for an automatically selected NREM segment.
+16. Append one row to the grouped summary CSV.
 
 In compact form, the physiological flow is:
 
@@ -187,12 +190,12 @@ This produces the shared physiologically cleaned PR series used by HR and PRV.
 
 The main selected-policy analysis currently uses:
 
-- `nrem_only = {1, 2}`
+- `all_sleep_incluidng_wake = {0, 1, 2, 3}`
 
 This means:
 
-- included: light sleep and deep sleep
-- excluded: wake and REM
+- included: wake, light sleep, deep sleep, and REM
+- excluded by sleep-stage policy: no mapped stage among the canonical four stages
 
 ### How sleep-stage masking is applied
 
@@ -200,8 +203,8 @@ The code maps each analysis time point or PR midpoint to the nearest auxiliary s
 
 For the selected-policy analysis:
 
-- if the mapped stage is light or deep, the sample is kept by the sleep mask
-- if the mapped stage is wake or REM, the sample is rejected by the sleep mask
+- if the mapped stage is wake, light sleep, deep sleep, or REM, the sample is kept by the sleep mask
+- if the mapped stage is missing or outside the include set, the sample is rejected by the sleep mask
 
 ### Sleep subsets used in sleep-combo summaries
 
@@ -573,7 +576,7 @@ The `pwa_drop` feature is a waveform-derived pulse-wave-amplitude drop detector 
 
 ### PWA-drop procedure
 
-1. Start from the raw PAT waveform `VIEW_PAT`.
+1. Start from the filtered PAT waveform `VIEW_PAT` used by the workflow.
 2. Detrend and smooth the waveform.
 3. Identify local maxima and minima and derive a beat-to-beat `PWA` series from their amplitude difference.
 4. Reject implausible beat timing using the maximum accepted heart-rate constraint.
@@ -696,7 +699,7 @@ For the current configuration, the main selected-policy PRV workflow can be summ
 5. Keep only physiologic PR intervals between `0.30 and 2.50 s`.
 6. Apply low-level PR cleaning using median-based outlier rejection, gap rejection, jump rejection, alternans rejection, and a minimum artifact-free run length of `3`.
 7. Read the auxiliary CSV and convert sleep stages into numeric stage codes.
-8. Build the selected sleep-stage mask using `nrem_only = {1, 2}`.
+8. Build the selected sleep-stage mask using `all_sleep_incluidng_wake = {0, 1, 2, 3}`.
 9. Build event and quality exclusion windows from the currently active exclusion columns using `15 s` pre-padding and `30 s` post-padding.
 10. Build event-gated desaturation windows using the desaturation flag, `15 s` start padding, `30 s` end padding, and minimum run length `5 s`.
 11. Combine sleep, event, quality, and gated-desaturation masks into the final selected-policy keep mask.
