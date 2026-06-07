@@ -31,7 +31,7 @@ The current `FEATURES` configuration is:
 - `pat_burden = False`
 - `sleep_combo_summary = True`
 - `report_pdf = True`
-- `peaks_debug_pdf = True`
+- `peaks_debug_pdf = False`
 
 This means the current run produces:
 
@@ -45,8 +45,8 @@ This means the current run produces:
 
 The current sleep-stage policy is:
 
-- `SLEEP_STAGE_POLICY = "all_sleep_incluidng_wake"`
-- included sleep stages = `{0, 1, 2, 3}`
+- `SLEEP_STAGE_POLICY = "nrem_only"`
+- included sleep stages = `{1, 2}`
 
 Under the current stage mapping:
 
@@ -55,7 +55,7 @@ Under the current stage mapping:
 - `2 = Deep sleep`
 - `3 = REM`
 
-Therefore, in the main selected-policy analysis, wake, light sleep, deep sleep, and REM are all included.
+Therefore, in the main selected-policy analysis, only light sleep and deep sleep are included, while wake and REM are excluded.
 
 ## Input Data
 

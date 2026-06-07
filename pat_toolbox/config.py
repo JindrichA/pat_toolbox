@@ -34,7 +34,7 @@ RUN_ID = datetime.now().strftime("%Y%m%d_%H%M%S")
 
 # RUN_TAG is the human-readable label to help distinguish parameter sweeps.
 # Changing it affects output folder names only; it does not change calculations.
-RUN_TAG = "READY"
+RUN_TAG = "RMSSD_times"
 
 # Top-level feature selection. These switches are meant to answer the question
 # "what should this run produce?". If a feature is disabled here, the goal is to
@@ -58,6 +58,7 @@ FEATURES = {
     "psd": False,
     "delta_hr": False,
     "pat_burden": False,
+    "pwa_drop": False,
     "sleep_combo_summary": True,
     "report_pdf": True,
     "peaks_debug_pdf": False,
@@ -183,8 +184,10 @@ def run_suffix() -> str:
 OUTPUT_SUBFOLDER = f"ViewPatPlotsOverlay__{run_suffix()}"
 HR_OUTPUT_SUBFOLDER = f"HR__{run_suffix()}"
 PRV_OUTPUT_SUBFOLDER = f"PRV__{run_suffix()}"
+DELTA_HR_OUTPUT_SUBFOLDER = f"EVENT_HR__{run_suffix()}"
 PUBLICATION_PRV_OUTPUT_SUBFOLDER = f"PublicationPRV__{run_suffix()}"
 PAT_BURDEN_OUTPUT_SUBFOLDER = f"PATBurden__{run_suffix()}"
+PWA_DROP_OUTPUT_SUBFOLDER = f"PWADrop__{run_suffix()}"
 PSD_OUTPUT_SUBFOLDER = f"PSD__{run_suffix()}"
 
 
@@ -264,6 +267,8 @@ ENABLE_VIEW_PAT_OVERLAY_PLOTS = FEATURES["report_pdf"]
 ENABLE_PAT_SIGNAL_PLOT = True
 ENABLE_PAT_PEAK_DEBUG_PLOTS = FEATURES["peaks_debug_pdf"]
 PLOT_SHOW_RAW_DEBUG_OVERLAYS = False
+SUMMARY_FRONT_PAGE_MODE = "prv"
+SUMMARY_FRONT_PAGE_BIN_MINUTES = 5
 
 SEGMENT_MINUTES = 15
 PAT_PEAK_DEBUG_SEGMENT_MINUTES = 1.0
@@ -455,6 +460,24 @@ HR_EVENT_WINDOW_SEC = 15.0
 HR_EVENT_RECOVERY_END_SEC = 45.0
 HR_EVENT_MIN_SAMPLES = 3
 HR_EVENT_USE_DESAT_EXTENSION = True
+
+
+# =============================================================================
+# PWA-Drop Feature
+# =============================================================================
+# This feature ports the logic of the external PWA-drop detector into the
+# repository workflow so discrete pulse-wave-amplitude drops can be summarized,
+# exported, and plotted like the other feature families.
+
+ENABLE_PWA_DROP = FEATURES["pwa_drop"]
+PWA_DROP_PRIMARY_THR_PCT = 40.0
+PWA_DROP_SECONDARY_THR_PCT = 30.0
+PWA_DROP_MIN_POINTS_PRIMARY = 2
+PWA_DROP_MIN_POINTS_SECONDARY = 4
+PWA_DROP_BASELINE_CYCLES = 5
+PWA_DROP_SENSORLOSS_THR = 5.0
+PWA_DROP_MAX_HR_BPM = 250.0
+PWA_DROP_SUMMARY_MIN_BASELINE_POINTS = 3
 
 
 # =============================================================================
