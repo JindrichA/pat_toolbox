@@ -16,6 +16,7 @@ def _plot_sleep_stagegram_on_axis(
     aux_df: Optional["pd.DataFrame"],
     title: str = "Hypnogram",
     show_stats: bool = True,
+    title_pad: float = 12.0,
 ):
     ok = _plot_sleep_stagegram_on_ax(
         ax,
@@ -27,7 +28,7 @@ def _plot_sleep_stagegram_on_axis(
     )
     if not ok:
         return False
-    ax.set_title(f"{edf_base} - {title}", fontsize=14, pad=12)
+    ax.set_title(f"{edf_base} - {title}", fontsize=14, pad=title_pad)
     return True
 
 

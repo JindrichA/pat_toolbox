@@ -91,10 +91,11 @@ def _compute_single_sleep_combo_summary(
         )
 
     pwa_drop_summary = None
-    if features.is_enabled("pwa_drop") and ctx.view_pat is not None and ctx.sfreq is not None and aux_df is not None:
+    pwa_signal = ctx.view_pat_filt if ctx.view_pat_filt is not None else ctx.view_pat
+    if features.is_enabled("pwa_drop") and pwa_signal is not None and ctx.sfreq is not None and aux_df is not None:
         try:
             _t_pwa, _pwa_series, pwa_drop_summary, _events = pwa_drop_metrics.compute_pwa_drop_from_pat_signal(
-                ctx.view_pat,
+                pwa_signal,
                 ctx.sfreq,
                 aux_df=aux_df,
                 include_set=include_set,

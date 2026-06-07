@@ -58,6 +58,8 @@ def build_pdf_step(ctx: RecordingContext) -> None:
         pwa_series=getattr(ctx, "pwa_series", None),
         pwa_drop_summary=getattr(ctx, "pwa_drop_summary", None),
         pwa_drop_events=getattr(ctx, "pwa_drop_events", None),
+        t_spo2=getattr(ctx, "t_spo2", None),
+        spo2=getattr(ctx, "spo2", None),
         sleep_combo_summaries=getattr(ctx, "sleep_combo_summaries", None),
         prv_mask_info=getattr(ctx, "prv_mask_info", None),
         prv_midpoint_halves=getattr(ctx, "prv_midpoint_halves", None),

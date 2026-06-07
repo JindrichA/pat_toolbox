@@ -71,6 +71,11 @@ class RecordingContext:
     t_actigraph: Optional[np.ndarray] = None
     actigraph: Optional[np.ndarray] = None
 
+    # SpO2 validation signal
+    t_spo2: Optional[np.ndarray] = None
+    spo2: Optional[np.ndarray] = None
+    spo2_channel_name: Optional[str] = None
+
     pat_burden: Optional[float] = None
     pat_burden_diag: Optional[dict] = None
     pat_burden_episodes: Optional[list] = None

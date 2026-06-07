@@ -1,6 +1,6 @@
 # pat_toolbox/io_edf.py
 from pathlib import Path
-from typing import List, Tuple
+from typing import Iterable, List, Tuple
 
 import numpy as np
 import pyedflib
@@ -49,3 +49,15 @@ def read_edf_channel(edf_path: Path, channel_name: str) -> Tuple[np.ndarray, flo
         f.close()
 
     return signal, sfreq
+
+
+def read_first_available_edf_channel(edf_path: Path, channel_names: Iterable[str]) -> Tuple[np.ndarray, float, str]:
+    labels = tuple(str(name) for name in channel_names)
+    last_error: Exception | None = None
+    for channel_name in labels:
+        try:
+            signal, sfreq = read_edf_channel(edf_path, channel_name)
+            return signal, sfreq, channel_name
+        except Exception as exc:
+            last_error = exc
+    raise ValueError(f"None of the EDF channels {labels} were found in {edf_path.name}: {last_error}")

@@ -7,20 +7,21 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.backends.backend_pdf import PdfPages
 
-from .. import features
+from .. import config, features
 from ..metrics.psd import compute_psd_figures_and_peaks
 from .feature_overview_builders import (
     _build_event_response_overview_figure,
     _build_hr_overview_figure,
     _build_pwa_drop_overview_figure,
     _build_prv_rmssd_overview_figure,
+    _build_spo2_overview_figure,
     _build_multi_series_overview_figure,
     _build_pat_burden_overview_figure,
     _build_single_series_overview_figure,
 )
 from .figures_prv import _build_stagegram_and_prv_tv_figure
 from .figures_summary import _build_sleep_stagegram_figure, build_front_page, build_summary_pages
-from .segments import _add_segment_pages_to_pdf
+from .segments import _add_event_vascular_segment_pages_to_pdf, _add_prv_segment_pages_to_pdf, _add_segment_pages_to_pdf
 from .specs import active_event_plot_spec
 from .utils import _compute_exclusion_zones, _infer_edf_base
 
@@ -132,6 +133,13 @@ def _build_prv_report_figures(
     sleep_combo_summaries,
     prv_mask_info,
 ) -> Dict[str, Any]:
+    if not bool(getattr(config, "ENABLE_PRV_REPORT_PAGES", True)):
+        return {
+            "fig_stage": None,
+            "fig_stage_tv": None,
+            "fig_ov": None,
+        }
+
     use_prv = features.is_enabled("prv") and t_prv is not None and prv_rmssd is not None and np.size(prv_rmssd) > 0
     has_tv = use_prv and t_prv is not None and prv_tv is not None and isinstance(prv_tv, dict) and len(prv_tv) > 0
 
@@ -190,6 +198,8 @@ def _build_feature_overview_figures(
     t_pwa,
     pwa_series,
     pwa_drop_events,
+    t_spo2,
+    spo2,
 ) -> list[Any]:
     figs: list[Any] = []
 
@@ -207,7 +217,7 @@ def _build_feature_overview_figures(
         if fig is not None:
             figs.append(fig)
 
-    if features.is_enabled("prv"):
+    if features.is_enabled("prv") and bool(getattr(config, "ENABLE_PRV_REPORT_PAGES", True)):
         fig = _build_prv_rmssd_overview_figure(
             edf_base=edf_base,
             t_prv=t_prv,
@@ -321,6 +331,19 @@ def _build_feature_overview_figures(
         if fig is not None:
             figs.append(fig)
 
+    if bool(getattr(config, "ENABLE_SPO2_VALIDATION_PLOTS", False)):
+        fig = _build_spo2_overview_figure(
+            edf_base=edf_base,
+            t_spo2=t_spo2,
+            spo2=spo2,
+            aux_df=aux_df,
+            exclusion_zones=exclusion_zones,
+            duration_sec_fallback=duration_sec,
+            event_spec=event_spec,
+        )
+        if fig is not None:
+            figs.append(fig)
+
     return figs
 
 
@@ -356,6 +379,8 @@ def _build_report_figures(
     t_pwa,
     pwa_series,
     pwa_drop_events,
+    t_spo2,
+    spo2,
 ):
     front_page = build_front_page(
         edf_base=edf_base,
@@ -377,6 +402,8 @@ def _build_report_figures(
         t_pwa=t_pwa,
         pwa_series=pwa_series,
         pwa_drop_events=pwa_drop_events,
+        t_spo2=t_spo2,
+        spo2=spo2,
         event_spec=list(event_spec),
     )
 
@@ -440,6 +467,8 @@ def _build_report_figures(
         t_pwa=t_pwa,
         pwa_series=pwa_series,
         pwa_drop_events=pwa_drop_events,
+        t_spo2=t_spo2,
+        spo2=spo2,
     )
 
     return {
@@ -503,7 +532,13 @@ def _write_report_pdf(
                 _close_figure(fig)
             summary_pages = []
 
-            _add_segment_pages_to_pdf(pdf, **cast(dict[str, Any], segment_kwargs))
+            summary_mode = str(getattr(config, "SUMMARY_FRONT_PAGE_MODE", "prv")).lower()
+            if summary_mode == "event_vascular":
+                _add_event_vascular_segment_pages_to_pdf(pdf, **cast(dict[str, Any], segment_kwargs))
+                if bool(getattr(config, "ENABLE_PRV_REPORT_PAGES", True)):
+                    _add_prv_segment_pages_to_pdf(pdf, **cast(dict[str, Any], segment_kwargs))
+            else:
+                _add_segment_pages_to_pdf(pdf, **cast(dict[str, Any], segment_kwargs))
     except Exception:
         if pdf_path.exists():
             try:
