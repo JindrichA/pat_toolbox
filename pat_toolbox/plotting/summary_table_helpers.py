@@ -805,7 +805,6 @@ def _binned_series_mean(t_sec: Optional[np.ndarray], y: Optional[np.ndarray], ed
             out[i] = float(np.nanmean(yy[m]))
     return out
 
-
 def _binned_sleep_hours_for_edges(
     t_sec: Optional[np.ndarray],
     aux_df: Optional["pd.DataFrame"],
@@ -1069,7 +1068,6 @@ def build_front_page(
                 show_legend_labels=False,
                 event_style="short",
             )
-
     for ax, panel in zip(data_axes, panels):
         if panel["key"] == "hr":
             _apply_front_page_mask_layers(ax, np.asarray(t_hr_calc, dtype=float), np.asarray(hr_calc, dtype=float), aux_df)
