@@ -338,6 +338,39 @@ def append_hr_prv_summary(
         active_aux_columns.add(str(getattr(config, "PRV_EXCLUSION_DESAT_COLUMN_KEY", "desat_flag")))
     has_aux_summary_context = features.any_enabled("prv", "psd", "delta_hr", "pat_burden", "sleep_combo_summary")
 
+    time_distribution_fields = [
+        ("p25", "p25"),
+        ("p75", "p75"),
+        ("p90", "p90"),
+        ("iqr", "iqr"),
+        ("p75_over_median", "p75_over_median"),
+        ("p90_over_median", "p90_over_median"),
+        ("pct_above_p75", "pct_above_p75"),
+        ("pct_above_p90", "pct_above_p90"),
+    ]
+    ipi_summary_fields = [
+        ("ipi_mean_ms", "ipi_mean_ms"),
+        ("ipi_median_ms", "ipi_median_ms"),
+        ("ipi_std_ms", "ipi_std_ms"),
+        ("ipi_valid_n", "ipi_valid_n"),
+        ("ipi_ms_p25", "ipi_p25_ms"),
+        ("ipi_ms_p75", "ipi_p75_ms"),
+        ("ipi_ms_p90", "ipi_p90_ms"),
+        ("ipi_ms_iqr", "ipi_iqr_ms"),
+        ("ipi_ms_p75_over_median", "ipi_p75_over_median"),
+        ("ipi_ms_p90_over_median", "ipi_p90_over_median"),
+    ]
+    fixed_spectral_distribution_fields = [
+        ("p25", "p25"),
+        ("p75", "p75"),
+        ("p90", "p90"),
+        ("iqr", "iqr"),
+        ("p75_over_median", "p75_over_median"),
+        ("p90_over_median", "p90_over_median"),
+        ("pct_above_p75", "pct_above_p75"),
+        ("pct_above_p90", "pct_above_p90"),
+    ]
+
     if features.is_enabled("psd"):
         row["selected_mayer_peak_hz"] = mayer_peak_freq
         row["selected_resp_peak_hz"] = resp_peak_freq
@@ -394,8 +427,12 @@ def append_hr_prv_summary(
                 "selected_sdnn_mean_ms": prv_summary.get("sdnn_mean", np.nan),
                 "selected_sdnn_median_ms": prv_summary.get("sdnn_median", np.nan),
                 "selected_lf": prv_summary.get("lf", np.nan),
+                "selected_lf_fixed_mean_ms2": prv_summary.get("lf_fixed_mean", np.nan),
+                "selected_lf_fixed_median_ms2": prv_summary.get("lf_fixed_median", np.nan),
                 "selected_lf_fixed_median": prv_summary.get("lf_fixed_median", np.nan),
                 "selected_hf": prv_summary.get("hf", np.nan),
+                "selected_hf_fixed_mean_ms2": prv_summary.get("hf_fixed_mean", np.nan),
+                "selected_hf_fixed_median_ms2": prv_summary.get("hf_fixed_median", np.nan),
                 "selected_hf_fixed_median": prv_summary.get("hf_fixed_median", np.nan),
                 "selected_lf_hf": prv_summary.get("lf_hf", np.nan),
                 "selected_lf_hf_fixed_median": prv_summary.get("lf_hf_fixed_median", np.nan),
@@ -409,6 +446,15 @@ def append_hr_prv_summary(
                 "selected_lf_hf_fixed_hop_sec": prv_summary.get("lf_hf_fixed_hop_sec", np.nan),
             }
         )
+        for prefix in ["rmssd", "sdnn"]:
+            for src_suffix, dst_suffix in time_distribution_fields:
+                row[f"selected_{prefix}_{dst_suffix}"] = prv_summary.get(f"{prefix}_{src_suffix}", np.nan)
+        for src, dst in ipi_summary_fields:
+            row[f"selected_{dst}"] = prv_summary.get(src, np.nan)
+        for prefix, unit_suffix in [("lf_fixed", "ms2"), ("hf_fixed", "ms2"), ("lf_hf_fixed", "")]:
+            for src_suffix, dst_suffix in fixed_spectral_distribution_fields:
+                dst = f"selected_{prefix}_{dst_suffix}{('_' + unit_suffix) if unit_suffix and dst_suffix in {'p25', 'p75', 'p90', 'iqr'} else ''}"
+                row[dst] = prv_summary.get(f"{prefix}_{src_suffix}", np.nan)
     elif features.is_enabled("prv"):
         row.update(
             {
@@ -417,8 +463,12 @@ def append_hr_prv_summary(
                 "selected_sdnn_mean_ms": np.nan,
                 "selected_sdnn_median_ms": np.nan,
                 "selected_lf": np.nan,
+                "selected_lf_fixed_mean_ms2": np.nan,
+                "selected_lf_fixed_median_ms2": np.nan,
                 "selected_lf_fixed_median": np.nan,
                 "selected_hf": np.nan,
+                "selected_hf_fixed_mean_ms2": np.nan,
+                "selected_hf_fixed_median_ms2": np.nan,
                 "selected_hf_fixed_median": np.nan,
                 "selected_lf_hf": np.nan,
                 "selected_lf_hf_fixed_median": np.nan,
@@ -432,6 +482,15 @@ def append_hr_prv_summary(
                 "selected_lf_hf_fixed_hop_sec": np.nan,
             }
         )
+        for prefix in ["rmssd", "sdnn"]:
+            for _src_suffix, dst_suffix in time_distribution_fields:
+                row[f"selected_{prefix}_{dst_suffix}"] = np.nan
+        for _src, dst in ipi_summary_fields:
+            row[f"selected_{dst}"] = np.nan
+        for prefix, unit_suffix in [("lf_fixed", "ms2"), ("hf_fixed", "ms2"), ("lf_hf_fixed", "")]:
+            for _src_suffix, dst_suffix in fixed_spectral_distribution_fields:
+                dst = f"selected_{prefix}_{dst_suffix}{('_' + unit_suffix) if unit_suffix and dst_suffix in {'p25', 'p75', 'p90', 'iqr'} else ''}"
+                row[dst] = np.nan
 
     if features.is_enabled("psd") and psd_features:
         row.update(
@@ -521,15 +580,43 @@ def append_hr_prv_summary(
             for src, dst in [
                 ("rmssd_mean", "rmssd_mean_ms"),
                 ("rmssd_median", "rmssd_median_ms"),
+                ("rmssd_valid_min", "rmssd_valid_min"),
+                ("rmssd_valid_pct", "rmssd_valid_pct"),
+                ("rmssd_p25", "rmssd_p25"),
+                ("rmssd_p75", "rmssd_p75"),
+                ("rmssd_p90", "rmssd_p90"),
+                ("rmssd_iqr", "rmssd_iqr"),
+                ("rmssd_p75_over_median", "rmssd_p75_over_median"),
+                ("rmssd_p90_over_median", "rmssd_p90_over_median"),
                 ("sdnn_mean", "sdnn_mean_ms"),
                 ("sdnn_median", "sdnn_median_ms"),
-                ("lf", "lf_ms2"),
+                ("sdnn_valid_min", "sdnn_valid_min"),
+                ("sdnn_valid_pct", "sdnn_valid_pct"),
+                ("sdnn_p25", "sdnn_p25"),
+                ("sdnn_p75", "sdnn_p75"),
+                ("sdnn_p90", "sdnn_p90"),
+                ("sdnn_iqr", "sdnn_iqr"),
+                ("sdnn_p75_over_median", "sdnn_p75_over_median"),
+                ("sdnn_p90_over_median", "sdnn_p90_over_median"),
+                ("ipi_mean_ms", "ipi_mean_ms"),
+                ("ipi_median_ms", "ipi_median_ms"),
+                ("ipi_std_ms", "ipi_std_ms"),
+                ("ipi_valid_n", "ipi_valid_n"),
+                ("lf_fixed_mean", "lf_fixed_mean_ms2"),
                 ("lf_fixed_median", "lf_fixed_median_ms2"),
-                ("hf", "hf_ms2"),
+                ("lf_fixed_p75", "lf_fixed_p75_ms2"),
+                ("lf_fixed_p90", "lf_fixed_p90_ms2"),
+                ("lf_fixed_iqr", "lf_fixed_iqr_ms2"),
+                ("hf_fixed_mean", "hf_fixed_mean_ms2"),
                 ("hf_fixed_median", "hf_fixed_median_ms2"),
-                ("lf_hf", "lf_hf_ratio"),
+                ("hf_fixed_p75", "hf_fixed_p75_ms2"),
+                ("hf_fixed_p90", "hf_fixed_p90_ms2"),
+                ("hf_fixed_iqr", "hf_fixed_iqr_ms2"),
                 ("lf_hf_fixed_mean", "lf_hf_fixed_mean"),
                 ("lf_hf_fixed_median", "lf_hf_fixed_median"),
+                ("lf_hf_fixed_p75", "lf_hf_fixed_p75"),
+                ("lf_hf_fixed_p90", "lf_hf_fixed_p90"),
+                ("lf_hf_fixed_iqr", "lf_hf_fixed_iqr"),
                 ("lf_hf_fixed_n_windows_valid", "lf_hf_fixed_n_windows_valid"),
                 ("lf_hf_fixed_valid_min", "lf_hf_fixed_valid_min"),
             ]:
@@ -602,13 +689,28 @@ def append_hr_prv_summary(
                     ("sdnn_median", "sdnn_median_ms"),
                     ("rmssd_valid_min", "rmssd_valid_min"),
                     ("rmssd_valid_pct", "rmssd_valid_pct"),
+                    ("rmssd_p75", "rmssd_p75"),
+                    ("rmssd_p90", "rmssd_p90"),
+                    ("rmssd_iqr", "rmssd_iqr"),
+                    ("rmssd_p90_over_median", "rmssd_p90_over_median"),
                     ("sdnn_valid_min", "sdnn_valid_min"),
                     ("sdnn_valid_pct", "sdnn_valid_pct"),
-                    ("lf", "lf"),
-                    ("hf", "hf"),
-                    ("lf_hf", "lf_hf"),
+                    ("sdnn_p75", "sdnn_p75"),
+                    ("sdnn_p90", "sdnn_p90"),
+                    ("sdnn_iqr", "sdnn_iqr"),
+                    ("sdnn_p90_over_median", "sdnn_p90_over_median"),
+                    ("ipi_mean_ms", "ipi_mean_ms"),
+                    ("ipi_median_ms", "ipi_median_ms"),
+                    ("ipi_std_ms", "ipi_std_ms"),
+                    ("lf_fixed_mean", "lf_fixed_mean_ms2"),
+                    ("lf_fixed_median", "lf_fixed_median_ms2"),
+                    ("lf_fixed_p90", "lf_fixed_p90_ms2"),
+                    ("hf_fixed_mean", "hf_fixed_mean_ms2"),
+                    ("hf_fixed_median", "hf_fixed_median_ms2"),
+                    ("hf_fixed_p90", "hf_fixed_p90_ms2"),
                     ("lf_hf_fixed_median", "lf_hf_fixed_median"),
                     ("lf_hf_fixed_mean", "lf_hf_fixed_mean"),
+                    ("lf_hf_fixed_p90", "lf_hf_fixed_p90"),
                     ("lf_hf_fixed_n_windows_valid", "lf_hf_fixed_n_windows_valid"),
                     ("lf_hf_fixed_n_windows_total", "lf_hf_fixed_n_windows_total"),
                     ("lf_hf_fixed_valid_pct", "lf_hf_fixed_valid_pct"),
@@ -647,10 +749,16 @@ def append_hr_prv_summary(
         "edf_file",
         "selected_hr_min_bpm", "selected_hr_max_bpm", "selected_hr_mean_bpm", "selected_hr_median_bpm", "selected_hr_std_bpm", "selected_hr_valid_pct", "selected_hr_valid_min",
         "selected_rmssd_mean_ms", "selected_rmssd_median_ms", "selected_sdnn_mean_ms", "selected_sdnn_median_ms",
+        "selected_rmssd_p25", "selected_rmssd_p75", "selected_rmssd_p90", "selected_rmssd_iqr", "selected_rmssd_p75_over_median", "selected_rmssd_p90_over_median", "selected_rmssd_pct_above_p75", "selected_rmssd_pct_above_p90",
+        "selected_sdnn_p25", "selected_sdnn_p75", "selected_sdnn_p90", "selected_sdnn_iqr", "selected_sdnn_p75_over_median", "selected_sdnn_p90_over_median", "selected_sdnn_pct_above_p75", "selected_sdnn_pct_above_p90",
+        "selected_ipi_mean_ms", "selected_ipi_median_ms", "selected_ipi_std_ms", "selected_ipi_valid_n", "selected_ipi_p25_ms", "selected_ipi_p75_ms", "selected_ipi_p90_ms", "selected_ipi_iqr_ms", "selected_ipi_p75_over_median", "selected_ipi_p90_over_median",
         "selected_prv_rmssd_final_analysis_valid_pct", "selected_prv_rmssd_final_analysis_valid_min", "selected_prv_rmssd_pre_final_exclusion_valid_pct",
         "selected_prv_rmssd_pre_final_exclusion_valid_min", "prv_tv_sdnn_final_analysis_valid_pct", "prv_tv_sdnn_final_analysis_valid_min",
         "prv_tv_sdnn_pre_final_exclusion_valid_pct", "prv_tv_sdnn_pre_final_exclusion_valid_min",
-        "selected_lf", "selected_lf_fixed_median", "selected_hf", "selected_hf_fixed_median", "selected_lf_hf", "selected_lf_hf_fixed_median", "selected_lf_hf_fixed_mean", "selected_lf_hf_fixed_n_windows_valid",
+        "selected_lf", "selected_lf_fixed_mean_ms2", "selected_lf_fixed_median_ms2", "selected_lf_fixed_median", "selected_hf", "selected_hf_fixed_mean_ms2", "selected_hf_fixed_median_ms2", "selected_hf_fixed_median", "selected_lf_hf", "selected_lf_hf_fixed_median", "selected_lf_hf_fixed_mean", "selected_lf_hf_fixed_n_windows_valid",
+        "selected_lf_fixed_p25_ms2", "selected_lf_fixed_p75_ms2", "selected_lf_fixed_p90_ms2", "selected_lf_fixed_iqr_ms2", "selected_lf_fixed_p75_over_median", "selected_lf_fixed_p90_over_median", "selected_lf_fixed_pct_above_p75", "selected_lf_fixed_pct_above_p90",
+        "selected_hf_fixed_p25_ms2", "selected_hf_fixed_p75_ms2", "selected_hf_fixed_p90_ms2", "selected_hf_fixed_iqr_ms2", "selected_hf_fixed_p75_over_median", "selected_hf_fixed_p90_over_median", "selected_hf_fixed_pct_above_p75", "selected_hf_fixed_pct_above_p90",
+        "selected_lf_hf_fixed_p25", "selected_lf_hf_fixed_p75", "selected_lf_hf_fixed_p90", "selected_lf_hf_fixed_iqr", "selected_lf_hf_fixed_p75_over_median", "selected_lf_hf_fixed_p90_over_median", "selected_lf_hf_fixed_pct_above_p75", "selected_lf_hf_fixed_pct_above_p90",
         "selected_lf_hf_fixed_n_windows_total", "selected_lf_hf_fixed_valid_pct", "selected_lf_hf_fixed_valid_min", "selected_lf_hf_fixed_total_min",
         "selected_lf_hf_fixed_window_sec", "selected_lf_hf_fixed_hop_sec",
         "prv_tv_lf_final_analysis_valid_pct", "prv_tv_lf_final_analysis_valid_min", "prv_tv_lf_pre_final_exclusion_valid_pct", "prv_tv_lf_pre_final_exclusion_valid_min",
@@ -671,10 +779,10 @@ def append_hr_prv_summary(
         "selected_prv_excluded_desat_only_min", "selected_prv_excluded_desat_only_pct_of_selected",
         "selected_prv_excluded_overlap_min", "selected_prv_excluded_overlap_pct_of_selected", "sleep_onset_h_from_start", "sleep_onset_hhmm_from_start",
         "sleep_midpoint_h_from_start", "sleep_midpoint_hhmm_from_start", "sleep_end_h_from_start", "sleep_end_hhmm_from_start",
-        "nrem_first_half_rmssd_mean_ms", "nrem_first_half_rmssd_median_ms", "nrem_first_half_sdnn_mean_ms", "nrem_first_half_sdnn_median_ms", "nrem_first_half_lf_ms2", "nrem_first_half_lf_fixed_median_ms2", "nrem_first_half_hf_ms2", "nrem_first_half_hf_fixed_median_ms2",
-        "nrem_first_half_lf_hf_ratio", "nrem_first_half_lf_hf_fixed_mean", "nrem_first_half_lf_hf_fixed_median", "nrem_first_half_lf_hf_fixed_n_windows_valid", "nrem_first_half_lf_hf_fixed_valid_min",
-        "nrem_second_half_rmssd_mean_ms", "nrem_second_half_rmssd_median_ms", "nrem_second_half_sdnn_mean_ms", "nrem_second_half_sdnn_median_ms", "nrem_second_half_lf_ms2", "nrem_second_half_lf_fixed_median_ms2", "nrem_second_half_hf_ms2", "nrem_second_half_hf_fixed_median_ms2",
-        "nrem_second_half_lf_hf_ratio", "nrem_second_half_lf_hf_fixed_mean", "nrem_second_half_lf_hf_fixed_median", "nrem_second_half_lf_hf_fixed_n_windows_valid", "nrem_second_half_lf_hf_fixed_valid_min",
+        "nrem_first_half_rmssd_mean_ms", "nrem_first_half_rmssd_median_ms", "nrem_first_half_rmssd_valid_min", "nrem_first_half_rmssd_valid_pct", "nrem_first_half_rmssd_p25", "nrem_first_half_rmssd_p75", "nrem_first_half_rmssd_p90", "nrem_first_half_rmssd_iqr", "nrem_first_half_sdnn_mean_ms", "nrem_first_half_sdnn_median_ms", "nrem_first_half_sdnn_valid_min", "nrem_first_half_sdnn_valid_pct", "nrem_first_half_sdnn_p25", "nrem_first_half_sdnn_p75", "nrem_first_half_sdnn_p90", "nrem_first_half_sdnn_iqr", "nrem_first_half_ipi_mean_ms", "nrem_first_half_ipi_median_ms", "nrem_first_half_lf_fixed_mean_ms2", "nrem_first_half_lf_fixed_median_ms2", "nrem_first_half_lf_fixed_p75_ms2", "nrem_first_half_lf_fixed_p90_ms2", "nrem_first_half_lf_fixed_iqr_ms2", "nrem_first_half_hf_fixed_mean_ms2", "nrem_first_half_hf_fixed_median_ms2", "nrem_first_half_hf_fixed_p75_ms2", "nrem_first_half_hf_fixed_p90_ms2", "nrem_first_half_hf_fixed_iqr_ms2",
+        "nrem_first_half_lf_hf_fixed_mean", "nrem_first_half_lf_hf_fixed_median", "nrem_first_half_lf_hf_fixed_p75", "nrem_first_half_lf_hf_fixed_p90", "nrem_first_half_lf_hf_fixed_iqr", "nrem_first_half_lf_hf_fixed_n_windows_valid", "nrem_first_half_lf_hf_fixed_valid_min",
+        "nrem_second_half_rmssd_mean_ms", "nrem_second_half_rmssd_median_ms", "nrem_second_half_rmssd_valid_min", "nrem_second_half_rmssd_valid_pct", "nrem_second_half_rmssd_p25", "nrem_second_half_rmssd_p75", "nrem_second_half_rmssd_p90", "nrem_second_half_rmssd_iqr", "nrem_second_half_sdnn_mean_ms", "nrem_second_half_sdnn_median_ms", "nrem_second_half_sdnn_valid_min", "nrem_second_half_sdnn_valid_pct", "nrem_second_half_sdnn_p25", "nrem_second_half_sdnn_p75", "nrem_second_half_sdnn_p90", "nrem_second_half_sdnn_iqr", "nrem_second_half_ipi_mean_ms", "nrem_second_half_ipi_median_ms", "nrem_second_half_lf_fixed_mean_ms2", "nrem_second_half_lf_fixed_median_ms2", "nrem_second_half_lf_fixed_p75_ms2", "nrem_second_half_lf_fixed_p90_ms2", "nrem_second_half_lf_fixed_iqr_ms2", "nrem_second_half_hf_fixed_mean_ms2", "nrem_second_half_hf_fixed_median_ms2", "nrem_second_half_hf_fixed_p75_ms2", "nrem_second_half_hf_fixed_p90_ms2", "nrem_second_half_hf_fixed_iqr_ms2",
+        "nrem_second_half_lf_hf_fixed_mean", "nrem_second_half_lf_hf_fixed_median", "nrem_second_half_lf_hf_fixed_p75", "nrem_second_half_lf_hf_fixed_p90", "nrem_second_half_lf_hf_fixed_iqr", "nrem_second_half_lf_hf_fixed_n_windows_valid", "nrem_second_half_lf_hf_fixed_valid_min",
         "aux_rows", "desat_n", "desat_pct", "exclude_hr_n", "exclude_hr_pct",
         "exclude_pat_n", "exclude_pat_pct", "evt_central_3_n", "evt_central_3_pct", "evt_obstructive_3_n",
         "evt_obstructive_3_pct", "evt_unclassified_3_n", "evt_unclassified_3_pct", "evt_central_4_n",

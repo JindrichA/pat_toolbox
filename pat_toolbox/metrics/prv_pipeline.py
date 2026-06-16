@@ -206,6 +206,36 @@ def _build_summary_from_clean_pr_and_times(
     max_gap_sec: float,
     min_freq_span_sec: float,
 ) -> Dict[str, float]:
+    def _add_distribution_summary(summary: Dict[str, float], prefix: str, values: np.ndarray) -> None:
+        arr = np.asarray(values, dtype=float)
+        arr = arr[np.isfinite(arr)]
+        suffixes = [
+            "p25",
+            "p75",
+            "p90",
+            "iqr",
+            "p75_over_median",
+            "p90_over_median",
+            "pct_above_p75",
+            "pct_above_p90",
+        ]
+        if arr.size == 0:
+            for suffix in suffixes:
+                summary[f"{prefix}_{suffix}"] = np.nan
+            return
+        p25 = float(np.nanpercentile(arr, 25))
+        p75 = float(np.nanpercentile(arr, 75))
+        p90 = float(np.nanpercentile(arr, 90))
+        med = float(np.nanmedian(arr))
+        summary[f"{prefix}_p25"] = p25
+        summary[f"{prefix}_p75"] = p75
+        summary[f"{prefix}_p90"] = p90
+        summary[f"{prefix}_iqr"] = float(p75 - p25)
+        summary[f"{prefix}_p75_over_median"] = float(p75 / med) if med != 0 else np.nan
+        summary[f"{prefix}_p90_over_median"] = float(p90 / med) if med != 0 else np.nan
+        summary[f"{prefix}_pct_above_p75"] = float(100.0 * np.mean(arr > p75))
+        summary[f"{prefix}_pct_above_p90"] = float(100.0 * np.mean(arr > p90))
+
     sdnn_ms = _sdnn(pr_ms_clean)
     lf, hf, lf_hf, lf_info = _lf_hf_from_pr_segmented(
         pr_ms_clean,
@@ -231,6 +261,8 @@ def _build_summary_from_clean_pr_and_times(
             "lf_hf": float(lf_hf),
             "lf_n_segments_used": int(lf_info["n_segments_used"]),
         }
+        _add_distribution_summary(summary, "rmssd", rmssd_arr)
+        _add_distribution_summary(summary, "sdnn", sdnn_arr)
     else:
         sdnn_arr = np.asarray(sdnn_series_clean, dtype=float)
         sdnn_arr = sdnn_arr[np.isfinite(sdnn_arr)]
@@ -245,6 +277,16 @@ def _build_summary_from_clean_pr_and_times(
             "lf_hf": float(lf_hf),
             "lf_n_segments_used": int(lf_info["n_segments_used"]),
         }
+        _add_distribution_summary(summary, "rmssd", np.asarray([summary["rmssd_mean"]], dtype=float))
+        _add_distribution_summary(summary, "sdnn", sdnn_arr if sdnn_arr.size else np.asarray([summary["sdnn_mean"]], dtype=float))
+
+    _add_distribution_summary(summary, "ipi_ms", pr_ms_clean)
+    ipi_arr = np.asarray(pr_ms_clean, dtype=float)
+    ipi_arr = ipi_arr[np.isfinite(ipi_arr)]
+    summary["ipi_mean_ms"] = float(np.nanmean(ipi_arr)) if ipi_arr.size else np.nan
+    summary["ipi_median_ms"] = float(np.nanmedian(ipi_arr)) if ipi_arr.size else np.nan
+    summary["ipi_std_ms"] = float(np.nanstd(ipi_arr, ddof=1)) if ipi_arr.size > 1 else np.nan
+    summary["ipi_valid_n"] = int(ipi_arr.size)
 
     return summary
 
@@ -278,6 +320,9 @@ def _apply_fixed_window_frequency_summary(
         summary["lf"] = np.nan
         summary["hf"] = np.nan
         summary["lf_hf"] = np.nan
+        for prefix in ["lf_fixed", "hf_fixed", "lf_hf_fixed"]:
+            for suffix in ["p25", "p75", "p90", "iqr", "p75_over_median", "p90_over_median", "pct_above_p75", "pct_above_p90"]:
+                summary[f"{prefix}_{suffix}"] = np.nan
         return summary
 
     lf_vals = np.asarray(lfhf_fixed["lf_ms2"], dtype=float)[valid]
@@ -290,6 +335,19 @@ def _apply_fixed_window_frequency_summary(
     summary["hf_fixed_median"] = float(np.nanmedian(hf_vals))
     summary["lf_hf_fixed_median"] = float(np.nanmedian(lfhf_vals))
     summary["lf_hf_fixed_mean"] = float(np.nanmean(lfhf_vals))
+    for prefix, values in [("lf_fixed", lf_vals), ("hf_fixed", hf_vals), ("lf_hf_fixed", lfhf_vals)]:
+        p25 = float(np.nanpercentile(values, 25))
+        p75 = float(np.nanpercentile(values, 75))
+        p90 = float(np.nanpercentile(values, 90))
+        med = float(np.nanmedian(values))
+        summary[f"{prefix}_p25"] = p25
+        summary[f"{prefix}_p75"] = p75
+        summary[f"{prefix}_p90"] = p90
+        summary[f"{prefix}_iqr"] = float(p75 - p25)
+        summary[f"{prefix}_p75_over_median"] = float(p75 / med) if med != 0 else np.nan
+        summary[f"{prefix}_p90_over_median"] = float(p90 / med) if med != 0 else np.nan
+        summary[f"{prefix}_pct_above_p75"] = float(100.0 * np.mean(values > p75))
+        summary[f"{prefix}_pct_above_p90"] = float(100.0 * np.mean(values > p90))
 
     # Main exported LF/HF metrics now follow the fixed-window analysis.
     summary["lf"] = summary["lf_fixed_mean"]

@@ -322,6 +322,7 @@ def _sleep_combo_row_values(item: Dict[str, Any]) -> tuple[str, list[str], list[
         ])
 
     core_secondary: list[str] = []
+    right: list[str] = []
     if features.is_enabled("prv"):
         core_primary.extend([
             f"{_fmt(prv_summary.get('rmssd_mean'), 1)} ms",
@@ -338,8 +339,18 @@ def _sleep_combo_row_values(item: Dict[str, Any]) -> tuple[str, list[str], list[
             f"{_fmt(prv_summary.get('hf'), 2)}",
             f"{_fmt(prv_summary.get('lf_hf'), 2)}",
         ])
+        right.extend([
+            f"{_fmt(prv_summary.get('rmssd_p90'), 1)} ms",
+            f"{_fmt(prv_summary.get('rmssd_iqr'), 1)} ms",
+            f"{_fmt(prv_summary.get('sdnn_p90'), 1)} ms",
+            f"{_fmt(prv_summary.get('sdnn_iqr'), 1)} ms",
+            f"{_fmt(prv_summary.get('ipi_mean_ms'), 1)} ms",
+            f"{_fmt(prv_summary.get('ipi_median_ms'), 1)} ms",
+            f"{_fmt(prv_summary.get('lf_fixed_p90'), 2)}",
+            f"{_fmt(prv_summary.get('hf_fixed_p90'), 2)}",
+            f"{_fmt(prv_summary.get('lf_hf_fixed_p90'), 2)}",
+        ])
 
-    right: list[str] = []
     if features.is_enabled("psd"):
         right.append(_fmt_int(psd_features.get("n_windows")))
     if features.is_enabled("delta_hr"):
@@ -374,6 +385,8 @@ def _sleep_combo_tables(sleep_combo_summaries: Optional[Dict[str, Dict[str, obje
         secondary_headers.extend(["SDNN mean", "SDNN med", "RMSSD valid\n[min]", "RMSSD valid\n[%]", "SDNN valid\n[min]", "SDNN valid\n[%]", "LF mean\n[ms^2]", "HF mean\n[ms^2]", "LF/HF mean\n[-]"])
 
     right_headers = ["Subset"]
+    if features.is_enabled("prv"):
+        right_headers.extend(["RMSSD p90", "RMSSD IQR", "SDNN p90", "SDNN IQR", "IPI mean", "IPI med", "LF fixed p90", "HF fixed p90", "LF/HF fixed p90"])
     if features.is_enabled("psd"):
         right_headers.append("PSD win")
     if features.is_enabled("delta_hr"):
@@ -553,7 +566,21 @@ def _build_time_series_feature_rows(
         rmssd_median = prv_summary.get("rmssd_median") if prv_summary else None
         sdnn_mean = prv_summary.get("sdnn_mean") if prv_summary else None
         sdnn_median = prv_summary.get("sdnn_median") if prv_summary else None
-        rows += [["Selected-policy time-series features", ""], ["  RMSSD mean [ms]", _fmt(rmssd_mean, 2)], ["  RMSSD median [ms]", _fmt(rmssd_median, 2)], ["  SDNN mean [ms]", _fmt(sdnn_mean, 2)], ["  SDNN median [ms]", _fmt(sdnn_median, 2)]]
+        rows += [
+            ["Selected-policy time-series features", ""],
+            ["  RMSSD mean [ms]", _fmt(rmssd_mean, 2)],
+            ["  RMSSD median [ms]", _fmt(rmssd_median, 2)],
+            ["  RMSSD p75 / p90 [ms]", f"{_fmt(prv_summary.get('rmssd_p75') if prv_summary else None, 2)} / {_fmt(prv_summary.get('rmssd_p90') if prv_summary else None, 2)}"],
+            ["  RMSSD IQR [ms]", _fmt(prv_summary.get("rmssd_iqr") if prv_summary else None, 2)],
+            ["  RMSSD p90/median [-]", _fmt(prv_summary.get("rmssd_p90_over_median") if prv_summary else None, 3)],
+            ["  SDNN mean [ms]", _fmt(sdnn_mean, 2)],
+            ["  SDNN median [ms]", _fmt(sdnn_median, 2)],
+            ["  SDNN p75 / p90 [ms]", f"{_fmt(prv_summary.get('sdnn_p75') if prv_summary else None, 2)} / {_fmt(prv_summary.get('sdnn_p90') if prv_summary else None, 2)}"],
+            ["  SDNN IQR [ms]", _fmt(prv_summary.get("sdnn_iqr") if prv_summary else None, 2)],
+            ["  SDNN p90/median [-]", _fmt(prv_summary.get("sdnn_p90_over_median") if prv_summary else None, 3)],
+            ["  IPI mean / median [ms]", f"{_fmt(prv_summary.get('ipi_mean_ms') if prv_summary else None, 2)} / {_fmt(prv_summary.get('ipi_median_ms') if prv_summary else None, 2)}"],
+            ["  IPI p75 / p90 [ms]", f"{_fmt(prv_summary.get('ipi_ms_p75') if prv_summary else None, 2)} / {_fmt(prv_summary.get('ipi_ms_p90') if prv_summary else None, 2)}"],
+        ]
     if features.is_enabled("delta_hr"):
         if rows:
             rows += [["", ""]]
@@ -595,7 +622,24 @@ def _build_spectral_feature_rows(
         lf_hf = prv_summary.get("lf_hf") if prv_summary else None
         rows += [["Selected-policy spectral parameters", ""], ["  LF mean [ms^2]", _fmt(lf, 2)], ["  HF mean [ms^2]", _fmt(hf, 2)], ["  LF/HF mean [-]", _fmt(lf_hf, 2)]]
         if prv_summary:
-            rows += [["  LF median [ms^2]", _fmt(prv_summary.get("lf_fixed_median"), 2)], ["  HF median [ms^2]", _fmt(prv_summary.get("hf_fixed_median"), 2)], ["  LF/HF median [-]", _fmt(prv_summary.get("lf_hf_fixed_median"), 2)], ["  Valid LF/HF windows [n]", _fmt_int(prv_summary.get("lf_hf_fixed_n_windows_valid"))], ["  Total LF/HF windows [n]", _fmt_int(prv_summary.get("lf_hf_fixed_n_windows_total"))], ["  Valid LF/HF [min]", _fmt_num(prv_summary.get("lf_hf_fixed_valid_min"), 1)], ["  Valid LF/HF [%]", _fmt_pct(prv_summary.get("lf_hf_fixed_valid_pct"), 1)], ["  Total LF/HF [min]", _fmt_num(prv_summary.get("lf_hf_fixed_total_min"), 1)], ["  LF/HF window [s]", _fmt(prv_summary.get("lf_hf_fixed_window_sec"), 0)], ["  LF/HF hop [s]", _fmt(prv_summary.get("lf_hf_fixed_hop_sec"), 0)]]
+            rows += [
+                ["  LF median [ms^2]", _fmt(prv_summary.get("lf_fixed_median"), 2)],
+                ["  LF p75 / p90 [ms^2]", f"{_fmt(prv_summary.get('lf_fixed_p75'), 2)} / {_fmt(prv_summary.get('lf_fixed_p90'), 2)}"],
+                ["  LF IQR [ms^2]", _fmt(prv_summary.get("lf_fixed_iqr"), 2)],
+                ["  HF median [ms^2]", _fmt(prv_summary.get("hf_fixed_median"), 2)],
+                ["  HF p75 / p90 [ms^2]", f"{_fmt(prv_summary.get('hf_fixed_p75'), 2)} / {_fmt(prv_summary.get('hf_fixed_p90'), 2)}"],
+                ["  HF IQR [ms^2]", _fmt(prv_summary.get("hf_fixed_iqr"), 2)],
+                ["  LF/HF median [-]", _fmt(prv_summary.get("lf_hf_fixed_median"), 2)],
+                ["  LF/HF p75 / p90 [-]", f"{_fmt(prv_summary.get('lf_hf_fixed_p75'), 2)} / {_fmt(prv_summary.get('lf_hf_fixed_p90'), 2)}"],
+                ["  LF/HF IQR [-]", _fmt(prv_summary.get("lf_hf_fixed_iqr"), 2)],
+                ["  Valid LF/HF windows [n]", _fmt_int(prv_summary.get("lf_hf_fixed_n_windows_valid"))],
+                ["  Total LF/HF windows [n]", _fmt_int(prv_summary.get("lf_hf_fixed_n_windows_total"))],
+                ["  Valid LF/HF [min]", _fmt_num(prv_summary.get("lf_hf_fixed_valid_min"), 1)],
+                ["  Valid LF/HF [%]", _fmt_pct(prv_summary.get("lf_hf_fixed_valid_pct"), 1)],
+                ["  Total LF/HF [min]", _fmt_num(prv_summary.get("lf_hf_fixed_total_min"), 1)],
+                ["  LF/HF window [s]", _fmt(prv_summary.get("lf_hf_fixed_window_sec"), 0)],
+                ["  LF/HF hop [s]", _fmt(prv_summary.get("lf_hf_fixed_hop_sec"), 0)],
+            ]
 
     if features.is_enabled("psd"):
         if rows:
@@ -1193,14 +1237,24 @@ def _build_midpoint_half_rows(prv_midpoint_halves: Optional[Dict[str, Dict[str, 
     return [
         ["RMSSD mean [ms]", _fmt(first.get("rmssd_mean"), 2), _fmt(second.get("rmssd_mean"), 2)],
         ["RMSSD median [ms]", _fmt(first.get("rmssd_median"), 2), _fmt(second.get("rmssd_median"), 2)],
+        ["RMSSD p75 [ms]", _fmt(first.get("rmssd_p75"), 2), _fmt(second.get("rmssd_p75"), 2)],
+        ["RMSSD p90 [ms]", _fmt(first.get("rmssd_p90"), 2), _fmt(second.get("rmssd_p90"), 2)],
+        ["RMSSD IQR [ms]", _fmt(first.get("rmssd_iqr"), 2), _fmt(second.get("rmssd_iqr"), 2)],
         ["SDNN mean [ms]", _fmt(first.get("sdnn_mean"), 2), _fmt(second.get("sdnn_mean"), 2)],
         ["SDNN median [ms]", _fmt(first.get("sdnn_median"), 2), _fmt(second.get("sdnn_median"), 2)],
+        ["SDNN p75 [ms]", _fmt(first.get("sdnn_p75"), 2), _fmt(second.get("sdnn_p75"), 2)],
+        ["SDNN p90 [ms]", _fmt(first.get("sdnn_p90"), 2), _fmt(second.get("sdnn_p90"), 2)],
+        ["SDNN IQR [ms]", _fmt(first.get("sdnn_iqr"), 2), _fmt(second.get("sdnn_iqr"), 2)],
+        ["IPI median [ms]", _fmt(first.get("ipi_median_ms"), 2), _fmt(second.get("ipi_median_ms"), 2)],
         ["LF mean [ms^2]", _fmt(first.get("lf"), 2), _fmt(second.get("lf"), 2)],
         ["LF median [ms^2]", _fmt(first.get("lf_fixed_median"), 2), _fmt(second.get("lf_fixed_median"), 2)],
+        ["LF p90 [ms^2]", _fmt(first.get("lf_fixed_p90"), 2), _fmt(second.get("lf_fixed_p90"), 2)],
         ["HF mean [ms^2]", _fmt(first.get("hf"), 2), _fmt(second.get("hf"), 2)],
         ["HF median [ms^2]", _fmt(first.get("hf_fixed_median"), 2), _fmt(second.get("hf_fixed_median"), 2)],
+        ["HF p90 [ms^2]", _fmt(first.get("hf_fixed_p90"), 2), _fmt(second.get("hf_fixed_p90"), 2)],
         ["LF/HF mean [-]", _fmt(first.get("lf_hf"), 2), _fmt(second.get("lf_hf"), 2)],
         ["LF/HF median [-]", _fmt(first.get("lf_hf_fixed_median"), 2), _fmt(second.get("lf_hf_fixed_median"), 2)],
+        ["LF/HF p90 [-]", _fmt(first.get("lf_hf_fixed_p90"), 2), _fmt(second.get("lf_hf_fixed_p90"), 2)],
         ["Valid LF/HF [min]", _fmt_num(first.get("lf_hf_fixed_valid_min"), 1), _fmt_num(second.get("lf_hf_fixed_valid_min"), 1)],
     ]
 
