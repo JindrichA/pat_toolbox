@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pandas as pd
 
 from . import config, features, filters, io_aux_csv, io_edf, sleep_mask
 from .context import RecordingContext
@@ -39,12 +40,48 @@ def load_pat_amp(ctx: RecordingContext) -> None:
         ctx.t_pat_amp, ctx.pat_amp = None, None
 
 
+def load_spo2(ctx: RecordingContext) -> None:
+    ctx.t_spo2 = None
+    ctx.spo2 = None
+    ctx.spo2_channel_name = None
+    if not bool(getattr(config, "ENABLE_SPO2_VALIDATION_PLOTS", False)):
+        return
+    try:
+        candidates = getattr(config, "SPO2_CHANNEL_CANDIDATES", ("SpO2", "SPO2"))
+        spo2_signal, spo2_fs, channel_name = io_edf.read_first_available_edf_channel(ctx.edf_path, candidates)
+        if spo2_fs <= 0:
+            raise ValueError("SpO2 sampling frequency <= 0")
+        n = len(spo2_signal)
+        if n <= 0:
+            raise ValueError("SpO2 channel is empty")
+        ctx.t_spo2 = np.arange(n) / spo2_fs
+        ctx.spo2 = spo2_signal.astype(float)
+        ctx.spo2_channel_name = channel_name
+        print(f"  Loaded SpO2 channel '{channel_name}' ({spo2_fs:.3g} Hz).")
+    except Exception as e:
+        print(f"  WARNING: could not read optional SpO2 channel: {e}")
+
+
 def load_aux_csv(ctx: RecordingContext) -> None:
     try:
         ctx.aux_df = io_aux_csv.read_aux_csv_for_edf(ctx.edf_path)
         if ctx.aux_df is not None:
             ctx.aux_df = sleep_mask.ensure_stage_code_column(ctx.aux_df)
             print(f"  Loaded aux CSV for {ctx.edf_path.name} with {len(ctx.aux_df)} rows.")
+            if (
+                bool(getattr(config, "ENABLE_SPO2_VALIDATION_PLOTS", False))
+                and ctx.spo2 is None
+                and "spo2" in ctx.aux_df.columns
+                and getattr(config, "AUX_CSV_TIME_SEC_COLUMN", "time_sec") in ctx.aux_df.columns
+            ):
+                t = ctx.aux_df[getattr(config, "AUX_CSV_TIME_SEC_COLUMN", "time_sec")].to_numpy(dtype=float)
+                y = pd.to_numeric(ctx.aux_df["spo2"], errors="coerce").to_numpy(dtype=float)
+                if t.size == y.size and np.any(np.isfinite(t)) and np.any(np.isfinite(y)):
+                    ok = np.isfinite(t)
+                    ctx.t_spo2 = t[ok]
+                    ctx.spo2 = y[ok].astype(float)
+                    ctx.spo2_channel_name = "aux_csv:spo2"
+                    print("  Loaded SpO2 from aux CSV column 'spo2'.")
         else:
             print(f"  No aux CSV found for {ctx.edf_path.name}.")
     except Exception as e:

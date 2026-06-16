@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Optional, Dict, Any, List, Tuple
 
 import numpy as np
@@ -39,6 +38,21 @@ def _sleep_hours_from_mask(m_sleep_keep: np.ndarray, t_sec: np.ndarray) -> float
     return sleep_sec / 3600.0
 
 
+def _estimate_dt_sec(t_sec: np.ndarray) -> float:
+    t = np.asarray(t_sec, dtype=float)
+    d = np.diff(t[np.isfinite(t)])
+    d = d[d > 0]
+    return float(np.median(d)) if d.size else 1.0
+
+
+def _minutes_from_mask(mask: np.ndarray, t_sec: np.ndarray) -> float:
+    m = np.asarray(mask, dtype=bool)
+    if m.size == 0:
+        return 0.0
+    dt_sec = _estimate_dt_sec(t_sec)
+    return float(np.count_nonzero(m) * dt_sec / 60.0)
+
+
 def compute_pat_burden_from_pat_amp(
     *,
     t_sec: np.ndarray,
@@ -69,9 +83,11 @@ def compute_pat_burden_from_pat_amp(
 
     m_sleep_keep = np.asarray(bundle.sleep_keep, dtype=bool)
     m_evt_keep = np.asarray(bundle.event_keep & bundle.desat_keep, dtype=bool)
+    finite_pat = np.isfinite(y)
 
     # "Inside event+desat region" = NOT keep
     m_inside = np.asarray(m_sleep_keep, dtype=bool) & (~np.asarray(m_evt_keep, dtype=bool))
+    m_inside_finite = m_inside & finite_pat
 
     sleep_hours = _sleep_hours_from_mask(np.asarray(m_sleep_keep, dtype=bool), t_sec)
     if sleep_hours <= 0:
@@ -173,16 +189,37 @@ def compute_pat_burden_from_pat_amp(
 
     burden = total_area / sleep_hours if sleep_hours > 0 else np.nan
 
+    skipped_reason_counts: Dict[str, int] = {}
+    n_used = 0
+    for ep in episodes:
+        if ep.get("used"):
+            n_used += 1
+            continue
+        reason = str(ep.get("reason", "unknown"))
+        skipped_reason_counts[reason] = skipped_reason_counts.get(reason, 0) + 1
+
     diag: Dict[str, Any] = {
         "sleep_hours": float(sleep_hours),
         "n_episodes": int(len(runs)),
-        "n_episodes_used": int(sum(1 for ep in episodes if ep.get("used"))),
+        "n_episodes_used": int(n_used),
+        "n_episodes_skipped": int(len(episodes) - n_used),
         "total_area_min": float(total_area),
         "burden_per_sleep_hour": float(burden) if np.isfinite(burden) else np.nan,
         "relative": bool(use_rel),
         "baseline_lookback_sec": float(lookback),
         "baseline_pctl": float(pctl),
+        "baseline_min_samples": int(min_base_n),
         "min_episode_sec": float(min_ep_sec),
+        "pat_amp_total_min": _minutes_from_mask(np.isfinite(t_sec), t_sec),
+        "pat_amp_finite_min": _minutes_from_mask(finite_pat, t_sec),
+        "sleep_selected_min": _minutes_from_mask(m_sleep_keep, t_sec),
+        "inside_event_desat_min": _minutes_from_mask(m_inside, t_sec),
+        "inside_event_desat_finite_min": _minutes_from_mask(m_inside_finite, t_sec),
+        "outside_event_desat_min": _minutes_from_mask(m_sleep_keep & m_evt_keep, t_sec),
+        "pat_amp_invalid_inside_min": _minutes_from_mask(m_inside & (~finite_pat), t_sec),
+        "pat_amp_invalid_selected_min": _minutes_from_mask(m_sleep_keep & (~finite_pat), t_sec),
+        "nan_pct_inside": float(100.0 * np.mean(~finite_pat[m_inside])) if np.any(m_inside) else np.nan,
+        "skipped_reason_counts": skipped_reason_counts,
     }
 
     return (float(burden) if np.isfinite(burden) else np.nan), diag, episodes

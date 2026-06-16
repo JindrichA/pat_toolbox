@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import csv
+from pathlib import Path
 from typing import Dict, Optional
 
 import numpy as np
 
-from .. import config, masking
+from .. import config, masking, paths
 
 
 def _contiguous_true_runs(mask: np.ndarray) -> list[tuple[int, int]]:
@@ -177,7 +179,14 @@ def summarize_event_hr_response(
     hr_bpm: np.ndarray,
     aux_df,
     *,
-    include_set: set[int],
+    include_set: Optional[set[int]] = None,
+) -> Dict[str, float]:
+    windows = extract_event_hr_windows(t_hr, hr_bpm, aux_df, include_set=include_set)
+    return summarize_event_hr_response_from_windows(windows)
+
+
+def summarize_event_hr_response_from_windows(
+    windows: list[dict[str, float]],
 ) -> Dict[str, float]:
     out = {
         "n_event_windows": 0.0,
@@ -185,7 +194,6 @@ def summarize_event_hr_response(
         "trough_to_peak_response_mean": np.nan,
         "mean_to_peak_response_mean": np.nan,
     }
-    windows = extract_event_hr_windows(t_hr, hr_bpm, aux_df, include_set=include_set)
     out["n_event_windows"] = float(len(windows))
     if not windows:
         return out
@@ -194,3 +202,25 @@ def summarize_event_hr_response(
     out["trough_to_peak_response_mean"] = float(np.nanmean([w["trough_to_peak_response"] for w in windows]))
     out["mean_to_peak_response_mean"] = float(np.nanmean([w["mean_to_peak_response"] for w in windows]))
     return out
+
+
+def save_event_hr_windows_to_csv(
+    edf_path: Path,
+    windows: list[dict[str, float]],
+) -> Path | None:
+    if not windows:
+        return None
+
+    out_folder = paths.get_output_folder(
+        getattr(config, "DELTA_HR_OUTPUT_SUBFOLDER", getattr(config, "HR_OUTPUT_SUBFOLDER", config.OUTPUT_SUBFOLDER)),
+    )
+    out_csv = out_folder / f"{edf_path.stem}__Event_HR_Windows.csv"
+    fieldnames = list(windows[0].keys())
+
+    with out_csv.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in windows:
+            writer.writerow(row)
+
+    return out_csv

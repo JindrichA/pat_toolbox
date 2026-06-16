@@ -9,8 +9,9 @@ from .io_aux_csv import compute_sleep_timing_from_aux
 from .metrics import hr as hr_metrics
 from .metrics import prv as prv_metrics
 from .metrics import pat_burden as pat_burden_metrics
+from .metrics import pwa_drop as pwa_drop_metrics
 from .metrics import psd as psd_metrics
-from .metrics.hr_event_response import summarize_event_hr_response
+from .metrics.hr_event_response import extract_event_hr_windows, summarize_event_hr_response, summarize_event_hr_response_from_windows
 
 
 def _hr_summary_for_subset(
@@ -89,6 +90,19 @@ def _compute_single_sleep_combo_summary(
             include_set=include_set,
         )
 
+    pwa_drop_summary = None
+    pwa_signal = ctx.view_pat_filt if ctx.view_pat_filt is not None else ctx.view_pat
+    if features.is_enabled("pwa_drop") and pwa_signal is not None and ctx.sfreq is not None and aux_df is not None:
+        try:
+            _t_pwa, _pwa_series, pwa_drop_summary, _events = pwa_drop_metrics.compute_pwa_drop_from_pat_signal(
+                pwa_signal,
+                ctx.sfreq,
+                aux_df=aux_df,
+                include_set=include_set,
+            )
+        except Exception:
+            pwa_drop_summary = None
+
     return {
         "label": label,
         "include_set": set(include_set),
@@ -97,6 +111,7 @@ def _compute_single_sleep_combo_summary(
         "prv_summary": prv_summary,
         "psd_features": psd_features,
         "hr_event_response_summary": hr_event_response_summary,
+        "pwa_drop_summary": pwa_drop_summary,
         "pat_burden": burden,
         "pat_burden_diag": burden_diag,
     }
@@ -127,11 +142,50 @@ def compute_pat_burden_step(ctx: RecordingContext) -> None:
         ctx.pat_burden_episodes = None
 
 
+def compute_pwa_drop_step(ctx: RecordingContext) -> None:
+    if not features.is_enabled("pwa_drop"):
+        ctx.t_pwa = None
+        ctx.pwa_series = None
+        ctx.pwa_drop_summary = None
+        ctx.pwa_drop_events = None
+        return
+    if ctx.view_pat_filt is None or ctx.sfreq is None or ctx.sfreq <= 0:
+        ctx.t_pwa = None
+        ctx.pwa_series = None
+        ctx.pwa_drop_summary = None
+        ctx.pwa_drop_events = None
+        return
+    include_set = set(config.sleep_include_numeric()) if bool(getattr(config, "ENABLE_SLEEP_STAGE_MASKING", False)) else None
+    try:
+        t_pwa, pwa_series, summary, events = pwa_drop_metrics.compute_pwa_drop_from_pat_signal(
+            ctx.view_pat_filt,
+            ctx.sfreq,
+            aux_df=ctx.aux_df,
+            include_set=include_set,
+        )
+        ctx.t_pwa = t_pwa
+        ctx.pwa_series = pwa_series
+        ctx.pwa_drop_summary = summary
+        ctx.pwa_drop_events = events
+        if isinstance(summary, dict) and np.isfinite(float(summary.get("drop_rate_per_sleep_hour", np.nan))):
+            print(
+                "  PWA drop summary: "
+                f"n={int(summary.get('n_drops', 0))}, "
+                f"rate={float(summary.get('drop_rate_per_sleep_hour', np.nan)):.2f}/h"
+            )
+    except Exception as e:
+        print(f"  WARNING: PWA drop computation failed: {e}")
+        ctx.t_pwa = None
+        ctx.pwa_series = None
+        ctx.pwa_drop_summary = None
+        ctx.pwa_drop_events = None
+
+
 def compute_sleep_combo_summaries_step(ctx: RecordingContext) -> None:
     ctx.sleep_combo_summaries = None
     if not features.is_enabled("sleep_combo_summary"):
         return
-    if not features.any_enabled("hr", "prv", "psd", "delta_hr", "pat_burden"):
+    if not features.any_enabled("hr", "prv", "psd", "delta_hr", "pat_burden", "pwa_drop"):
         return
     if ctx.view_pat is None or ctx.sfreq is None or ctx.sfreq <= 0:
         return
@@ -201,6 +255,32 @@ def compute_hr_from_pat_step(ctx: RecordingContext) -> None:
         print(f"  WARNING: could not compute HR from PAT: {e}")
         ctx.t_hr_calc, ctx.hr_calc = None, None
         ctx.hr_calc_raw = None
+
+
+def compute_delta_hr_step(ctx: RecordingContext) -> None:
+    if not features.is_enabled("delta_hr"):
+        ctx.hr_event_response_summary = None
+        ctx.hr_event_windows = None
+        return
+    if ctx.t_hr_calc is None or ctx.hr_calc_raw is None or ctx.aux_df is None:
+        ctx.hr_event_response_summary = None
+        ctx.hr_event_windows = None
+        return
+
+    include_set = set(config.sleep_include_numeric()) if bool(getattr(config, "ENABLE_SLEEP_STAGE_MASKING", False)) else None
+    try:
+        windows = extract_event_hr_windows(
+            ctx.t_hr_calc,
+            ctx.hr_calc_raw,
+            ctx.aux_df,
+            include_set=include_set,
+        )
+        ctx.hr_event_windows = windows
+        ctx.hr_event_response_summary = summarize_event_hr_response_from_windows(windows)
+    except Exception as e:
+        print(f"  WARNING: delta HR computation failed: {e}")
+        ctx.hr_event_response_summary = None
+        ctx.hr_event_windows = None
 
 
 def compute_prv_step(ctx: RecordingContext) -> None:

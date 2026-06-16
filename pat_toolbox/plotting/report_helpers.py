@@ -7,19 +7,21 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.backends.backend_pdf import PdfPages
 
-from .. import features
+from .. import config, features
 from ..metrics.psd import compute_psd_figures_and_peaks
 from .feature_overview_builders import (
     _build_event_response_overview_figure,
     _build_hr_overview_figure,
+    _build_pwa_drop_overview_figure,
     _build_prv_rmssd_overview_figure,
+    _build_spo2_overview_figure,
     _build_multi_series_overview_figure,
     _build_pat_burden_overview_figure,
     _build_single_series_overview_figure,
 )
 from .figures_prv import _build_stagegram_and_prv_tv_figure
-from .figures_summary import _build_sleep_stagegram_figure, build_summary_pages
-from .segments import _add_segment_pages_to_pdf
+from .figures_summary import _build_sleep_stagegram_figure, build_front_page, build_summary_pages
+from .segments import _add_event_vascular_segment_pages_to_pdf, _add_prv_segment_pages_to_pdf, _add_segment_pages_to_pdf
 from .specs import active_event_plot_spec
 from .utils import _compute_exclusion_zones, _infer_edf_base
 
@@ -73,6 +75,8 @@ def _build_summary_pages_for_enabled_features(
     mayer_peak_freq,
     resp_peak_freq,
     aux_df,
+    hr_event_response_summary,
+    pwa_drop_summary,
     t_hr_calc,
     hr_calc,
     t_prv,
@@ -105,6 +109,8 @@ def _build_summary_pages_for_enabled_features(
         prv_raw=prv_rmssd_raw,
         prv_tv=prv_tv,
         psd_features=psd_features,
+        hr_event_response_summary=hr_event_response_summary,
+        pwa_drop_summary=pwa_drop_summary,
         pat_burden=pat_burden,
         pat_burden_diag=pat_burden_diag,
         sleep_combo_summaries=sleep_combo_summaries,
@@ -127,6 +133,13 @@ def _build_prv_report_figures(
     sleep_combo_summaries,
     prv_mask_info,
 ) -> Dict[str, Any]:
+    if not bool(getattr(config, "ENABLE_PRV_REPORT_PAGES", True)):
+        return {
+            "fig_stage": None,
+            "fig_stage_tv": None,
+            "fig_ov": None,
+        }
+
     use_prv = features.is_enabled("prv") and t_prv is not None and prv_rmssd is not None and np.size(prv_rmssd) > 0
     has_tv = use_prv and t_prv is not None and prv_tv is not None and isinstance(prv_tv, dict) and len(prv_tv) > 0
 
@@ -170,6 +183,8 @@ def _build_feature_overview_figures(
     exclusion_zones,
     event_spec,
     aux_df,
+    hr_event_response_summary,
+    pwa_drop_summary,
     t_hr_calc,
     hr_calc,
     hr_calc_raw,
@@ -180,6 +195,11 @@ def _build_feature_overview_figures(
     prv_mask_info,
     t_pat_amp,
     pat_amp,
+    t_pwa,
+    pwa_series,
+    pwa_drop_events,
+    t_spo2,
+    spo2,
 ) -> list[Any]:
     figs: list[Any] = []
 
@@ -197,7 +217,7 @@ def _build_feature_overview_figures(
         if fig is not None:
             figs.append(fig)
 
-    if features.is_enabled("prv"):
+    if features.is_enabled("prv") and bool(getattr(config, "ENABLE_PRV_REPORT_PAGES", True)):
         fig = _build_prv_rmssd_overview_figure(
             edf_base=edf_base,
             t_prv=t_prv,
@@ -278,6 +298,7 @@ def _build_feature_overview_figures(
             exclusion_zones=exclusion_zones,
             duration_sec_fallback=duration_sec,
             event_spec=event_spec,
+            hr_event_response_summary=hr_event_response_summary,
         )
         if fig is not None:
             figs.append(fig)
@@ -287,6 +308,34 @@ def _build_feature_overview_figures(
             edf_base=edf_base,
             t_pat_amp=t_pat_amp,
             pat_amp=pat_amp,
+            aux_df=aux_df,
+            exclusion_zones=exclusion_zones,
+            duration_sec_fallback=duration_sec,
+            event_spec=event_spec,
+        )
+        if fig is not None:
+            figs.append(fig)
+
+    if features.is_enabled("pwa_drop"):
+        fig = _build_pwa_drop_overview_figure(
+            edf_base=edf_base,
+            t_pwa=t_pwa,
+            pwa_series=pwa_series,
+            pwa_drop_events=pwa_drop_events,
+            pwa_drop_summary=pwa_drop_summary,
+            aux_df=aux_df,
+            exclusion_zones=exclusion_zones,
+            duration_sec_fallback=duration_sec,
+            event_spec=event_spec,
+        )
+        if fig is not None:
+            figs.append(fig)
+
+    if bool(getattr(config, "ENABLE_SPO2_VALIDATION_PLOTS", False)):
+        fig = _build_spo2_overview_figure(
+            edf_base=edf_base,
+            t_spo2=t_spo2,
+            spo2=spo2,
             aux_df=aux_df,
             exclusion_zones=exclusion_zones,
             duration_sec_fallback=duration_sec,
@@ -315,20 +364,56 @@ def _build_report_figures(
     prv_tv,
     prv_summary,
     aux_df,
+    hr_event_response_summary,
+    hr_event_windows,
+    pwa_drop_summary,
     pat_burden,
     pat_burden_diag,
+    pat_burden_episodes,
     sleep_combo_summaries,
     prv_mask_info,
     prv_midpoint_halves,
     hr_calc_raw,
     t_pat_amp,
     pat_amp,
+    t_pwa,
+    pwa_series,
+    pwa_drop_events,
+    t_spo2,
+    spo2,
 ):
+    front_page = build_front_page(
+        edf_base=edf_base,
+        aux_df=aux_df,
+        t_hr_calc=t_hr_calc,
+        hr_calc=hr_calc,
+        hr_calc_raw=hr_calc_raw,
+        hr_event_windows=hr_event_windows,
+        prv_summary=prv_summary,
+        t_prv=t_prv,
+        prv_clean=prv_rmssd,
+        hr_event_response_summary=hr_event_response_summary,
+        pat_burden=pat_burden,
+        pat_burden_diag=pat_burden_diag,
+        pat_burden_episodes=pat_burden_episodes,
+        t_pat_amp=t_pat_amp,
+        pat_amp=pat_amp,
+        pwa_drop_summary=pwa_drop_summary,
+        t_pwa=t_pwa,
+        pwa_series=pwa_series,
+        pwa_drop_events=pwa_drop_events,
+        t_spo2=t_spo2,
+        spo2=spo2,
+        event_spec=list(event_spec),
+    )
+
     summary_pages = _build_summary_pages_for_enabled_features(
         edf_base=edf_base,
         mayer_peak_freq=mayer_peak_freq,
         resp_peak_freq=resp_peak_freq,
         aux_df=aux_df,
+        hr_event_response_summary=hr_event_response_summary,
+        pwa_drop_summary=pwa_drop_summary,
         t_hr_calc=t_hr_calc,
         hr_calc=hr_calc,
         t_prv=t_prv,
@@ -367,6 +452,8 @@ def _build_report_figures(
         exclusion_zones=exclusion_zones,
         event_spec=event_spec,
         aux_df=aux_df,
+        hr_event_response_summary=hr_event_response_summary,
+        pwa_drop_summary=pwa_drop_summary,
         t_hr_calc=t_hr_calc,
         hr_calc=hr_calc,
         hr_calc_raw=hr_calc_raw,
@@ -377,9 +464,15 @@ def _build_report_figures(
         prv_mask_info=prv_mask_info,
         t_pat_amp=t_pat_amp,
         pat_amp=pat_amp,
+        t_pwa=t_pwa,
+        pwa_series=pwa_series,
+        pwa_drop_events=pwa_drop_events,
+        t_spo2=t_spo2,
+        spo2=spo2,
     )
 
     return {
+        "front_page": front_page,
         "summary_pages": summary_pages,
         "overview_figures": overview_figures,
         **figure_bundle,
@@ -389,6 +482,7 @@ def _build_report_figures(
 def _write_report_pdf(
     pdf_path: Path,
     *,
+    front_page,
     fig_stage_tv,
     fig_stage,
     fig_psd_zoom,
@@ -400,6 +494,11 @@ def _write_report_pdf(
 ) -> None:
     try:
         with PdfPages(str(pdf_path)) as pdf:
+            if front_page is not None:
+                pdf.savefig(front_page)
+                _close_figure(front_page)
+                front_page = None
+
             if fig_stage_tv is not None:
                 pdf.savefig(fig_stage_tv)
                 _close_figure(fig_stage_tv)
@@ -433,7 +532,13 @@ def _write_report_pdf(
                 _close_figure(fig)
             summary_pages = []
 
-            _add_segment_pages_to_pdf(pdf, **cast(dict[str, Any], segment_kwargs))
+            summary_mode = str(getattr(config, "SUMMARY_FRONT_PAGE_MODE", "prv")).lower()
+            if summary_mode == "event_vascular":
+                _add_event_vascular_segment_pages_to_pdf(pdf, **cast(dict[str, Any], segment_kwargs))
+                if bool(getattr(config, "ENABLE_PRV_REPORT_PAGES", True)):
+                    _add_prv_segment_pages_to_pdf(pdf, **cast(dict[str, Any], segment_kwargs))
+            else:
+                _add_segment_pages_to_pdf(pdf, **cast(dict[str, Any], segment_kwargs))
     except Exception:
         if pdf_path.exists():
             try:

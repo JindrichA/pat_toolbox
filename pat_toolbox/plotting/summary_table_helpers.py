@@ -5,11 +5,19 @@ from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.lines import Line2D
 from matplotlib.ticker import FuncFormatter, MultipleLocator
 
 from .. import config, features, io_aux_csv, masking, sleep_mask
 from ..io.aux_events import compute_sleep_timing_from_aux
-from .prv_plot_utils import _add_colored_event_key, _overlay_events_on_single_axis_whole_night
+from .prv_plot_utils import (
+    _add_colored_event_key,
+    _add_metric_legend,
+    _add_summary_line,
+    _bin_series_mean_ci,
+    _overlay_events_on_single_axis_whole_night,
+    _plot_binned_series_with_support,
+)
 from .segment_plot_helpers import _overlay_pat_burden_area
 from .summary_hypnogram import _plot_sleep_stagegram_on_axis
 from .utils import _count_flags, _fmt, _shade_masked_regions
@@ -314,6 +322,7 @@ def _sleep_combo_row_values(item: Dict[str, Any]) -> tuple[str, list[str], list[
         ])
 
     core_secondary: list[str] = []
+    right: list[str] = []
     if features.is_enabled("prv"):
         core_primary.extend([
             f"{_fmt(prv_summary.get('rmssd_mean'), 1)} ms",
@@ -330,8 +339,18 @@ def _sleep_combo_row_values(item: Dict[str, Any]) -> tuple[str, list[str], list[
             f"{_fmt(prv_summary.get('hf'), 2)}",
             f"{_fmt(prv_summary.get('lf_hf'), 2)}",
         ])
+        right.extend([
+            f"{_fmt(prv_summary.get('rmssd_p90'), 1)} ms",
+            f"{_fmt(prv_summary.get('rmssd_iqr'), 1)} ms",
+            f"{_fmt(prv_summary.get('sdnn_p90'), 1)} ms",
+            f"{_fmt(prv_summary.get('sdnn_iqr'), 1)} ms",
+            f"{_fmt(prv_summary.get('ipi_mean_ms'), 1)} ms",
+            f"{_fmt(prv_summary.get('ipi_median_ms'), 1)} ms",
+            f"{_fmt(prv_summary.get('lf_fixed_p90'), 2)}",
+            f"{_fmt(prv_summary.get('hf_fixed_p90'), 2)}",
+            f"{_fmt(prv_summary.get('lf_hf_fixed_p90'), 2)}",
+        ])
 
-    right: list[str] = []
     if features.is_enabled("psd"):
         right.append(_fmt_int(psd_features.get("n_windows")))
     if features.is_enabled("delta_hr"):
@@ -366,6 +385,8 @@ def _sleep_combo_tables(sleep_combo_summaries: Optional[Dict[str, Dict[str, obje
         secondary_headers.extend(["SDNN mean", "SDNN med", "RMSSD valid\n[min]", "RMSSD valid\n[%]", "SDNN valid\n[min]", "SDNN valid\n[%]", "LF mean\n[ms^2]", "HF mean\n[ms^2]", "LF/HF mean\n[-]"])
 
     right_headers = ["Subset"]
+    if features.is_enabled("prv"):
+        right_headers.extend(["RMSSD p90", "RMSSD IQR", "SDNN p90", "SDNN IQR", "IPI mean", "IPI med", "LF fixed p90", "HF fixed p90", "LF/HF fixed p90"])
     if features.is_enabled("psd"):
         right_headers.append("PSD win")
     if features.is_enabled("delta_hr"):
@@ -545,7 +566,21 @@ def _build_time_series_feature_rows(
         rmssd_median = prv_summary.get("rmssd_median") if prv_summary else None
         sdnn_mean = prv_summary.get("sdnn_mean") if prv_summary else None
         sdnn_median = prv_summary.get("sdnn_median") if prv_summary else None
-        rows += [["Selected-policy time-series features", ""], ["  RMSSD mean [ms]", _fmt(rmssd_mean, 2)], ["  RMSSD median [ms]", _fmt(rmssd_median, 2)], ["  SDNN mean [ms]", _fmt(sdnn_mean, 2)], ["  SDNN median [ms]", _fmt(sdnn_median, 2)]]
+        rows += [
+            ["Selected-policy time-series features", ""],
+            ["  RMSSD mean [ms]", _fmt(rmssd_mean, 2)],
+            ["  RMSSD median [ms]", _fmt(rmssd_median, 2)],
+            ["  RMSSD p75 / p90 [ms]", f"{_fmt(prv_summary.get('rmssd_p75') if prv_summary else None, 2)} / {_fmt(prv_summary.get('rmssd_p90') if prv_summary else None, 2)}"],
+            ["  RMSSD IQR [ms]", _fmt(prv_summary.get("rmssd_iqr") if prv_summary else None, 2)],
+            ["  RMSSD p90/median [-]", _fmt(prv_summary.get("rmssd_p90_over_median") if prv_summary else None, 3)],
+            ["  SDNN mean [ms]", _fmt(sdnn_mean, 2)],
+            ["  SDNN median [ms]", _fmt(sdnn_median, 2)],
+            ["  SDNN p75 / p90 [ms]", f"{_fmt(prv_summary.get('sdnn_p75') if prv_summary else None, 2)} / {_fmt(prv_summary.get('sdnn_p90') if prv_summary else None, 2)}"],
+            ["  SDNN IQR [ms]", _fmt(prv_summary.get("sdnn_iqr") if prv_summary else None, 2)],
+            ["  SDNN p90/median [-]", _fmt(prv_summary.get("sdnn_p90_over_median") if prv_summary else None, 3)],
+            ["  IPI mean / median [ms]", f"{_fmt(prv_summary.get('ipi_mean_ms') if prv_summary else None, 2)} / {_fmt(prv_summary.get('ipi_median_ms') if prv_summary else None, 2)}"],
+            ["  IPI p75 / p90 [ms]", f"{_fmt(prv_summary.get('ipi_ms_p75') if prv_summary else None, 2)} / {_fmt(prv_summary.get('ipi_ms_p90') if prv_summary else None, 2)}"],
+        ]
     if features.is_enabled("delta_hr"):
         if rows:
             rows += [["", ""]]
@@ -587,7 +622,24 @@ def _build_spectral_feature_rows(
         lf_hf = prv_summary.get("lf_hf") if prv_summary else None
         rows += [["Selected-policy spectral parameters", ""], ["  LF mean [ms^2]", _fmt(lf, 2)], ["  HF mean [ms^2]", _fmt(hf, 2)], ["  LF/HF mean [-]", _fmt(lf_hf, 2)]]
         if prv_summary:
-            rows += [["  LF median [ms^2]", _fmt(prv_summary.get("lf_fixed_median"), 2)], ["  HF median [ms^2]", _fmt(prv_summary.get("hf_fixed_median"), 2)], ["  LF/HF median [-]", _fmt(prv_summary.get("lf_hf_fixed_median"), 2)], ["  Valid LF/HF windows [n]", _fmt_int(prv_summary.get("lf_hf_fixed_n_windows_valid"))], ["  Total LF/HF windows [n]", _fmt_int(prv_summary.get("lf_hf_fixed_n_windows_total"))], ["  Valid LF/HF [min]", _fmt_num(prv_summary.get("lf_hf_fixed_valid_min"), 1)], ["  Valid LF/HF [%]", _fmt_pct(prv_summary.get("lf_hf_fixed_valid_pct"), 1)], ["  Total LF/HF [min]", _fmt_num(prv_summary.get("lf_hf_fixed_total_min"), 1)], ["  LF/HF window [s]", _fmt(prv_summary.get("lf_hf_fixed_window_sec"), 0)], ["  LF/HF hop [s]", _fmt(prv_summary.get("lf_hf_fixed_hop_sec"), 0)]]
+            rows += [
+                ["  LF median [ms^2]", _fmt(prv_summary.get("lf_fixed_median"), 2)],
+                ["  LF p75 / p90 [ms^2]", f"{_fmt(prv_summary.get('lf_fixed_p75'), 2)} / {_fmt(prv_summary.get('lf_fixed_p90'), 2)}"],
+                ["  LF IQR [ms^2]", _fmt(prv_summary.get("lf_fixed_iqr"), 2)],
+                ["  HF median [ms^2]", _fmt(prv_summary.get("hf_fixed_median"), 2)],
+                ["  HF p75 / p90 [ms^2]", f"{_fmt(prv_summary.get('hf_fixed_p75'), 2)} / {_fmt(prv_summary.get('hf_fixed_p90'), 2)}"],
+                ["  HF IQR [ms^2]", _fmt(prv_summary.get("hf_fixed_iqr"), 2)],
+                ["  LF/HF median [-]", _fmt(prv_summary.get("lf_hf_fixed_median"), 2)],
+                ["  LF/HF p75 / p90 [-]", f"{_fmt(prv_summary.get('lf_hf_fixed_p75'), 2)} / {_fmt(prv_summary.get('lf_hf_fixed_p90'), 2)}"],
+                ["  LF/HF IQR [-]", _fmt(prv_summary.get("lf_hf_fixed_iqr"), 2)],
+                ["  Valid LF/HF windows [n]", _fmt_int(prv_summary.get("lf_hf_fixed_n_windows_valid"))],
+                ["  Total LF/HF windows [n]", _fmt_int(prv_summary.get("lf_hf_fixed_n_windows_total"))],
+                ["  Valid LF/HF [min]", _fmt_num(prv_summary.get("lf_hf_fixed_valid_min"), 1)],
+                ["  Valid LF/HF [%]", _fmt_pct(prv_summary.get("lf_hf_fixed_valid_pct"), 1)],
+                ["  Total LF/HF [min]", _fmt_num(prv_summary.get("lf_hf_fixed_total_min"), 1)],
+                ["  LF/HF window [s]", _fmt(prv_summary.get("lf_hf_fixed_window_sec"), 0)],
+                ["  LF/HF hop [s]", _fmt(prv_summary.get("lf_hf_fixed_hop_sec"), 0)],
+            ]
 
     if features.is_enabled("psd"):
         if rows:
@@ -670,16 +722,33 @@ def _apply_front_page_mask_layers(
     if bool(getattr(config, "ENABLE_SLEEP_STAGE_MASKING", False)):
         m_sleep_keep = sleep_mask.build_sleep_include_mask_for_times(t_sec, aux_df)
         if m_sleep_keep is not None:
-            _shade_masked_regions(ax, t_sec=t_sec, masked=~np.asarray(m_sleep_keep, dtype=bool), color="0.7", alpha=0.16)
+            _shade_masked_regions(ax, t_sec=t_sec, masked=~np.asarray(m_sleep_keep, dtype=bool), color="#6c757d", alpha=0.10)
     m_evt_keep = io_aux_csv.build_time_exclusion_mask(t_sec, aux_df)
     if m_evt_keep is not None:
-        _shade_masked_regions(ax, t_sec=t_sec, masked=~np.asarray(m_evt_keep, dtype=bool), color="tab:red", alpha=0.10)
+        _shade_masked_regions(ax, t_sec=t_sec, masked=~np.asarray(m_evt_keep, dtype=bool), color="#c1121f", alpha=0.08)
     m_keep = sleep_mask.build_global_include_mask_for_times(t_sec, aux_df, apply_sleep=True, apply_events=True)
     invalid_mask = ~np.isfinite(y)
     if m_keep is not None and np.size(m_keep) == np.size(invalid_mask):
         invalid_mask = invalid_mask & np.asarray(m_keep, dtype=bool)
     if np.any(invalid_mask):
-        _shade_masked_regions(ax, t_sec=t_sec, masked=invalid_mask, color="gold", alpha=0.22)
+        _shade_masked_regions(ax, t_sec=t_sec, masked=invalid_mask, color="#d4a017", alpha=0.22)
+
+
+def _add_event_vascular_mask_legend(fig) -> None:
+    handles = [
+        Line2D([0], [0], color="#6c757d", linewidth=6, alpha=0.10, label="Stage-policy excluded"),
+        Line2D([0], [0], color="#c1121f", linewidth=6, alpha=0.08, label="Event-excluded"),
+        Line2D([0], [0], color="#d4a017", linewidth=6, alpha=0.22, label="Metric invalid"),
+        Line2D([0], [0], color="tab:blue", linewidth=1.4, alpha=0.55, label="Event/desaturation markers"),
+    ]
+    fig.legend(
+        handles=handles,
+        loc="upper center",
+        bbox_to_anchor=(0.5, 0.905),
+        ncol=4,
+        fontsize=6.5,
+        frameon=False,
+    )
 
 
 def _panel_badge(ax, text: str) -> None:
@@ -780,15 +849,76 @@ def _binned_series_mean(t_sec: Optional[np.ndarray], y: Optional[np.ndarray], ed
             out[i] = float(np.nanmean(yy[m]))
     return out
 
+def _binned_sleep_hours_for_edges(
+    t_sec: Optional[np.ndarray],
+    aux_df: Optional["pd.DataFrame"],
+    edges_sec: np.ndarray,
+) -> np.ndarray:
+    out = np.full(edges_sec.size - 1, np.nan, dtype=float)
+    if t_sec is None or aux_df is None:
+        return out
+    tt = np.asarray(t_sec, dtype=float)
+    if tt.size < 2:
+        return out
+    try:
+        policy = masking.policy_from_config()
+        bundle = masking.build_mask_bundle(tt, aux_df, policy=policy)
+    except Exception:
+        return out
+    sleep_keep = np.asarray(bundle.sleep_keep, dtype=bool)
+    if sleep_keep.size != tt.size:
+        return out
+    dt = np.diff(tt)
+    dt = np.clip(dt, 0.0, None)
+    interval_keep = sleep_keep[:-1] & sleep_keep[1:]
+    t_mid = 0.5 * (tt[:-1] + tt[1:])
+    for i in range(edges_sec.size - 1):
+        a = float(edges_sec[i])
+        b = float(edges_sec[i + 1])
+        m = (t_mid >= a) & (t_mid < b) & interval_keep
+        out[i] = float(np.sum(dt[m]) / 3600.0)
+    return out
 
-def _plot_binned_trace(ax, edges_sec: np.ndarray, values: np.ndarray, *, color: str, ylabel: str, title: str | None, badge: str) -> None:
-    centers_h = _bin_centers(edges_sec) / 3600.0
-    ax.plot(centers_h, np.ma.masked_invalid(values), color=color, linewidth=1.4, marker="o", markersize=3.5, alpha=0.95)
+
+def _plot_event_vascular_panel(
+    ax,
+    t_center_h: np.ndarray,
+    values: np.ndarray,
+    *,
+    color: str,
+    ylabel: str,
+    label: str,
+    badge: str,
+    summary_value: Optional[float] = None,
+    ci95: Optional[np.ndarray] = None,
+) -> None:
+    t_center_h = np.asarray(t_center_h, dtype=float)
+    values = np.asarray(values, dtype=float)
+    _plot_binned_series_with_support(
+        ax,
+        t_center_h,
+        values,
+        bin_sec=60.0 * float(getattr(config, "SUMMARY_FRONT_PAGE_BIN_MINUTES", 5.0)),
+        color=color,
+        linewidth=1.3,
+        label=label,
+        show_markers=True,
+    )
+    if ci95 is not None and np.size(ci95) == np.size(values):
+        ok = np.isfinite(t_center_h) & np.isfinite(values) & np.isfinite(ci95)
+        if np.any(ok):
+            ax.errorbar(t_center_h[ok], values[ok], yerr=np.asarray(ci95, dtype=float)[ok], fmt="none", elinewidth=0.8, capsize=2, alpha=0.40, color=color, zorder=2)
+    _add_summary_line(ax, summary_value, color=color)
+    has_summary_line = False
+    if summary_value is not None:
+        try:
+            has_summary_line = bool(np.isfinite(float(summary_value)))
+        except Exception:
+            has_summary_line = False
     ax.set_ylabel(ylabel)
-    if title:
-        ax.set_title(title, fontsize=11, pad=8)
-    ax.grid(True, alpha=0.3)
+    ax.grid(True, alpha=0.75)
     _panel_badge(ax, badge)
+    _add_metric_legend(ax, loc="lower right", fontsize=6, include_summary_lines=has_summary_line, summary_color=color, include_median_line=False)
 
 
 def build_front_page(
@@ -812,6 +942,8 @@ def build_front_page(
     t_pwa: Optional[np.ndarray],
     pwa_series: Optional[np.ndarray],
     pwa_drop_events: Optional[list[Dict[str, float]]],
+    t_spo2: Optional[np.ndarray] = None,
+    spo2: Optional[np.ndarray] = None,
     event_spec: Optional[list[Any]] = None,
 ):
     mode = str(getattr(config, "SUMMARY_FRONT_PAGE_MODE", "prv")).lower()
@@ -822,20 +954,132 @@ def build_front_page(
     if edges_sec is None or edges_sec.size < 2:
         return None
 
+    bin_sec = 60.0 * float(getattr(config, "SUMMARY_FRONT_PAGE_BIN_MINUTES", 5.0))
+    bin_min = bin_sec / 60.0
+    centers_sec = _bin_centers(edges_sec)
+    centers_h = centers_sec / 3600.0
+
+    panels: list[dict[str, Any]] = []
+    if features.is_enabled("hr") and t_hr_calc is not None and hr_calc is not None:
+        t_bin_h, y_bin, y_ci = _bin_series_mean_ci(
+            np.asarray(t_hr_calc, dtype=float),
+            np.asarray(hr_calc, dtype=float),
+            bin_sec=bin_sec,
+            min_count=int(getattr(config, "PRV_PLOT_BIN_MIN_COUNT", 3)),
+        )
+        hr_mean = float(np.nanmean(np.asarray(hr_calc, dtype=float))) if np.any(np.isfinite(np.asarray(hr_calc, dtype=float))) else np.nan
+        panels.append({
+            "key": "hr",
+            "t_h": t_bin_h,
+            "y": y_bin,
+            "ci": y_ci,
+            "color": "tab:green",
+            "ylabel": "PAT Derived\nHR [bpm]",
+            "label": "PAT Derived HR",
+            "summary": hr_mean,
+            "badge": f"Mean HR {_fmt(hr_mean, 1)} bpm",
+        })
+
+    if features.is_enabled("pwa_drop"):
+        pwa_vals = _binned_event_count(pwa_drop_events, edges_sec, time_key="t_center")
+        pwa_summary = None if not isinstance(pwa_drop_summary, dict) else pwa_drop_summary.get("drop_rate_per_sleep_hour")
+        panels.append({
+            "key": "pwa_drop",
+            "t_h": centers_h,
+            "y": pwa_vals,
+            "ci": None,
+            "color": "tab:purple",
+            "ylabel": "PWA Drops\n[n/bin]",
+            "label": "PWA Drops",
+            "summary": None,
+            "badge": (
+                f"n {_fmt_int(pwa_drop_summary.get('n_drops'))} | rate {_fmt(pwa_summary, 2)}/h | amp {_fmt(pwa_drop_summary.get('mean_amplitude_pct'), 1)}%"
+                if isinstance(pwa_drop_summary, dict)
+                else "PWA-drop unavailable"
+            ),
+        })
+
+    if bool(getattr(config, "ENABLE_SPO2_VALIDATION_PLOTS", False)) and t_spo2 is not None and spo2 is not None:
+        t_bin_h, y_bin, y_ci = _bin_series_mean_ci(
+            np.asarray(t_spo2, dtype=float),
+            np.asarray(spo2, dtype=float),
+            bin_sec=bin_sec,
+            min_count=int(getattr(config, "PRV_PLOT_BIN_MIN_COUNT", 3)),
+        )
+        spo2_mean = float(np.nanmean(np.asarray(spo2, dtype=float))) if np.any(np.isfinite(np.asarray(spo2, dtype=float))) else np.nan
+        panels.append({
+            "key": "spo2",
+            "t_h": t_bin_h,
+            "y": y_bin,
+            "ci": y_ci,
+            "color": "tab:red",
+            "ylabel": "SpO2\n[%]",
+            "label": "SpO2",
+            "summary": spo2_mean,
+            "badge": f"Mean SpO2 {_fmt(spo2_mean, 1)}%",
+        })
+
+    if features.is_enabled("pat_burden"):
+        burden_area = _binned_event_metric(pat_burden_episodes, edges_sec, time_key="t_start", value_key="area_min", reducer="sum")
+        sleep_h = _binned_sleep_hours_for_edges(t_pat_amp, aux_df, edges_sec)
+        burden_vals = np.full_like(burden_area, np.nan, dtype=float)
+        ok_sleep = np.isfinite(sleep_h) & (sleep_h > 0)
+        burden_area = np.where(np.isfinite(burden_area), burden_area, 0.0)
+        burden_vals[ok_sleep] = burden_area[ok_sleep] / sleep_h[ok_sleep]
+        unit = "rel·min/h" if isinstance(pat_burden_diag, dict) and pat_burden_diag.get("relative") else "amp·min/h"
+        panels.append({
+            "key": "pat_burden",
+            "t_h": centers_h,
+            "y": burden_vals,
+            "ci": None,
+            "color": "#2a9d8f",
+            "ylabel": f"PAT burden\n[{unit}]",
+            "label": "PAT burden",
+            "summary": pat_burden,
+            "badge": (
+                f"Selected {_fmt(pat_burden, 3)} {unit} | episodes "
+                f"{_fmt_int(pat_burden_diag.get('n_episodes_used')) if isinstance(pat_burden_diag, dict) else 'NA'}/{_fmt_int(pat_burden_diag.get('n_episodes')) if isinstance(pat_burden_diag, dict) else 'NA'}"
+                if pat_burden is not None or isinstance(pat_burden_diag, dict)
+                else "PAT burden unavailable"
+            ),
+        })
+
+    if features.is_enabled("delta_hr"):
+        delta_vals = _binned_event_metric(hr_event_windows, edges_sec, time_key="event_start_t", value_key="mean_to_peak_response", reducer="mean")
+        delta_summary = None if not isinstance(hr_event_response_summary, dict) else hr_event_response_summary.get("mean_to_peak_response_mean")
+        panels.append({
+            "key": "delta_hr",
+            "t_h": centers_h,
+            "y": delta_vals,
+            "ci": None,
+            "color": "tab:blue",
+            "ylabel": "dHR\n[bpm]",
+            "label": "Delta-HR",
+            "summary": delta_summary,
+            "badge": (
+                f"Tr-Pk {_fmt(hr_event_response_summary.get('trough_to_peak_response_mean'), 2)} bpm | "
+                f"Mean-Pk {_fmt(delta_summary, 2)} bpm | "
+                f"used/tot {_fmt_int(hr_event_response_summary.get('n_used_windows'))}/{_fmt_int(hr_event_response_summary.get('n_event_windows'))}"
+                if isinstance(hr_event_response_summary, dict)
+                else "Delta-HR unavailable"
+            ),
+        })
+
+    if not panels:
+        return None
+
     fig = plt.figure(figsize=(11.69, 8.27))
-    gs = fig.add_gridspec(5, 1, height_ratios=[1.0, 0.58, 0.58, 0.58, 0.58])
+    gs = fig.add_gridspec(1 + len(panels), 1, height_ratios=[0.7] + [1.0] * len(panels))
     fig._event_key_y = 0.965
     ax_h = fig.add_subplot(gs[0])
-    ax_a = fig.add_subplot(gs[1])
-    ax_p = fig.add_subplot(gs[2], sharex=ax_a)
-    ax_b = fig.add_subplot(gs[3], sharex=ax_a)
-    ax_d = fig.add_subplot(gs[4], sharex=ax_a)
+    data_axes = [fig.add_subplot(gs[i + 1], sharex=ax_h) for i in range(len(panels))]
     ok = _plot_sleep_stagegram_on_axis(
         ax_h,
         edf_base=edf_base,
         aux_df=aux_df,
-        title="Overnight Event-Vascular Overview",
+        title="Overnight Event-Related Vascular Response Overview",
         show_stats=False,
+        title_pad=2.0,
     )
     if not ok:
         plt.close(fig)
@@ -844,9 +1088,21 @@ def build_front_page(
     if event_spec is not None:
         _add_colored_event_key(fig, list(event_spec))
 
+    fig.text(
+        0.5,
+        0.935,
+        f"Selected-policy event-related vascular response summary. HR is displayed as {bin_min:.0f} min binned means with 95% CI. "
+        f"PWA-drop is count per {bin_min:.0f} min bin. PAT burden is event/desat drop area normalized by selected sleep hours in each bin. "
+        f"Delta-HR is mean event-window HR rise per bin. Dashed lines show selected-policy summary values where applicable.",
+        ha="center",
+        va="top",
+        fontsize=7.5,
+    )
+    _add_event_vascular_mask_legend(fig)
+
     if aux_df is not None and event_spec is not None:
         x_end = float(edges_sec[-1]) if edges_sec.size else 0.0
-        for ax in [ax_a, ax_p, ax_b, ax_d]:
+        for ax in data_axes:
             _overlay_events_on_single_axis_whole_night(
                 ax=ax,
                 aux_df=aux_df,
@@ -856,81 +1112,35 @@ def build_front_page(
                 show_legend_labels=False,
                 event_style="short",
             )
+    for ax, panel in zip(data_axes, panels):
+        if panel["key"] == "hr":
+            _apply_front_page_mask_layers(ax, np.asarray(t_hr_calc, dtype=float), np.asarray(hr_calc, dtype=float), aux_df)
+        elif panel["key"] == "pat_burden" and t_pat_amp is not None and pat_amp is not None:
+            _apply_front_page_mask_layers(ax, np.asarray(t_pat_amp, dtype=float), np.asarray(pat_amp, dtype=float), aux_df)
+        elif panel["key"] == "pwa_drop" and t_pwa is not None and pwa_series is not None:
+            _apply_front_page_mask_layers(ax, np.asarray(t_pwa, dtype=float), np.asarray(pwa_series, dtype=float), aux_df)
+        elif panel["key"] == "spo2" and t_spo2 is not None and spo2 is not None:
+            _apply_front_page_mask_layers(ax, np.asarray(t_spo2, dtype=float), np.asarray(spo2, dtype=float), aux_df)
+        _plot_event_vascular_panel(
+            ax,
+            panel["t_h"],
+            panel["y"],
+            color=panel["color"],
+            ylabel=panel["ylabel"],
+            label=panel["label"],
+            badge=panel["badge"],
+            summary_value=panel["summary"],
+            ci95=panel["ci"],
+        )
 
-    anchor_vals = _binned_series_mean(t_hr_calc, hr_calc, edges_sec)
-    _plot_binned_trace(
-        ax_a,
-        edges_sec,
-        anchor_vals,
-        color="tab:green",
-        ylabel="HR",
-        title=None,
-        badge=(
-            f"HR {_fmt(float(np.nanmean(np.asarray(hr_calc, dtype=float))) if hr_calc is not None and np.any(np.isfinite(np.asarray(hr_calc, dtype=float))) else np.nan, 1)} bpm"
-            + (
-                f" | RMSSD {_fmt(prv_summary.get('rmssd_mean'), 1)} ms"
-                if isinstance(prv_summary, dict)
-                else ""
-            )
-        ),
-    )
-
-    pwa_vals = _binned_event_count(pwa_drop_events, edges_sec, time_key="t_center")
-    _plot_binned_trace(
-        ax_p,
-        edges_sec,
-        pwa_vals,
-        color="tab:purple",
-        ylabel="Drops",
-        title=None,
-        badge=(
-            f"n {_fmt_int(pwa_drop_summary.get('n_drops'))} | rate {_fmt(pwa_drop_summary.get('drop_rate_per_sleep_hour'), 2)}/h | amp {_fmt(pwa_drop_summary.get('mean_amplitude_pct'), 1)}%"
-            if isinstance(pwa_drop_summary, dict)
-            else "PWA-drop unavailable"
-        ),
-    )
-
-    burden_vals = _binned_event_metric(pat_burden_episodes, edges_sec, time_key="t_start", value_key="area_min", reducer="sum")
-    _plot_binned_trace(
-        ax_b,
-        edges_sec,
-        burden_vals,
-        color="#2a9d8f",
-        ylabel="Burden",
-        title=None,
-        badge=(
-            f"{_fmt(pat_burden, 3)} {'rel·min/h' if isinstance(pat_burden_diag, dict) and pat_burden_diag.get('relative') else 'amp·min/h'} | "
-            f"episodes {_fmt_int(pat_burden_diag.get('n_episodes_used')) if isinstance(pat_burden_diag, dict) else 'NA'}/{_fmt_int(pat_burden_diag.get('n_episodes')) if isinstance(pat_burden_diag, dict) else 'NA'}"
-            if pat_burden is not None or isinstance(pat_burden_diag, dict)
-            else "PAT burden unavailable"
-        ),
-    )
-
-    delta_vals = _binned_event_metric(hr_event_windows, edges_sec, time_key="event_start_t", value_key="mean_to_peak_response", reducer="mean")
-    _plot_binned_trace(
-        ax_d,
-        edges_sec,
-        delta_vals,
-        color="tab:blue",
-        ylabel="dHR",
-        title=None,
-        badge=(
-            f"Tr-Pk {_fmt(hr_event_response_summary.get('trough_to_peak_response_mean'), 2)} bpm | "
-            f"Mean-Pk {_fmt(hr_event_response_summary.get('mean_to_peak_response_mean'), 2)} bpm | "
-            f"used/tot {_fmt_int(hr_event_response_summary.get('n_used_windows'))}/{_fmt_int(hr_event_response_summary.get('n_event_windows'))}"
-            if isinstance(hr_event_response_summary, dict)
-            else "Delta-HR unavailable"
-        ),
-    )
-
-    for ax in [ax_a, ax_p, ax_b, ax_d]:
+    for ax in data_axes:
         ax.xaxis.set_major_locator(MultipleLocator(1.0))
         ax.xaxis.set_major_formatter(FuncFormatter(_format_hour_tick))
-    ax_a.tick_params(labelbottom=False)
-    ax_p.tick_params(labelbottom=False)
-    ax_b.tick_params(labelbottom=False)
-    ax_d.set_xlabel("Time since recording start [hours]")
-    fig.tight_layout(rect=(0.03, 0.03, 0.98, 0.98))
+        ax.set_xlim(float(edges_sec[0]) / 3600.0, float(edges_sec[-1]) / 3600.0)
+    for ax in data_axes[:-1]:
+        ax.tick_params(labelbottom=False)
+    data_axes[-1].set_xlabel("Time since recording start [hours]")
+    fig.tight_layout(rect=(0.03, 0.03, 0.98, 0.85))
     return fig
 
 
@@ -1027,14 +1237,24 @@ def _build_midpoint_half_rows(prv_midpoint_halves: Optional[Dict[str, Dict[str, 
     return [
         ["RMSSD mean [ms]", _fmt(first.get("rmssd_mean"), 2), _fmt(second.get("rmssd_mean"), 2)],
         ["RMSSD median [ms]", _fmt(first.get("rmssd_median"), 2), _fmt(second.get("rmssd_median"), 2)],
+        ["RMSSD p75 [ms]", _fmt(first.get("rmssd_p75"), 2), _fmt(second.get("rmssd_p75"), 2)],
+        ["RMSSD p90 [ms]", _fmt(first.get("rmssd_p90"), 2), _fmt(second.get("rmssd_p90"), 2)],
+        ["RMSSD IQR [ms]", _fmt(first.get("rmssd_iqr"), 2), _fmt(second.get("rmssd_iqr"), 2)],
         ["SDNN mean [ms]", _fmt(first.get("sdnn_mean"), 2), _fmt(second.get("sdnn_mean"), 2)],
         ["SDNN median [ms]", _fmt(first.get("sdnn_median"), 2), _fmt(second.get("sdnn_median"), 2)],
+        ["SDNN p75 [ms]", _fmt(first.get("sdnn_p75"), 2), _fmt(second.get("sdnn_p75"), 2)],
+        ["SDNN p90 [ms]", _fmt(first.get("sdnn_p90"), 2), _fmt(second.get("sdnn_p90"), 2)],
+        ["SDNN IQR [ms]", _fmt(first.get("sdnn_iqr"), 2), _fmt(second.get("sdnn_iqr"), 2)],
+        ["IPI median [ms]", _fmt(first.get("ipi_median_ms"), 2), _fmt(second.get("ipi_median_ms"), 2)],
         ["LF mean [ms^2]", _fmt(first.get("lf"), 2), _fmt(second.get("lf"), 2)],
         ["LF median [ms^2]", _fmt(first.get("lf_fixed_median"), 2), _fmt(second.get("lf_fixed_median"), 2)],
+        ["LF p90 [ms^2]", _fmt(first.get("lf_fixed_p90"), 2), _fmt(second.get("lf_fixed_p90"), 2)],
         ["HF mean [ms^2]", _fmt(first.get("hf"), 2), _fmt(second.get("hf"), 2)],
         ["HF median [ms^2]", _fmt(first.get("hf_fixed_median"), 2), _fmt(second.get("hf_fixed_median"), 2)],
+        ["HF p90 [ms^2]", _fmt(first.get("hf_fixed_p90"), 2), _fmt(second.get("hf_fixed_p90"), 2)],
         ["LF/HF mean [-]", _fmt(first.get("lf_hf"), 2), _fmt(second.get("lf_hf"), 2)],
         ["LF/HF median [-]", _fmt(first.get("lf_hf_fixed_median"), 2), _fmt(second.get("lf_hf_fixed_median"), 2)],
+        ["LF/HF p90 [-]", _fmt(first.get("lf_hf_fixed_p90"), 2), _fmt(second.get("lf_hf_fixed_p90"), 2)],
         ["Valid LF/HF [min]", _fmt_num(first.get("lf_hf_fixed_valid_min"), 1), _fmt_num(second.get("lf_hf_fixed_valid_min"), 1)],
     ]
 

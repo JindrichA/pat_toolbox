@@ -3,5 +3,6 @@
 from . import hr
 from . import prv
 from . import pat_burden
+from . import pwa_drop
 
-__all__ = ["hr", "prv", "pat_burden"]
+__all__ = ["hr", "prv", "pat_burden", "pwa_drop"]

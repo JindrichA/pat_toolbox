@@ -148,7 +148,7 @@ def _overlay_pat_burden_area(
             continue
 
         ax.plot(tt / 3600.0, np.full_like(tt, baseline, dtype=float), linestyle="--", linewidth=1.1, alpha=0.7, color="0.25", label="_nolegend_", zorder=2)
-        ax.fill_between(tt / 3600.0, yy, baseline, where=below, interpolate=True, alpha=0.22, color="tab:red", label="PAT burden area", zorder=1)
+        ax.fill_between(tt / 3600.0, yy, baseline, where=below, interpolate=True, alpha=0.24, color="#2a9d8f", label="_nolegend_", zorder=1)
 
 
 def _plot_segment_pat_amp(
@@ -162,7 +162,7 @@ def _plot_segment_pat_amp(
     t_seg_h_end: float,
     aux_df: Optional["pd.DataFrame"],
 ) -> tuple[Optional[float], Optional[float]]:
-    _add_exclusion_spans(ax, exclusion_zones, t_seg_h_start, t_seg_h_end, label_once=True)
+    _add_exclusion_spans(ax, exclusion_zones, t_seg_h_start, t_seg_h_end, label_once=False)
     mask = (t_pat_amp >= seg_start_sec) & (t_pat_amp <= seg_end_sec)
     if not np.any(mask):
         ax.set_ylabel("PAT AMP")
@@ -172,14 +172,31 @@ def _plot_segment_pat_amp(
     t_sec_seg = t_pat_amp[mask].astype(float)
     y_seg = pat_amp[mask].astype(float)
 
+    legend_patches: List[Patch] = []
+    combined_keep = None
     if aux_df is not None:
-        m_keep = sleep_mask.build_global_include_mask_for_times(t_sec_seg, aux_df, apply_sleep=True, apply_events=True)
-        if m_keep is not None:
-            _shade_masked_regions(ax, t_sec=t_sec_seg, masked=~m_keep, color="0.6", alpha=0.18)
+        if bool(getattr(config, "ENABLE_SLEEP_STAGE_MASKING", False)):
+            m_sleep_keep = sleep_mask.build_sleep_include_mask_for_times(t_sec_seg, aux_df)
+            if m_sleep_keep is not None:
+                _shade_masked_regions(ax, t_sec=t_sec_seg, masked=~m_sleep_keep, color="#6c757d", alpha=0.10)
+                legend_patches.append(Patch(facecolor="#6c757d", alpha=0.10, label="Stage-policy excluded"))
+        m_evt_keep = io_aux_csv.build_time_exclusion_mask(t_sec_seg, aux_df)
+        if m_evt_keep is not None:
+            _shade_masked_regions(ax, t_sec=t_sec_seg, masked=~m_evt_keep, color="#c1121f", alpha=0.08)
+            legend_patches.append(Patch(facecolor="#c1121f", alpha=0.08, label="Event-excluded"))
+        combined_keep = sleep_mask.build_global_include_mask_for_times(t_sec_seg, aux_df, apply_sleep=True, apply_events=True)
+
+    invalid_mask = ~np.isfinite(y_seg)
+    if combined_keep is not None and np.size(combined_keep) == np.size(invalid_mask):
+        invalid_mask = invalid_mask & np.asarray(combined_keep, dtype=bool)
+    if np.any(invalid_mask):
+        _shade_masked_regions(ax, t_sec=t_sec_seg, masked=invalid_mask, color="#d4a017", alpha=0.22)
+        legend_patches.append(Patch(facecolor="#d4a017", alpha=0.22, label="Metric invalid"))
 
     if np.any(np.isfinite(y_seg)):
         _plot_no_bridge(ax, x_sec=t_sec_seg, y=y_seg, label="PAT AMP", linestyle="-", linewidth=1.1, color="tab:orange", alpha=0.9, zorder=3)
         _overlay_pat_burden_area(ax, t_sec_all=t_pat_amp, pat_amp_all=pat_amp, aux_df=aux_df, seg_start_sec=seg_start_sec, seg_end_sec=seg_end_sec)
+        legend_patches.append(Patch(facecolor="#2a9d8f", alpha=0.24, label="PAT burden area"))
         yy = y_seg[np.isfinite(y_seg)]
         y0 = float(np.min(yy))
         y1 = float(np.max(yy))
@@ -199,9 +216,170 @@ def _plot_segment_pat_amp(
             h2.append(h)
             l2.append(l)
             seen.add(l)
+    for patch in legend_patches:
+        if patch.get_label() not in seen:
+            h2.append(patch)
+            l2.append(patch.get_label())
+            seen.add(patch.get_label())
     if h2:
         ax.legend(h2, l2, loc="upper right", fontsize=8, framealpha=0.9)
     return ax.get_ylim()
+
+
+def _plot_segment_pwa_drop(
+    ax,
+    t_pwa: np.ndarray,
+    pwa_series: np.ndarray,
+    pwa_drop_events: Optional[list[dict[str, float]]],
+    seg_start_sec: float,
+    seg_end_sec: float,
+    exclusion_zones: List[Tuple[float, float, str]],
+    t_seg_h_start: float,
+    t_seg_h_end: float,
+    aux_df: Optional["pd.DataFrame"],
+) -> tuple[Optional[float], Optional[float]]:
+    _add_exclusion_spans(ax, exclusion_zones, t_seg_h_start, t_seg_h_end, label_once=True)
+    mask = (t_pwa >= seg_start_sec) & (t_pwa <= seg_end_sec)
+    if not np.any(mask):
+        ax.set_ylabel("PWA Drops")
+        ax.grid(True)
+        return None, None
+
+    t_sec_seg = t_pwa[mask].astype(float)
+    y_seg = pwa_series[mask].astype(float)
+    legend_patches: List[Patch] = []
+    combined_keep = None
+    if aux_df is not None:
+        if bool(getattr(config, "ENABLE_SLEEP_STAGE_MASKING", False)):
+            m_sleep_keep = sleep_mask.build_sleep_include_mask_for_times(t_sec_seg, aux_df)
+            if m_sleep_keep is not None:
+                _shade_masked_regions(ax, t_sec=t_sec_seg, masked=~m_sleep_keep, color="#6c757d", alpha=0.10)
+                legend_patches.append(Patch(facecolor="#6c757d", alpha=0.10, label="Stage-policy excluded"))
+        m_evt_keep = io_aux_csv.build_time_exclusion_mask(t_sec_seg, aux_df)
+        if m_evt_keep is not None:
+            _shade_masked_regions(ax, t_sec=t_sec_seg, masked=~m_evt_keep, color="#c1121f", alpha=0.08)
+            legend_patches.append(Patch(facecolor="#c1121f", alpha=0.08, label="Event-excluded"))
+        combined_keep = sleep_mask.build_global_include_mask_for_times(t_sec_seg, aux_df, apply_sleep=True, apply_events=True)
+
+    invalid_mask = ~np.isfinite(y_seg)
+    if combined_keep is not None and np.size(combined_keep) == np.size(invalid_mask):
+        invalid_mask = invalid_mask & np.asarray(combined_keep, dtype=bool)
+    if np.any(invalid_mask):
+        _shade_masked_regions(ax, t_sec=t_sec_seg, masked=invalid_mask, color="#d4a017", alpha=0.22)
+        legend_patches.append(Patch(facecolor="#d4a017", alpha=0.22, label="Metric invalid"))
+
+    y_min = y_max = None
+    if np.any(np.isfinite(y_seg)):
+        _plot_no_bridge(ax, x_sec=t_sec_seg, y=y_seg, label="PWA Drops", linestyle="-", linewidth=1.1, color="tab:purple", alpha=0.9, zorder=3)
+        yy = y_seg[np.isfinite(y_seg)]
+        y_min = float(np.min(yy))
+        y_max = float(np.max(yy))
+
+    events = pwa_drop_events or []
+    first = True
+    for event in events:
+        t0 = float(event.get("t_start", np.nan))
+        t1 = float(event.get("t_end", np.nan))
+        if not (np.isfinite(t0) and np.isfinite(t1) and t1 > t0):
+            continue
+        if t1 < seg_start_sec or t0 > seg_end_sec:
+            continue
+        ax.axvspan(t0 / 3600.0, t1 / 3600.0, color="#9467bd", alpha=0.16, label="Detected PWA Drop" if first else "_nolegend_", zorder=1)
+        first = False
+
+    ax.set_ylabel("PWA Drops")
+    ax.grid(True)
+    handles, labels = ax.get_legend_handles_labels()
+    seen = set()
+    h2, l2 = [], []
+    for h, l in zip(handles, labels):
+        if l not in seen and l != "_nolegend_":
+            h2.append(h)
+            l2.append(l)
+            seen.add(l)
+    for patch in legend_patches:
+        if patch.get_label() not in seen:
+            h2.append(patch)
+            l2.append(patch.get_label())
+            seen.add(patch.get_label())
+    if h2:
+        ax.legend(h2, l2, loc="upper right", fontsize=8, framealpha=0.9)
+    if y_min is not None and y_max is not None:
+        margin = 0.10 * (y_max - y_min + 1e-6)
+        ax.set_ylim(y_min - margin, y_max + margin)
+    return y_min, y_max
+
+
+def _plot_segment_spo2(
+    ax,
+    t_spo2: np.ndarray,
+    spo2: np.ndarray,
+    seg_start_sec: float,
+    seg_end_sec: float,
+    exclusion_zones: List[Tuple[float, float, str]],
+    t_seg_h_start: float,
+    t_seg_h_end: float,
+    aux_df: Optional["pd.DataFrame"],
+) -> tuple[Optional[float], Optional[float]]:
+    _add_exclusion_spans(ax, exclusion_zones, t_seg_h_start, t_seg_h_end, label_once=True)
+    mask = (t_spo2 >= seg_start_sec) & (t_spo2 <= seg_end_sec)
+    if not np.any(mask):
+        ax.set_ylabel("SpO2\n[%]")
+        ax.grid(True)
+        return None, None
+
+    t_sec_seg = t_spo2[mask].astype(float)
+    y_seg = spo2[mask].astype(float)
+    legend_patches: List[Patch] = []
+    combined_keep = None
+    if aux_df is not None:
+        if bool(getattr(config, "ENABLE_SLEEP_STAGE_MASKING", False)):
+            m_sleep_keep = sleep_mask.build_sleep_include_mask_for_times(t_sec_seg, aux_df)
+            if m_sleep_keep is not None:
+                _shade_masked_regions(ax, t_sec=t_sec_seg, masked=~m_sleep_keep, color="#6c757d", alpha=0.10)
+                legend_patches.append(Patch(facecolor="#6c757d", alpha=0.10, label="Stage-policy excluded"))
+        m_evt_keep = io_aux_csv.build_time_exclusion_mask(t_sec_seg, aux_df)
+        if m_evt_keep is not None:
+            _shade_masked_regions(ax, t_sec=t_sec_seg, masked=~m_evt_keep, color="#c1121f", alpha=0.08)
+            legend_patches.append(Patch(facecolor="#c1121f", alpha=0.08, label="Event-excluded"))
+        combined_keep = sleep_mask.build_global_include_mask_for_times(t_sec_seg, aux_df, apply_sleep=True, apply_events=True)
+
+    invalid_mask = ~np.isfinite(y_seg)
+    if combined_keep is not None and np.size(combined_keep) == np.size(invalid_mask):
+        invalid_mask = invalid_mask & np.asarray(combined_keep, dtype=bool)
+    if np.any(invalid_mask):
+        _shade_masked_regions(ax, t_sec=t_sec_seg, masked=invalid_mask, color="#d4a017", alpha=0.22)
+        legend_patches.append(Patch(facecolor="#d4a017", alpha=0.22, label="Metric invalid"))
+
+    y_min = y_max = None
+    if np.any(np.isfinite(y_seg)):
+        _plot_no_bridge(ax, x_sec=t_sec_seg, y=y_seg, label="SpO2", linestyle="-", linewidth=1.1, color="tab:red", alpha=0.9, zorder=3)
+        yy = y_seg[np.isfinite(y_seg)]
+        y_min = float(np.min(yy))
+        y_max = float(np.max(yy))
+        margin = max(1.0, 0.10 * (y_max - y_min + 1e-6))
+        ax.set_ylim(max(0.0, y_min - margin), min(100.0, y_max + margin))
+    else:
+        ax.text(0.01, 0.92, "SpO2 unavailable in this segment", transform=ax.transAxes, fontsize=9, va="top")
+
+    ax.set_ylabel("SpO2\n[%]")
+    ax.grid(True)
+    handles, labels = ax.get_legend_handles_labels()
+    seen = set()
+    h2, l2 = [], []
+    for h, l in zip(handles, labels):
+        if l and l != "_nolegend_" and l not in seen:
+            h2.append(h)
+            l2.append(l)
+            seen.add(l)
+    for patch in legend_patches:
+        if patch.get_label() not in seen:
+            h2.append(patch)
+            l2.append(patch.get_label())
+            seen.add(patch.get_label())
+    if h2:
+        ax.legend(h2, l2, loc="upper right", fontsize=8, framealpha=0.9)
+    return y_min, y_max
 
 
 def _plot_segment_hr(
@@ -257,7 +435,7 @@ def _plot_segment_hr(
         if np.any(mask_calc):
             t_sec_seg = t_hr_calc_raw[mask_calc]
             y_raw = hr_calc_raw[mask_calc].astype(float)
-            _plot_no_bridge(ax, x_sec=t_sec_seg, y=y_raw, label="HR raw", linestyle="--", linewidth=1.0, color="tab:blue", alpha=0.6, zorder=0)
+            _plot_no_bridge(ax, x_sec=t_sec_seg, y=y_raw, label="PAT Derived HR raw", linestyle="--", linewidth=1.0, color="tab:blue", alpha=0.6, zorder=0)
             if t_hr_calc is not None and hr_calc is not None and np.size(hr_calc) == np.size(t_hr_calc):
                 mask_clean = (t_hr_calc >= seg_start_sec) & (t_hr_calc <= seg_end_sec)
                 if np.any(mask_clean) and np.size(t_hr_calc[mask_clean]) == np.size(t_sec_seg):
@@ -278,12 +456,12 @@ def _plot_segment_hr(
         if bool(getattr(config, "ENABLE_SLEEP_STAGE_MASKING", False)):
             m_sleep_keep = sleep_mask.build_sleep_include_mask_for_times(t_sec_seg, aux_df)
             if m_sleep_keep is not None:
-                _shade_masked_regions(ax, t_sec=t_sec_seg, masked=~m_sleep_keep, color="0.7", alpha=0.18)
-                legend_patches.append(Patch(facecolor="0.7", alpha=0.18, label="Sleep masked"))
+                _shade_masked_regions(ax, t_sec=t_sec_seg, masked=~m_sleep_keep, color="#6c757d", alpha=0.10)
+                legend_patches.append(Patch(facecolor="#6c757d", alpha=0.10, label="Stage-policy excluded"))
         m_evt_keep = io_aux_csv.build_time_exclusion_mask(t_sec_seg, aux_df)
         if m_evt_keep is not None:
-            _shade_masked_regions(ax, t_sec=t_sec_seg, masked=~m_evt_keep, color="tab:red", alpha=0.12)
-            legend_patches.append(Patch(facecolor="tab:red", alpha=0.12, label="Events excluded"))
+            _shade_masked_regions(ax, t_sec=t_sec_seg, masked=~m_evt_keep, color="#c1121f", alpha=0.08)
+            legend_patches.append(Patch(facecolor="#c1121f", alpha=0.08, label="Event-excluded"))
         combined_keep = sleep_mask.build_global_include_mask_for_times(t_sec_seg, aux_df, apply_sleep=True, apply_events=True)
 
     if y_clean is not None and t_sec_seg is not None:
@@ -291,14 +469,14 @@ def _plot_segment_hr(
         if combined_keep is not None and np.size(combined_keep) == np.size(invalid_mask):
             invalid_mask = invalid_mask & np.asarray(combined_keep, dtype=bool)
         if np.any(invalid_mask):
-            _shade_masked_regions(ax, t_sec=t_sec_seg, masked=invalid_mask, color="gold", alpha=0.45)
-            legend_patches.append(Patch(facecolor="gold", alpha=0.45, label="Metric invalid"))
+            _shade_masked_regions(ax, t_sec=t_sec_seg, masked=invalid_mask, color="#d4a017", alpha=0.22)
+            legend_patches.append(Patch(facecolor="#d4a017", alpha=0.22, label="Metric invalid"))
 
     if y_clean is not None and t_sec_seg is not None and np.any(np.isfinite(y_clean)):
-        _plot_no_bridge(ax, x_sec=t_sec_seg, y=y_clean, label="HR used", linestyle="-", linewidth=1.4, color="tab:blue", alpha=0.95, zorder=3)
+        _plot_no_bridge(ax, x_sec=t_sec_seg, y=y_clean, label="PAT Derived HR", linestyle="-", linewidth=1.4, color="tab:blue", alpha=0.95, zorder=3)
         _update_limits(y_clean)
 
-    ax.set_ylabel("HR [bpm]")
+    ax.set_ylabel("PAT Derived\nHR [bpm]")
     ax.grid(True)
     handles, labels = ax.get_legend_handles_labels()
     seen = set()
@@ -422,9 +600,7 @@ def _plot_segment_delta_hr(
 ) -> tuple[Optional[float], Optional[float]]:
     t_hr_edf = None
     y_min = y_max = None
-    show_raw_debug = bool(getattr(config, "PLOT_SHOW_RAW_DEBUG_OVERLAYS", False))
-
-    if show_raw_debug and t_hr_calc is not None and hr_calc_raw is not None:
+    if t_hr_calc is not None and hr_calc_raw is not None:
         mask_seg = (t_hr_calc >= seg_start_sec) & (t_hr_calc <= seg_end_sec)
         if np.any(mask_seg):
             t_sec_seg = t_hr_calc[mask_seg]
@@ -479,11 +655,15 @@ def _overlay_events_on_axes(
     ax_prv_sdnn,
     ax_amp,
     ax_delta,
+    ax_pwa,
+    ax_spo2,
     hr_ylim: Optional[tuple[float, float]],
     prv_ylim,
     prv_sdnn_ylim,
     amp_ylim,
     delta_ylim,
+    pwa_ylim,
+    spo2_ylim,
     event_spec: List[EventSpec] = DEFAULT_EVENT_PLOT_SPEC,
 ) -> None:
     if aux_df is None:
@@ -495,7 +675,7 @@ def _overlay_events_on_axes(
     if not mask.any():
         return
     seg = aux_df.loc[mask]
-    used_hr = set(); used_prv = set(); used_prv_sdnn = set(); used_amp = set(); used_delta = set()
+    used_hr = set(); used_prv = set(); used_prv_sdnn = set(); used_amp = set(); used_delta = set(); used_pwa = set(); used_spo2 = set()
     if hr_ylim is None:
         hr_ymin, hr_ymax = (0.0, 1.0)
     else:
@@ -504,6 +684,8 @@ def _overlay_events_on_axes(
     prv_sdnn_ymin, prv_sdnn_ymax = prv_sdnn_ylim if prv_sdnn_ylim is not None else (None, None)
     amp_ymin, amp_ymax = amp_ylim if amp_ylim is not None else (None, None)
     delta_ymin, delta_ymax = delta_ylim if delta_ylim is not None else (None, None)
+    pwa_ymin, pwa_ymax = pwa_ylim if pwa_ylim is not None else (None, None)
+    spo2_ymin, spo2_ymax = spo2_ylim if spo2_ylim is not None else (None, None)
 
     def _event_runs(t_evt_sec: np.ndarray) -> list[tuple[float, float]]:
         if t_evt_sec.size == 0:
@@ -573,3 +755,19 @@ def _overlay_events_on_axes(
                 first = label_delta != "_nolegend_"
                 for x in t_evt_h:
                     ax_delta.axvline(x, color=spec.color, linestyle="-", linewidth=1.8, alpha=0.85, label=spec.label if first else "_nolegend_", zorder=5); first = False
+        if ax_pwa is not None and pwa_ymin is not None and pwa_ymax is not None:
+            label_pwa = spec.label if spec.label not in used_pwa else "_nolegend_"; used_pwa.add(spec.label)
+            if spec.col == "desat_flag":
+                _draw_desat_runs(ax_pwa, desat_runs, spec.color, label_pwa, alpha=0.10)
+            else:
+                first = label_pwa != "_nolegend_"
+                for x in t_evt_h:
+                    ax_pwa.axvline(x, color=spec.color, linestyle="-", linewidth=1.8, alpha=0.85, label=spec.label if first else "_nolegend_", zorder=5); first = False
+        if ax_spo2 is not None and spo2_ymin is not None and spo2_ymax is not None:
+            label_spo2 = spec.label if spec.label not in used_spo2 else "_nolegend_"; used_spo2.add(spec.label)
+            if spec.col == "desat_flag":
+                _draw_desat_runs(ax_spo2, desat_runs, spec.color, label_spo2, alpha=0.10)
+            else:
+                first = label_spo2 != "_nolegend_"
+                for x in t_evt_h:
+                    ax_spo2.axvline(x, color=spec.color, linestyle="-", linewidth=1.8, alpha=0.85, label=spec.label if first else "_nolegend_", zorder=5); first = False

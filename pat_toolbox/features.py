@@ -18,6 +18,7 @@ FEATURE_SPECS: Dict[str, FeatureSpec] = {
     "psd": FeatureSpec("psd"),
     "delta_hr": FeatureSpec("delta_hr", dependencies=("hr",)),
     "pat_burden": FeatureSpec("pat_burden"),
+    "pwa_drop": FeatureSpec("pwa_drop"),
     "sleep_combo_summary": FeatureSpec("sleep_combo_summary"),
     "report_pdf": FeatureSpec("report_pdf"),
     "peaks_debug_pdf": FeatureSpec("peaks_debug_pdf"),
@@ -50,13 +51,14 @@ def workflow_requested() -> bool:
         "psd",
         "delta_hr",
         "pat_burden",
+        "pwa_drop",
         "sleep_combo_summary",
         "report_pdf",
     )
 
 
 def summary_requested() -> bool:
-    return any_enabled("hr", "prv", "psd", "delta_hr", "pat_burden", "sleep_combo_summary")
+    return any_enabled("hr", "prv", "psd", "delta_hr", "pat_burden", "pwa_drop", "sleep_combo_summary")
 
 
 def segment_plot_requested(name: str) -> bool:
@@ -72,6 +74,7 @@ def enabled_feature_parts(candidates: Sequence[str]) -> list[str]:
         "psd": "PSD",
         "delta_hr": "EVENT_HR",
         "pat_burden": "BURDEN",
+        "pwa_drop": "PWA_DROP",
         "sleep_combo_summary": "SLEEP_COMBO",
     }
     return [labels[name] for name in candidates if is_enabled(name)]
