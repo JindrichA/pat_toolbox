@@ -139,7 +139,7 @@ def _overview_header_legend(title: str) -> list[Line2D]:
         ]
     if title in {"PAT-Burden Overview", "PAT burden Overview"}:
         return [
-            Line2D([0], [0], color="tab:orange", linewidth=1.1, label="PAT AMP"),
+            Line2D([0], [0], color="tab:orange", linewidth=1.1, label="DERIVED_PAT_AMP"),
             Line2D([0], [0], color="#6c757d", linewidth=6, alpha=0.10, label="Stage-policy excluded"),
             Line2D([0], [0], color="#c1121f", linewidth=6, alpha=0.08, label="Event-excluded"),
             Line2D([0], [0], color="#d4a017", linewidth=6, alpha=0.22, label="Metric invalid"),
@@ -148,11 +148,21 @@ def _overview_header_legend(title: str) -> list[Line2D]:
         ]
     if title in {"PWA-Drop Overview", "PWA Drops Overview"}:
         return [
-            Line2D([0], [0], color="tab:purple", linewidth=1.1, label="PWA Drops"),
+            Line2D([0], [0], color="tab:purple", linewidth=1.1, label="VIEW_PAT-derived PWA"),
             Line2D([0], [0], color="#6c757d", linewidth=6, alpha=0.10, label="Stage-policy excluded"),
             Line2D([0], [0], color="#c1121f", linewidth=6, alpha=0.08, label="Event-excluded"),
             Line2D([0], [0], color="#d4a017", linewidth=6, alpha=0.22, label="Metric invalid"),
             Line2D([0], [0], color="#9467bd", linewidth=6, alpha=0.16, label="Detected PWA Drop"),
+        ]
+    if title == "PAT Harmonics Overview":
+        return [
+            Line2D([0], [0], color="tab:blue", linewidth=1.2, label="f0"),
+            Line2D([0], [0], color="tab:orange", linewidth=1.2, label="H1 power"),
+            Line2D([0], [0], color="tab:green", linewidth=1.2, label="H2 power"),
+            Line2D([0], [0], color="tab:purple", linewidth=1.2, label="H3 power"),
+            Line2D([0], [0], color="#6c757d", linewidth=6, alpha=0.10, label="Stage-policy excluded"),
+            Line2D([0], [0], color="#c1121f", linewidth=6, alpha=0.08, label="Event-excluded"),
+            Line2D([0], [0], color="#d4a017", linewidth=6, alpha=0.22, label="Metric invalid"),
         ]
     if title == "SpO2 Overview":
         return [
@@ -655,10 +665,10 @@ def _build_pat_burden_overview_figure(
             if np.any(invalid_mask):
                 _shade_masked_regions(ax, t_sec=t_panel, masked=invalid_mask, color="#d4a017", alpha=0.22)
         if np.any(np.isfinite(y_panel)):
-            ax.plot(t_panel / 3600.0, np.ma.masked_invalid(y_panel), linewidth=1.1, color="tab:orange", alpha=0.9, label="PAT AMP", zorder=3)
+            ax.plot(t_panel / 3600.0, np.ma.masked_invalid(y_panel), linewidth=1.1, color="tab:orange", alpha=0.9, label="DERIVED_PAT_AMP", zorder=3)
             _overlay_pat_burden_area(ax, t_sec_all=np.asarray(t_pat_amp), pat_amp_all=np.asarray(pat_amp), aux_df=aux_df, seg_start_sec=start_sec, seg_end_sec=end_sec)
 
-    return _finalize_overview_figure(fig, axes, "PAT AMP")
+    return _finalize_overview_figure(fig, axes, "DERIVED\nPAT_AMP")
 
 
 def _build_pwa_drop_overview_figure(
@@ -703,7 +713,7 @@ def _build_pwa_drop_overview_figure(
             if np.any(invalid_mask):
                 _shade_masked_regions(ax, t_sec=t_panel, masked=invalid_mask, color="#d4a017", alpha=0.22)
         if np.any(np.isfinite(y_panel)):
-            ax.plot(t_panel / 3600.0, np.ma.masked_invalid(y_panel), linewidth=1.1, color="tab:purple", alpha=0.9, label="PWA Drops", zorder=3)
+            ax.plot(t_panel / 3600.0, np.ma.masked_invalid(y_panel), linewidth=1.1, color="tab:purple", alpha=0.9, label="VIEW_PAT-derived PWA", zorder=3)
 
         first = True
         for event in events:
@@ -737,7 +747,7 @@ def _build_pwa_drop_overview_figure(
                     zorder=5,
                 )
 
-    return _finalize_overview_figure(fig, axes, "PWA Drops")
+    return _finalize_overview_figure(fig, axes, "VIEW_PAT-derived\nPWA")
 
 
 def _build_spo2_overview_figure(
@@ -791,3 +801,95 @@ def _build_spo2_overview_figure(
                 ax.legend(loc="lower right", fontsize=5)
 
     return _finalize_overview_figure(fig, axes, "SpO2\n[%]")
+
+
+def _build_pat_harmonics_overview_figure(
+    edf_base: str,
+    pat_harmonics_windows: Optional[list[Dict[str, float]]],
+    pat_harmonics_summary: Optional[Dict[str, float]],
+    aux_df: Optional["pd.DataFrame"],
+    exclusion_zones,
+    duration_sec_fallback: float,
+    event_spec: Sequence[EventSpec] = DEFAULT_EVENT_PLOT_SPEC,
+) -> Optional[Any]:
+    if not pat_harmonics_windows:
+        return None
+    rows = [w for w in pat_harmonics_windows if isinstance(w, dict)]
+    if not rows:
+        return None
+
+    t = np.asarray([float(w.get("t_center_sec", np.nan)) for w in rows], dtype=float)
+    valid = np.asarray([float(w.get("valid", 0.0)) == 1.0 for w in rows], dtype=bool)
+    f0 = np.asarray([float(w.get("f0_hz", np.nan)) for w in rows], dtype=float)
+    h1 = np.asarray([float(w.get("h1_power", np.nan)) for w in rows], dtype=float)
+    h2 = np.asarray([float(w.get("h2_power", np.nan)) for w in rows], dtype=float)
+    h3 = np.asarray([float(w.get("h3_power", np.nan)) for w in rows], dtype=float)
+    if t.size == 0 or not np.any(np.isfinite(t)):
+        return None
+
+    title = "PAT Harmonics Overview"
+    fig, axes = plt.subplots(4, 1, figsize=(11.69, 8.27), sharex=True, gridspec_kw={"height_ratios": [0.75, 1.0, 1.0, 1.0]})
+    fig.suptitle(f"{edf_base} - {title}", fontsize=11, y=0.992)
+    _decorate_overview_figure(fig, title)
+    _add_colored_event_key(fig, list(event_spec))
+
+    ax_hyp, ax_f0, ax_power, ax_ratio = axes
+    try:
+        from .summary_hypnogram import _plot_sleep_stagegram_on_axis
+
+        _plot_sleep_stagegram_on_axis(ax_hyp, edf_base=edf_base, aux_df=aux_df, title="Sleep Stages", show_stats=False, title_pad=2.0)
+    except Exception:
+        ax_hyp.axis("off")
+
+    x_h = t / 3600.0
+    y_f0 = np.where(valid, f0, np.nan)
+    ax_f0.plot(x_h, np.ma.masked_invalid(y_f0), color="tab:blue", linewidth=1.2, marker="o", markersize=2.5, label="f0")
+    if isinstance(pat_harmonics_summary, dict) and np.isfinite(float(pat_harmonics_summary.get("f0_hz_median", np.nan))):
+        ax_f0.axhline(float(pat_harmonics_summary["f0_hz_median"]), color="tab:blue", linestyle="--", linewidth=0.8, alpha=0.7, label="f0 median")
+    ax_f0.set_ylabel("f0 [Hz]")
+    ax_f0.grid(True, alpha=0.35)
+
+    for y, label, color in [(h1, "H1", "tab:orange"), (h2, "H2", "tab:green"), (h3, "H3", "tab:purple")]:
+        yy = np.where(valid, y, np.nan)
+        ax_power.plot(x_h, np.ma.masked_invalid(yy), linewidth=1.1, marker="o", markersize=2.2, color=color, label=label)
+    ax_power.set_ylabel("Power")
+    ax_power.set_yscale("log")
+    ax_power.grid(True, alpha=0.35)
+    ax_power.legend(loc="upper right", fontsize=7)
+
+    h2_h1 = np.asarray([float(w.get("h2_h1", np.nan)) for w in rows], dtype=float)
+    h3_h1 = np.asarray([float(w.get("h3_h1", np.nan)) for w in rows], dtype=float)
+    ax_ratio.plot(x_h, np.ma.masked_invalid(np.where(valid, h2_h1, np.nan)), color="tab:green", linewidth=1.1, marker="o", markersize=2.2, label="H2/H1")
+    ax_ratio.plot(x_h, np.ma.masked_invalid(np.where(valid, h3_h1, np.nan)), color="tab:purple", linewidth=1.1, marker="o", markersize=2.2, label="H3/H1")
+    ax_ratio.set_ylabel("Ratio")
+    ax_ratio.set_xlabel("Time since recording start [hours]")
+    ax_ratio.grid(True, alpha=0.35)
+    ax_ratio.legend(loc="upper right", fontsize=7)
+
+    x_end = float(duration_sec_fallback) if duration_sec_fallback > 0 else float(np.nanmax(t))
+    for ax in [ax_f0, ax_power, ax_ratio]:
+        _add_exclusion_spans(ax, exclusion_zones, 0.0, x_end / 3600.0, label_once=False)
+        if aux_df is not None:
+            _overlay_events_on_single_axis_whole_night(
+                ax=ax,
+                aux_df=aux_df,
+                start_sec=0.0,
+                end_sec=x_end,
+                event_spec=list(event_spec),
+                show_legend_labels=False,
+                event_style="short",
+            )
+        ax.xaxis.set_major_formatter(FuncFormatter(_format_hour_tick))
+
+    valid_pct = np.nan if not isinstance(pat_harmonics_summary, dict) else pat_harmonics_summary.get("valid_pct", np.nan)
+    ax_f0.text(0.01, 0.92, f"valid windows: {_fmt_valid_pct(valid_pct)}", transform=ax_f0.transAxes, fontsize=8, va="top")
+    fig.tight_layout(rect=(0.04, 0.04, 0.98, 0.90))
+    return fig
+
+
+def _fmt_valid_pct(x) -> str:
+    try:
+        xx = float(x)
+    except Exception:
+        return "NA"
+    return f"{xx:.1f}%" if np.isfinite(xx) else "NA"

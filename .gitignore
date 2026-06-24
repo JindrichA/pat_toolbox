@@ -3,6 +3,7 @@ __pycache__/
 .idea/
 *.pdf
 *.csv
+papers/
 
 # Dolt database files (added by bd init)
 .dolt/

@@ -12,6 +12,7 @@ from .workflow_steps_metrics import (
     compute_prv_step,
     compute_pat_burden_step,
     compute_pwa_drop_step,
+    compute_pat_harmonics_step,
     compute_psd_step,
     compute_sleep_combo_summaries_step,
 )
@@ -39,6 +40,7 @@ def process_view_pat_overlay_for_file(edf_path: Path) -> Path | None:
         compute_sleep_combo_summaries_step(ctx)
         compute_pat_burden_step(ctx)
         compute_pwa_drop_step(ctx)
+        compute_pat_harmonics_step(ctx)
         compute_hr_from_pat_step(ctx)
         compute_delta_hr_step(ctx)
         compute_prv_step(ctx)

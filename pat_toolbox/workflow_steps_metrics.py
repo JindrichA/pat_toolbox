@@ -10,6 +10,7 @@ from .metrics import hr as hr_metrics
 from .metrics import prv as prv_metrics
 from .metrics import pat_burden as pat_burden_metrics
 from .metrics import pwa_drop as pwa_drop_metrics
+from .metrics import pat_harmonics as pat_harmonics_metrics
 from .metrics import psd as psd_metrics
 from .metrics.hr_event_response import extract_event_hr_windows, summarize_event_hr_response, summarize_event_hr_response_from_windows
 
@@ -42,6 +43,37 @@ def _hr_summary_for_subset(
         "std": float(np.std(vals)),
         "n_used": float(vals.size),
     }
+
+
+def compute_pat_harmonics_step(ctx: RecordingContext) -> None:
+    if not features.is_enabled("pat_harmonics"):
+        ctx.pat_harmonics_summary = None
+        ctx.pat_harmonics_windows = None
+        return
+    if ctx.view_pat is None or ctx.sfreq is None or ctx.sfreq <= 0:
+        ctx.pat_harmonics_summary = None
+        ctx.pat_harmonics_windows = None
+        return
+    include_set = set(config.sleep_include_numeric()) if bool(getattr(config, "ENABLE_SLEEP_STAGE_MASKING", False)) else None
+    try:
+        summary, windows = pat_harmonics_metrics.compute_pat_harmonics_from_raw_pat(
+            ctx.view_pat,
+            ctx.sfreq,
+            aux_df=ctx.aux_df,
+            include_set=include_set,
+        )
+        ctx.pat_harmonics_summary = summary
+        ctx.pat_harmonics_windows = windows
+        if isinstance(summary, dict) and np.isfinite(float(summary.get("f0_hz_median", np.nan))):
+            print(
+                "  PAT harmonics: "
+                f"f0_median={float(summary.get('f0_hz_median', np.nan)):.3f} Hz, "
+                f"valid_windows={int(summary.get('n_windows_valid', 0))}/{int(summary.get('n_windows_total', 0))}"
+            )
+    except Exception as e:
+        print(f"  WARNING: PAT harmonics computation failed: {e}")
+        ctx.pat_harmonics_summary = None
+        ctx.pat_harmonics_windows = None
 
 
 def _compute_single_sleep_combo_summary(

@@ -76,8 +76,8 @@ def _add_segment_pages_to_pdf(
     use_hr = include_event_vascular and features.segment_plot_requested("hr") and t_hr_calc is not None and hr_calc is not None
     use_prv = include_prv and features.segment_plot_requested("prv") and t_prv is not None and prv_clean is not None and np.size(prv_clean) > 0
     use_prv_sdnn = use_prv and prv_sdnn_clean is not None and np.size(prv_sdnn_clean) == np.size(t_prv)
-    use_pat_amp = include_event_vascular and features.segment_plot_requested("pat_burden") and t_pat_amp is not None and pat_amp is not None and np.size(pat_amp) > 0
-    use_pwa_drop = include_event_vascular and features.segment_plot_requested("pwa_drop") and t_pwa is not None and pwa_series is not None and np.size(pwa_series) > 0 and np.size(pwa_series) == np.size(t_pwa)
+    use_pat_amp = include_event_vascular and features.segment_plot_requested("pat_burden")
+    use_pwa_drop = include_event_vascular and features.segment_plot_requested("pwa_drop")
     use_spo2 = include_event_vascular and bool(getattr(config, "ENABLE_SPO2_VALIDATION_PLOTS", False)) and t_spo2 is not None and spo2 is not None and np.size(spo2) > 0 and np.size(spo2) == np.size(t_spo2)
 
     for start in range(0, n_samples, samples_per_segment):
@@ -161,12 +161,20 @@ def _add_segment_pages_to_pdf(
             prv_sdnn_ylim = ax_prv_sdnn.get_ylim()
 
         amp_ylim = None
-        if ax_pat_amp is not None and t_pat_amp is not None and pat_amp is not None:
+        if ax_pat_amp is not None and t_pat_amp is not None and pat_amp is not None and np.size(pat_amp) > 0:
             amp_ylim = _plot_segment_pat_amp(ax_pat_amp, t_pat_amp, pat_amp, seg_start_sec, seg_end_sec, exclusion_zones, t_h_start, t_h_end, aux_df=aux_df)
+        elif ax_pat_amp is not None:
+            ax_pat_amp.set_ylabel("DERIVED\nPAT_AMP")
+            ax_pat_amp.text(0.5, 0.5, "DERIVED_PAT_AMP unavailable", transform=ax_pat_amp.transAxes, ha="center", va="center", fontsize=9)
+            ax_pat_amp.grid(True)
 
         pwa_ylim = None
-        if ax_pwa_drop is not None and t_pwa is not None and pwa_series is not None:
+        if ax_pwa_drop is not None and t_pwa is not None and pwa_series is not None and np.size(pwa_series) > 0 and np.size(pwa_series) == np.size(t_pwa):
             pwa_ylim = _plot_segment_pwa_drop(ax_pwa_drop, t_pwa, pwa_series, pwa_drop_events, seg_start_sec, seg_end_sec, exclusion_zones, t_h_start, t_h_end, aux_df=aux_df)
+        elif ax_pwa_drop is not None:
+            ax_pwa_drop.set_ylabel("VIEW_PAT-derived\nPWA")
+            ax_pwa_drop.text(0.5, 0.5, "VIEW_PAT-derived PWA unavailable", transform=ax_pwa_drop.transAxes, ha="center", va="center", fontsize=9)
+            ax_pwa_drop.grid(True)
         spo2_ylim = None
         if ax_spo2 is not None and t_spo2 is not None and spo2 is not None:
             spo2_ylim = _plot_segment_spo2(ax_spo2, t_spo2, spo2, seg_start_sec, seg_end_sec, exclusion_zones, t_h_start, t_h_end, aux_df=aux_df)

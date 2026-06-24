@@ -34,7 +34,7 @@ RUN_ID = datetime.now().strftime("%Y%m%d_%H%M%S")
 
 # RUN_TAG is the human-readable label to help distinguish parameter sweeps.
 # Changing it affects output folder names only; it does not change calculations.
-RUN_TAG = "RMSSD_times"
+RUN_TAG = "Harmonics"
 
 # Top-level feature selection. These switches are meant to answer the question
 # "what should this run produce?". If a feature is disabled here, the goal is to
@@ -49,6 +49,7 @@ RUN_TAG = "RMSSD_times"
 #   - psd                 -> spectral features and PSD report pages
 #   - delta_hr            -> event-response HR metrics and event-response HR plots
 #   - pat_burden          -> PAT amplitude loading, burden metric, burden subplot/rows
+#   - pat_harmonics       -> raw PAT waveform harmonic summaries and report pages
 #   - sleep_combo_summary -> extra fixed sleep-subset comparison summaries
 #   - report_pdf          -> main multi-page PDF report
 #   - peaks_debug_pdf     -> PAT peak-debug PDF
@@ -59,9 +60,10 @@ FEATURES = {
     "delta_hr": True,
     "pat_burden": True,
     "pwa_drop": True,
+    "pat_harmonics": True,
     "sleep_combo_summary": True,
     "report_pdf": True,
-    "peaks_debug_pdf": False,
+    "peaks_debug_pdf": True,
 }
 
 # Optional publication-style single-figure export. This is intentionally separate
@@ -188,6 +190,7 @@ DELTA_HR_OUTPUT_SUBFOLDER = f"EVENT_HR__{run_suffix()}"
 PUBLICATION_PRV_OUTPUT_SUBFOLDER = f"PublicationPRV__{run_suffix()}"
 PAT_BURDEN_OUTPUT_SUBFOLDER = f"PATBurden__{run_suffix()}"
 PWA_DROP_OUTPUT_SUBFOLDER = f"PWADrop__{run_suffix()}"
+PAT_HARMONICS_OUTPUT_SUBFOLDER = f"PATHarmonics__{run_suffix()}"
 PSD_OUTPUT_SUBFOLDER = f"PSD__{run_suffix()}"
 
 
@@ -276,7 +279,7 @@ SUMMARY_FRONT_PAGE_BIN_MINUTES = 5
 ENABLE_PRV_REPORT_PAGES = False
 ENABLE_SPO2_VALIDATION_PLOTS = False
 
-SEGMENT_MINUTES = 15
+SEGMENT_MINUTES = 3
 PAT_PEAK_DEBUG_SEGMENT_MINUTES = 1.0
 OVERVIEW_PANEL_HOURS = 2.0
 
@@ -484,6 +487,25 @@ PWA_DROP_BASELINE_CYCLES = 5
 PWA_DROP_SENSORLOSS_THR = 5.0
 PWA_DROP_MAX_HR_BPM = 250.0
 PWA_DROP_SUMMARY_MIN_BASELINE_POINTS = 3
+
+
+# =============================================================================
+# Raw PAT Harmonics Feature
+# =============================================================================
+# Computes fixed-window harmonic summaries directly from raw VIEW_PAT. The
+# fundamental frequency is detected in the pulse band, and powers around H1-HN
+# are integrated from the Welch PSD. Windows use the shared sleep/event/desat
+# mask and are rejected when too little selected-policy data remains.
+
+ENABLE_PAT_HARMONICS = FEATURES["pat_harmonics"]
+PAT_HARMONICS_WINDOW_SEC = 120.0
+PAT_HARMONICS_HOP_SEC = 60.0
+PAT_HARMONICS_F0_BAND_HZ = (0.5, 2.5)
+PAT_HARMONICS_MAX_N = 5
+PAT_HARMONICS_BANDWIDTH_HZ = 0.08
+PAT_HARMONICS_MIN_VALID_FRACTION = 0.80
+PAT_HARMONICS_WELCH_NPERSEG_SEC = 16.0
+PAT_HARMONICS_NFFT = 4096
 
 
 # =============================================================================

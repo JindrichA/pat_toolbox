@@ -144,6 +144,96 @@ def _extract_pwa_series(signal: np.ndarray, fs: float) -> tuple[np.ndarray, np.n
     return np.asarray(pwa, dtype=float), np.asarray(points, dtype=float), np.asarray(d_cc, dtype=float)
 
 
+def extract_pwa_debug_from_pat_signal(signal: np.ndarray, fs: float) -> dict[str, np.ndarray]:
+    """
+    Return intermediate maxima/minima used to derive beat-to-beat PWA.
+
+    This is intentionally separate from the HR/PRV peak detector so the debug
+    PDF can compare the two peak-picking paths without changing calculations.
+    """
+    if signal.size == 0 or fs <= 0:
+        return {}
+
+    sig = np.asarray(signal, dtype=float).copy()
+    if not np.all(np.isfinite(sig)):
+        finite = sig[np.isfinite(sig)]
+        fill = float(np.nanmedian(finite)) if finite.size else 0.0
+        sig[~np.isfinite(sig)] = fill
+    sig = _linear_detrend_safe(sig)
+    smooth_win = _odd_window(int(round(0.2 * float(fs))), minimum=5)
+    if sig.size >= smooth_win:
+        sig_f = savgol_filter(sig, window_length=smooth_win, polyorder=2, mode="interp")
+    else:
+        sig_f = sig.copy()
+
+    signal_mean = float(np.nanmean(np.abs(sig))) if np.any(np.isfinite(sig)) else 0.0
+    prominence = max(signal_mean / 100.0, 1e-9)
+    peaks_max, _props_max = find_peaks(sig_f, prominence=prominence)
+    peaks_min, _props_min = find_peaks(-sig_f, prominence=prominence)
+
+    values = np.concatenate([peaks_max, peaks_min])
+    amps = np.concatenate([sig_f[peaks_max], sig_f[peaks_min]])
+    types = np.concatenate([np.ones(peaks_max.size, dtype=int), -np.ones(peaks_min.size, dtype=int)])
+    if values.size == 0:
+        return {
+            "signal_smooth": sig_f,
+            "max_indices": peaks_max,
+            "min_indices": peaks_min,
+            "pair_max_indices": np.array([], dtype=int),
+            "pair_min_indices": np.array([], dtype=int),
+            "pwa_values": np.array([], dtype=float),
+        }
+
+    order = np.argsort(values)
+    values = values[order]
+    amps = amps[order]
+    types = types[order]
+
+    keep = np.ones(values.size, dtype=bool)
+    i = 0
+    while i < values.size - 1:
+        if types[i] == types[i + 1]:
+            if types[i] == 1:
+                drop_idx = i if amps[i] < amps[i + 1] else i + 1
+            else:
+                drop_idx = i if amps[i] > amps[i + 1] else i + 1
+            keep[drop_idx] = False
+        i += 1
+    values = values[keep]
+    amps = amps[keep]
+    types = types[keep]
+
+    pair_max: list[int] = []
+    pair_min: list[int] = []
+    pwa_vals: list[float] = []
+    max_hr = float(getattr(config, "PWA_DROP_MAX_HR_BPM", 250.0))
+    min_d = 60.0 / max(1.0, max_hr)
+    prev_point = None
+    for i in range(values.size - 1):
+        if types[i] != 1 or types[i + 1] != -1:
+            continue
+        point_idx = int(values[i])
+        if prev_point is None:
+            d_i = np.inf
+        else:
+            d_i = (point_idx - prev_point) / float(fs)
+        prev_point = point_idx
+        if d_i < min_d:
+            continue
+        pair_max.append(point_idx)
+        pair_min.append(int(values[i + 1]))
+        pwa_vals.append(float(amps[i] - amps[i + 1]))
+
+    return {
+        "signal_smooth": sig_f,
+        "max_indices": peaks_max,
+        "min_indices": peaks_min,
+        "pair_max_indices": np.asarray(pair_max, dtype=int),
+        "pair_min_indices": np.asarray(pair_min, dtype=int),
+        "pwa_values": np.asarray(pwa_vals, dtype=float),
+    }
+
+
 def _pwa_sensorloss_mask(signal: np.ndarray, fs: float) -> np.ndarray:
     sig = np.asarray(signal, dtype=float)
     if sig.size == 0:

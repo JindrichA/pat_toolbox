@@ -165,7 +165,7 @@ def _plot_segment_pat_amp(
     _add_exclusion_spans(ax, exclusion_zones, t_seg_h_start, t_seg_h_end, label_once=False)
     mask = (t_pat_amp >= seg_start_sec) & (t_pat_amp <= seg_end_sec)
     if not np.any(mask):
-        ax.set_ylabel("PAT AMP")
+        ax.set_ylabel("DERIVED\nPAT_AMP")
         ax.grid(True)
         return None, None
 
@@ -194,7 +194,7 @@ def _plot_segment_pat_amp(
         legend_patches.append(Patch(facecolor="#d4a017", alpha=0.22, label="Metric invalid"))
 
     if np.any(np.isfinite(y_seg)):
-        _plot_no_bridge(ax, x_sec=t_sec_seg, y=y_seg, label="PAT AMP", linestyle="-", linewidth=1.1, color="tab:orange", alpha=0.9, zorder=3)
+        _plot_no_bridge(ax, x_sec=t_sec_seg, y=y_seg, label="DERIVED_PAT_AMP", linestyle="-", linewidth=1.1, color="tab:orange", alpha=0.9, zorder=3)
         _overlay_pat_burden_area(ax, t_sec_all=t_pat_amp, pat_amp_all=pat_amp, aux_df=aux_df, seg_start_sec=seg_start_sec, seg_end_sec=seg_end_sec)
         legend_patches.append(Patch(facecolor="#2a9d8f", alpha=0.24, label="PAT burden area"))
         yy = y_seg[np.isfinite(y_seg)]
@@ -204,9 +204,9 @@ def _plot_segment_pat_amp(
             margin = 0.10 * (y1 - y0)
             ax.set_ylim(y0 - margin, y1 + margin)
     else:
-        ax.text(0.01, 0.92, "PAT AMP unavailable in this segment", transform=ax.transAxes, fontsize=9, va="top")
+        ax.text(0.01, 0.92, "DERIVED_PAT_AMP unavailable in this segment", transform=ax.transAxes, fontsize=9, va="top")
 
-    ax.set_ylabel("PAT AMP")
+    ax.set_ylabel("DERIVED\nPAT_AMP")
     ax.grid(True)
     handles, labels = ax.get_legend_handles_labels()
     seen = set()
@@ -241,7 +241,7 @@ def _plot_segment_pwa_drop(
     _add_exclusion_spans(ax, exclusion_zones, t_seg_h_start, t_seg_h_end, label_once=True)
     mask = (t_pwa >= seg_start_sec) & (t_pwa <= seg_end_sec)
     if not np.any(mask):
-        ax.set_ylabel("PWA Drops")
+        ax.set_ylabel("VIEW_PAT-derived\nPWA")
         ax.grid(True)
         return None, None
 
@@ -270,8 +270,11 @@ def _plot_segment_pwa_drop(
 
     y_min = y_max = None
     if np.any(np.isfinite(y_seg)):
-        _plot_no_bridge(ax, x_sec=t_sec_seg, y=y_seg, label="PWA Drops", linestyle="-", linewidth=1.1, color="tab:purple", alpha=0.9, zorder=3)
-        yy = y_seg[np.isfinite(y_seg)]
+        ok = np.isfinite(t_sec_seg) & np.isfinite(y_seg)
+        x_h = t_sec_seg[ok] / 3600.0
+        yy = y_seg[ok]
+        ax.vlines(x_h, 0.0, yy, color="tab:purple", linewidth=0.8, alpha=0.55, label="VIEW_PAT-derived beat-to-beat PWA", zorder=3)
+        ax.scatter(x_h, yy, s=14, color="tab:purple", alpha=0.85, zorder=4)
         y_min = float(np.min(yy))
         y_max = float(np.max(yy))
 
@@ -287,7 +290,7 @@ def _plot_segment_pwa_drop(
         ax.axvspan(t0 / 3600.0, t1 / 3600.0, color="#9467bd", alpha=0.16, label="Detected PWA Drop" if first else "_nolegend_", zorder=1)
         first = False
 
-    ax.set_ylabel("PWA Drops")
+    ax.set_ylabel("VIEW_PAT-derived\nPWA")
     ax.grid(True)
     handles, labels = ax.get_legend_handles_labels()
     seen = set()

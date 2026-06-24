@@ -5,6 +5,7 @@ from pathlib import Path
 import numpy as np
 
 from .. import config, filters, io_edf, paths, plotting
+from . import pwa_drop as pwa_drop_metrics
 from .hr_compute import _detect_pat_peaks
 
 
@@ -31,6 +32,12 @@ def create_peaks_debug_pdf_for_edf(edf_path: Path) -> Path | None:
     except Exception as e:
         print(f"  WARNING: peak detection failed for {edf_path.name}: {e}")
         return None
+
+    try:
+        pwa_debug = pwa_drop_metrics.extract_pwa_debug_from_pat_signal(pat_filt, fs)
+    except Exception as e:
+        print(f"  WARNING: PWA max/min debug extraction failed for {edf_path.name}: {e}")
+        pwa_debug = None
 
     act_to_plot = None
     act_fs = None
@@ -81,6 +88,7 @@ def create_peaks_debug_pdf_for_edf(edf_path: Path) -> Path | None:
         actigraph=act_to_plot,
         act_sfreq=act_fs,
         act_label=act_label,
+        pwa_debug=pwa_debug,
     )
 
     print(f"  Saved PAT peaks debug PDF to: {pdf_path}")

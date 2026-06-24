@@ -614,6 +614,7 @@ def _build_spectral_feature_rows(
     mayer_peak_freq: Optional[float],
     resp_peak_freq: Optional[float],
     psd_features: Optional[Dict[str, float]],
+    pat_harmonics_summary: Optional[Dict[str, float]] = None,
 ) -> List[List[str]]:
     rows: List[List[str]] = []
     if features.is_enabled("prv"):
@@ -647,6 +648,23 @@ def _build_spectral_feature_rows(
         rows += [["Selected-policy spectral analysis", ""], ["  Mayer peak [Hz]", _fmt(mayer_peak_freq, 3)], ["  Resp peak [Hz]", _fmt(resp_peak_freq, 3)]]
         if psd_features:
             rows += [["  PSD mode", str(psd_features.get("psd_mode", "matched"))], ["  VLF power (0.0033–0.04 Hz)", _fmt_sci(psd_features.get("pow_vlf"))], ["  Mayer power (0.04–0.15 Hz)", _fmt_sci(psd_features.get("pow_mayer"))], ["  Resp power (0.15–0.50 Hz)", _fmt_sci(psd_features.get("pow_resp"))], ["  Mayer power (norm)", _fmt_pct(psd_features.get("norm_mayer"), 1)], ["  Resp power (norm)", _fmt_pct(psd_features.get("norm_resp"), 1)], ["  Valid PSD windows", _fmt_int(psd_features.get("n_windows"))], ["  PSD diagnostic", str(psd_features.get("psd_diag_reason", "")) or "ok"]]
+    if features.is_enabled("pat_harmonics"):
+        if rows:
+            rows += [["", ""]]
+        item = pat_harmonics_summary if isinstance(pat_harmonics_summary, dict) else {}
+        rows += [
+            ["Selected-policy raw PAT harmonics", ""],
+            ["  Window / hop [s]", f"{_fmt(item.get('window_sec'), 0)} / {_fmt(item.get('hop_sec'), 0)}"],
+            ["  Valid windows", f"{_fmt_int(item.get('n_windows_valid'))}/{_fmt_int(item.get('n_windows_total'))} ({_fmt_pct(item.get('valid_pct'), 1)})"],
+            ["  f0 mean / median [Hz]", f"{_fmt(item.get('f0_hz_mean'), 3)} / {_fmt(item.get('f0_hz_median'), 3)}"],
+            ["  H1 power mean / median", f"{_fmt_sci(item.get('h1_power_mean'))} / {_fmt_sci(item.get('h1_power_median'))}"],
+            ["  H2 power mean / median", f"{_fmt_sci(item.get('h2_power_mean'))} / {_fmt_sci(item.get('h2_power_median'))}"],
+            ["  H3 power mean / median", f"{_fmt_sci(item.get('h3_power_mean'))} / {_fmt_sci(item.get('h3_power_median'))}"],
+            ["  H2/H1 mean", _fmt(item.get("h2_h1_mean"), 3)],
+            ["  H3/H1 mean", _fmt(item.get("h3_h1_mean"), 3)],
+            ["  Harmonic total power mean", _fmt_sci(item.get("harmonic_total_power_mean"))],
+            ["  Harmonic distortion index mean", _fmt(item.get("harmonic_distortion_index_mean"), 3)],
+        ]
     return rows
 
 
@@ -942,6 +960,8 @@ def build_front_page(
     t_pwa: Optional[np.ndarray],
     pwa_series: Optional[np.ndarray],
     pwa_drop_events: Optional[list[Dict[str, float]]],
+    pat_harmonics_summary: Optional[Dict[str, float]] = None,
+    pat_harmonics_windows: Optional[list[Dict[str, float]]] = None,
     t_spo2: Optional[np.ndarray] = None,
     spo2: Optional[np.ndarray] = None,
     event_spec: Optional[list[Any]] = None,
@@ -989,8 +1009,8 @@ def build_front_page(
             "y": pwa_vals,
             "ci": None,
             "color": "tab:purple",
-            "ylabel": "PWA Drops\n[n/bin]",
-            "label": "PWA Drops",
+            "ylabel": "PWA drops\n[n/bin]",
+            "label": "PWA drops",
             "summary": None,
             "badge": (
                 f"n {_fmt_int(pwa_drop_summary.get('n_drops'))} | rate {_fmt(pwa_summary, 2)}/h | amp {_fmt(pwa_drop_summary.get('mean_amplitude_pct'), 1)}%"
@@ -1281,6 +1301,7 @@ def build_summary_pages(
     pat_burden: Optional[float] = None,
     pat_burden_diag: Optional[Dict[str, float]] = None,
     pwa_drop_summary: Optional[Dict[str, float]] = None,
+    pat_harmonics_summary: Optional[Dict[str, float]] = None,
     sleep_combo_summaries: Optional[Dict[str, Dict[str, object]]] = None,
     prv_mask_info: Optional[Dict[str, object]] = None,
     prv_midpoint_halves: Optional[Dict[str, Dict[str, float]]] = None,
@@ -1292,7 +1313,7 @@ def build_summary_pages(
     t_hr_edf = None
     hr_edf = None
     figs = []
-    has_aux_summary_context = features.any_enabled("prv", "psd", "delta_hr", "pat_burden", "pwa_drop", "sleep_combo_summary")
+    has_aux_summary_context = features.any_enabled("prv", "psd", "delta_hr", "pat_burden", "pwa_drop", "pat_harmonics", "sleep_combo_summary")
 
     rows_hr_quality, rows_ts_coverage, rows_spectral_coverage = _build_quality_rows(t_hr_calc, hr_calc, t_prv, prv_clean, prv_raw, prv_tv)
 
@@ -1310,7 +1331,7 @@ def build_summary_pages(
     if rows_ts_coverage:
         figs.append(_render_table_page("Summary (Selected-Policy Time-Series Coverage)", rows_ts_coverage, edf_base=edf_base, font_size=12, scale_y=1.35))
 
-    rows_spectral = _build_spectral_feature_rows(prv_summary, mayer_peak_freq, resp_peak_freq, psd_features)
+    rows_spectral = _build_spectral_feature_rows(prv_summary, mayer_peak_freq, resp_peak_freq, psd_features, pat_harmonics_summary)
     if rows_spectral:
         figs.append(_render_table_page("Summary (Selected-Policy Spectral Parameters)", rows_spectral, edf_base=edf_base, font_size=12, scale_y=1.35))
 
@@ -1321,7 +1342,7 @@ def build_summary_pages(
     if rows_sleep_timing:
         figs.append(_render_table_page("Summary (Sleep Timing)", rows_sleep_timing, edf_base=edf_base, font_size=12, scale_y=1.35))
 
-    rows_midpoint_halves = _build_midpoint_half_rows(prv_midpoint_halves)
+    rows_midpoint_halves = _build_midpoint_half_rows(prv_midpoint_halves) if features.is_enabled("prv") else []
     if rows_midpoint_halves:
         figs.append(
             _render_comparison_table_page(
@@ -1334,7 +1355,7 @@ def build_summary_pages(
             )
         )
 
-    rows_p3 = _build_mask_breakdown_rows(t_prv, prv_mask_info)
+    rows_p3 = _build_mask_breakdown_rows(t_prv, prv_mask_info) if features.is_enabled("prv") else []
     if rows_p3:
         figs.append(_render_table_page("Summary (Selected-Policy Exclusion Breakdown)", rows_p3, edf_base=edf_base, font_size=12, scale_y=1.35))
 

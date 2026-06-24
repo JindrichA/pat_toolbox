@@ -10,6 +10,7 @@ from .metrics import prv as prv_metrics
 from .metrics.hr_event_response import save_event_hr_windows_to_csv
 from .metrics.pat_burden_io import save_pat_burden_episodes_to_csv, save_pat_burden_summary_to_csv
 from .metrics.pwa_drop_io import save_pwa_drop_events_to_csv, save_pwa_drop_summary_to_csv
+from .metrics.pat_harmonics_io import save_pat_harmonics_windows_to_csv, save_pat_harmonics_summary_to_csv
 
 
 def build_pdf_step(ctx: RecordingContext) -> None:
@@ -19,7 +20,7 @@ def build_pdf_step(ctx: RecordingContext) -> None:
     assert ctx.view_pat is not None and ctx.view_pat_filt is not None and ctx.sfreq is not None
     out_folder = paths.get_output_folder()
     suffix = "_multi_sleep_summary" if getattr(ctx, "sleep_combo_summaries", None) else (config.sleep_stage_suffix() if getattr(config, "ENABLE_SLEEP_STAGE_MASKING", False) else "")
-    feature_parts = ["VIEW_PAT", *features.enabled_feature_parts(("hr", "prv", "psd", "delta_hr", "pat_burden", "pwa_drop"))]
+    feature_parts = ["VIEW_PAT", *features.enabled_feature_parts(("hr", "prv", "psd", "delta_hr", "pat_burden", "pwa_drop", "pat_harmonics"))]
     pdf_name = f"{ctx.edf_base}__{'_'.join(feature_parts)}_{config.SEGMENT_MINUTES}min_overlay{suffix}.pdf"
     ctx.pdf_path = out_folder / pdf_name
     psd_results_dict = plotting.plot_pat_and_hr_segments_to_pdf(
@@ -58,6 +59,8 @@ def build_pdf_step(ctx: RecordingContext) -> None:
         pwa_series=getattr(ctx, "pwa_series", None),
         pwa_drop_summary=getattr(ctx, "pwa_drop_summary", None),
         pwa_drop_events=getattr(ctx, "pwa_drop_events", None),
+        pat_harmonics_summary=getattr(ctx, "pat_harmonics_summary", None),
+        pat_harmonics_windows=getattr(ctx, "pat_harmonics_windows", None),
         t_spo2=getattr(ctx, "t_spo2", None),
         spo2=getattr(ctx, "spo2", None),
         sleep_combo_summaries=getattr(ctx, "sleep_combo_summaries", None),
@@ -122,6 +125,19 @@ def export_feature_csvs_step(ctx: RecordingContext) -> None:
             ctx.pwa_drop_summary_csv_path = save_pwa_drop_summary_to_csv(ctx.edf_path, getattr(ctx, "pwa_drop_summary", None))
         except Exception as e:
             print(f"  WARNING: could not save PWA drop summary CSV for {ctx.edf_path.name}: {e}")
+
+    if features.is_enabled("pat_harmonics") and getattr(ctx, "pat_harmonics_windows", None):
+        try:
+            windows = ctx.pat_harmonics_windows
+            if windows is not None:
+                ctx.pat_harmonics_csv_path = save_pat_harmonics_windows_to_csv(ctx.edf_path, cast(list[dict[str, Any]], windows))
+        except Exception as e:
+            print(f"  WARNING: could not save PAT harmonics windows CSV for {ctx.edf_path.name}: {e}")
+    if features.is_enabled("pat_harmonics") and getattr(ctx, "pat_harmonics_summary", None) is not None:
+        try:
+            ctx.pat_harmonics_summary_csv_path = save_pat_harmonics_summary_to_csv(ctx.edf_path, getattr(ctx, "pat_harmonics_summary", None))
+        except Exception as e:
+            print(f"  WARNING: could not save PAT harmonics summary CSV for {ctx.edf_path.name}: {e}")
 
     if ctx.aux_df is not None:
         try:
@@ -192,6 +208,7 @@ def append_summary_step(ctx: RecordingContext) -> None:
         aux_df=ctx.aux_df,
         hr_event_response_summary=getattr(ctx, "hr_event_response_summary", None),
         pwa_drop_summary=getattr(ctx, "pwa_drop_summary", None),
+        pat_harmonics_summary=getattr(ctx, "pat_harmonics_summary", None),
         psd_features=getattr(ctx, "psd_features", None),
         pat_burden=getattr(ctx, "pat_burden", None),
         pat_burden_diag=getattr(ctx, "pat_burden_diag", None),

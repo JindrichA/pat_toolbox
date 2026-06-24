@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Mapping
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -24,6 +24,7 @@ def plot_pat_with_peaks_segments_to_pdf(
     act_label: str = "ACTIGRAPH raw",
     pat_ylim: Optional[tuple[float, float]] = None,
     act_ylim: Optional[tuple[float, float]] = None,
+    pwa_debug: Optional[Mapping[str, np.ndarray]] = None,
 ):
     if segment_minutes is None:
         segment_minutes = getattr(
@@ -43,6 +44,8 @@ def plot_pat_with_peaks_segments_to_pdf(
     if samples_per_segment <= 0:
         raise ValueError("Computed non-positive samples_per_segment.")
 
+    use_pwa_debug = bool(pwa_debug) and pwa_debug is not None and np.size(pwa_debug.get("signal_smooth", [])) == n_samples
+
     use_act = (
         actigraph is not None
         and act_sfreq is not None
@@ -59,14 +62,25 @@ def plot_pat_with_peaks_segments_to_pdf(
             seg_filt = signal_filt[start:end]
             t_seg = np.arange(start, end) / sfreq / 60.0  # minutes
 
-            if use_act:
-                fig, (ax, ax_act) = plt.subplots(
-                    2, 1, figsize=(11.69, 8.27),
+            n_rows = 1 + (1 if use_pwa_debug else 0) + (1 if use_act else 0)
+            if n_rows > 1:
+                ratios = [2.0]
+                if use_pwa_debug:
+                    ratios.append(2.0)
+                if use_act:
+                    ratios.append(1.0)
+                fig, axes = plt.subplots(
+                    n_rows, 1, figsize=(11.69, 8.27),
                     sharex=True,
-                    gridspec_kw={"height_ratios": [2, 1]},
+                    gridspec_kw={"height_ratios": ratios},
                 )
+                axes = np.atleast_1d(axes)
+                ax = axes[0]
+                ax_pwa = axes[1] if use_pwa_debug else None
+                ax_act = axes[-1] if use_act else None
             else:
                 fig, ax = plt.subplots(figsize=(11.69, 8.27))
+                ax_pwa = None
                 ax_act = None
 
             title_lines = []
@@ -94,6 +108,36 @@ def plot_pat_with_peaks_segments_to_pdf(
             if pat_ylim is not None:
                 ax.set_ylim(pat_ylim)
 
+            if use_pwa_debug and ax_pwa is not None and pwa_debug is not None:
+                sig_pwa = np.asarray(pwa_debug.get("signal_smooth", []), dtype=float)
+                seg_pwa = sig_pwa[start:end]
+                ax_pwa.plot(t_seg, seg_pwa, label="PWA detector smoothed PAT", linewidth=0.8, color="tab:purple")
+
+                max_idx = np.asarray(pwa_debug.get("max_indices", []), dtype=int)
+                min_idx = np.asarray(pwa_debug.get("min_indices", []), dtype=int)
+                pair_max = np.asarray(pwa_debug.get("pair_max_indices", []), dtype=int)
+                pair_min = np.asarray(pwa_debug.get("pair_min_indices", []), dtype=int)
+
+                for idxs, marker, color, label in [
+                    (max_idx, "^", "tab:blue", "all local maxima"),
+                    (min_idx, "v", "tab:red", "all local minima"),
+                    (pair_max, "o", "black", "accepted PWA max"),
+                    (pair_min, "o", "tab:orange", "accepted PWA min"),
+                ]:
+                    mask = (idxs >= start) & (idxs < end)
+                    if np.any(mask):
+                        ii = idxs[mask]
+                        ax_pwa.scatter(ii / sfreq / 60.0, sig_pwa[ii], marker=marker, s=12, label=label, zorder=3)
+
+                if pair_max.size and pair_min.size:
+                    m = (pair_max >= start) & (pair_max < end) & (pair_min >= start) & (pair_min < end)
+                    for imax, imin in zip(pair_max[m], pair_min[m]):
+                        ax_pwa.vlines(imax / sfreq / 60.0, sig_pwa[imin], sig_pwa[imax], color="0.35", linewidth=0.6, alpha=0.45, zorder=2)
+
+                ax_pwa.set_ylabel("PWA max/min")
+                ax_pwa.grid(True)
+                ax_pwa.legend(loc="upper right", fontsize=8)
+
             if use_act and ax_act is not None:
                 seg_start_sec = start / sfreq
                 seg_end_sec = end / sfreq
@@ -118,6 +162,8 @@ def plot_pat_with_peaks_segments_to_pdf(
 
                 if act_ylim is not None:
                     ax_act.set_ylim(act_ylim)
+            elif ax_pwa is not None:
+                ax_pwa.set_xlabel("Time (minutes from recording start)")
             else:
                 ax.set_xlabel("Time (minutes from recording start)")
 

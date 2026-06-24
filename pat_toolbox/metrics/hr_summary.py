@@ -28,6 +28,7 @@ def append_hr_prv_summary(
     aux_df: Optional[Any] = None,
     hr_event_response_summary: Optional[Dict[str, float]] = None,
     pwa_drop_summary: Optional[Dict[str, float]] = None,
+    pat_harmonics_summary: Optional[Dict[str, float]] = None,
     psd_features: Optional[Dict[str, float]] = None,
     pat_burden: Optional[float] = None,
     pat_burden_diag: Optional[dict] = None,
@@ -315,7 +316,7 @@ def append_hr_prv_summary(
 
     summary_folder = paths.get_output_folder(config.HR_OUTPUT_SUBFOLDER)
 
-    summary_parts = features.enabled_feature_parts(("hr", "prv", "psd", "delta_hr", "pat_burden", "sleep_combo_summary")) or ["SUMMARY"]
+    summary_parts = features.enabled_feature_parts(("hr", "prv", "psd", "delta_hr", "pat_burden", "pwa_drop", "pat_harmonics", "sleep_combo_summary")) or ["SUMMARY"]
 
     if isinstance(sleep_combo_summaries, dict) and sleep_combo_summaries:
         sleep_stage_policy = "multi_sleep_summary"
@@ -336,7 +337,7 @@ def append_hr_prv_summary(
     active_aux_columns = set(policy_from_config().exclusion_columns)
     if bool(getattr(config, "PRV_EXCLUSION_USE_DESAT_WINDOWS", False)):
         active_aux_columns.add(str(getattr(config, "PRV_EXCLUSION_DESAT_COLUMN_KEY", "desat_flag")))
-    has_aux_summary_context = features.any_enabled("prv", "psd", "delta_hr", "pat_burden", "sleep_combo_summary")
+    has_aux_summary_context = features.any_enabled("prv", "psd", "delta_hr", "pat_burden", "pwa_drop", "pat_harmonics", "sleep_combo_summary")
 
     time_distribution_fields = [
         ("p25", "p25"),
@@ -418,6 +419,31 @@ def append_hr_prv_summary(
         row["selected_pwa_drop_mean_auc_pct_sec"] = item.get("mean_auc_pct_sec", np.nan)
         row["selected_pwa_drop_event_overlap_n"] = item.get("n_drops_event_overlap", np.nan)
         row["selected_pwa_drop_event_overlap_pct"] = item.get("event_overlap_pct", np.nan)
+
+    if features.is_enabled("pat_harmonics"):
+        item = pat_harmonics_summary if isinstance(pat_harmonics_summary, dict) else {}
+        for key in [
+            "n_windows_total",
+            "n_windows_valid",
+            "valid_pct",
+            "window_sec",
+            "hop_sec",
+            "f0_hz_mean",
+            "f0_hz_median",
+            "h1_power_mean",
+            "h1_power_median",
+            "h2_power_mean",
+            "h2_power_median",
+            "h3_power_mean",
+            "h3_power_median",
+            "h4_power_mean",
+            "h5_power_mean",
+            "h2_h1_mean",
+            "h3_h1_mean",
+            "harmonic_total_power_mean",
+            "harmonic_distortion_index_mean",
+        ]:
+            row[f"selected_pat_harmonics_{key}"] = item.get(key, np.nan)
 
     if features.is_enabled("prv") and prv_summary is not None:
         row.update(
@@ -773,6 +799,8 @@ def append_hr_prv_summary(
         "selected_trough_to_peak_response_mean", "selected_mean_to_peak_response_mean", "selected_event_windows_total", "selected_event_windows_used",
         "selected_pwa_drop_n", "selected_pwa_drop_rate_h", "selected_pwa_drop_mean_amplitude_pct", "selected_pwa_drop_mean_duration_sec",
         "selected_pwa_drop_mean_auc_pct_sec", "selected_pwa_drop_event_overlap_n", "selected_pwa_drop_event_overlap_pct",
+        "selected_pat_harmonics_n_windows_total", "selected_pat_harmonics_n_windows_valid", "selected_pat_harmonics_valid_pct", "selected_pat_harmonics_window_sec", "selected_pat_harmonics_hop_sec",
+        "selected_pat_harmonics_f0_hz_mean", "selected_pat_harmonics_f0_hz_median", "selected_pat_harmonics_h1_power_mean", "selected_pat_harmonics_h1_power_median", "selected_pat_harmonics_h2_power_mean", "selected_pat_harmonics_h2_power_median", "selected_pat_harmonics_h3_power_mean", "selected_pat_harmonics_h3_power_median", "selected_pat_harmonics_h4_power_mean", "selected_pat_harmonics_h5_power_mean", "selected_pat_harmonics_h2_h1_mean", "selected_pat_harmonics_h3_h1_mean", "selected_pat_harmonics_harmonic_total_power_mean", "selected_pat_harmonics_harmonic_distortion_index_mean",
         "selected_prv_clean_kept_pct_of_selected", "selected_prv_mask_excluded_total_min", "selected_prv_mask_excluded_total_pct_of_selected",
         "selected_prv_excluded_apnea_only_min", "selected_prv_excluded_apnea_only_pct_of_selected",
         "selected_prv_excluded_quality_only_min", "selected_prv_excluded_quality_only_pct_of_selected",

@@ -13,6 +13,7 @@ from .feature_overview_builders import (
     _build_event_response_overview_figure,
     _build_hr_overview_figure,
     _build_pwa_drop_overview_figure,
+    _build_pat_harmonics_overview_figure,
     _build_prv_rmssd_overview_figure,
     _build_spo2_overview_figure,
     _build_multi_series_overview_figure,
@@ -77,6 +78,7 @@ def _build_summary_pages_for_enabled_features(
     aux_df,
     hr_event_response_summary,
     pwa_drop_summary,
+    pat_harmonics_summary,
     t_hr_calc,
     hr_calc,
     t_prv,
@@ -111,6 +113,7 @@ def _build_summary_pages_for_enabled_features(
         psd_features=psd_features,
         hr_event_response_summary=hr_event_response_summary,
         pwa_drop_summary=pwa_drop_summary,
+        pat_harmonics_summary=pat_harmonics_summary,
         pat_burden=pat_burden,
         pat_burden_diag=pat_burden_diag,
         sleep_combo_summaries=sleep_combo_summaries,
@@ -198,6 +201,8 @@ def _build_feature_overview_figures(
     t_pwa,
     pwa_series,
     pwa_drop_events,
+    pat_harmonics_summary,
+    pat_harmonics_windows,
     t_spo2,
     spo2,
 ) -> list[Any]:
@@ -331,6 +336,19 @@ def _build_feature_overview_figures(
         if fig is not None:
             figs.append(fig)
 
+    if features.is_enabled("pat_harmonics"):
+        fig = _build_pat_harmonics_overview_figure(
+            edf_base=edf_base,
+            pat_harmonics_windows=pat_harmonics_windows,
+            pat_harmonics_summary=pat_harmonics_summary,
+            aux_df=aux_df,
+            exclusion_zones=exclusion_zones,
+            duration_sec_fallback=duration_sec,
+            event_spec=event_spec,
+        )
+        if fig is not None:
+            figs.append(fig)
+
     if bool(getattr(config, "ENABLE_SPO2_VALIDATION_PLOTS", False)):
         fig = _build_spo2_overview_figure(
             edf_base=edf_base,
@@ -379,6 +397,8 @@ def _build_report_figures(
     t_pwa,
     pwa_series,
     pwa_drop_events,
+    pat_harmonics_summary,
+    pat_harmonics_windows,
     t_spo2,
     spo2,
 ):
@@ -402,6 +422,8 @@ def _build_report_figures(
         t_pwa=t_pwa,
         pwa_series=pwa_series,
         pwa_drop_events=pwa_drop_events,
+        pat_harmonics_summary=pat_harmonics_summary,
+        pat_harmonics_windows=pat_harmonics_windows,
         t_spo2=t_spo2,
         spo2=spo2,
         event_spec=list(event_spec),
@@ -424,6 +446,7 @@ def _build_report_figures(
         psd_features=psd_features,
         pat_burden=pat_burden,
         pat_burden_diag=pat_burden_diag,
+        pat_harmonics_summary=pat_harmonics_summary,
         sleep_combo_summaries=sleep_combo_summaries,
         prv_mask_info=prv_mask_info,
         prv_midpoint_halves=prv_midpoint_halves,
@@ -467,6 +490,8 @@ def _build_report_figures(
         t_pwa=t_pwa,
         pwa_series=pwa_series,
         pwa_drop_events=pwa_drop_events,
+        pat_harmonics_summary=pat_harmonics_summary,
+        pat_harmonics_windows=pat_harmonics_windows,
         t_spo2=t_spo2,
         spo2=spo2,
     )
