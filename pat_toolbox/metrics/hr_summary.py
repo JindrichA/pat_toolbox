@@ -27,8 +27,9 @@ def append_hr_prv_summary(
     prv_midpoint_halves: Optional[Dict[str, Dict[str, float]]] = None,
     aux_df: Optional[Any] = None,
     hr_event_response_summary: Optional[Dict[str, float]] = None,
-    pwa_drop_summary: Optional[Dict[str, float]] = None,
+    pwa_drop_summaries: Optional[Dict[str, Dict[str, float]]] = None,
     pat_harmonics_summary: Optional[Dict[str, float]] = None,
+    pat_paper_harmonics_summary: Optional[Dict[str, float]] = None,
     psd_features: Optional[Dict[str, float]] = None,
     pat_burden: Optional[float] = None,
     pat_burden_diag: Optional[dict] = None,
@@ -316,7 +317,7 @@ def append_hr_prv_summary(
 
     summary_folder = paths.get_output_folder(config.HR_OUTPUT_SUBFOLDER)
 
-    summary_parts = features.enabled_feature_parts(("hr", "prv", "psd", "delta_hr", "pat_burden", "pwa_drop", "pat_harmonics", "sleep_combo_summary")) or ["SUMMARY"]
+    summary_parts = features.enabled_feature_parts(("hr", "prv", "psd", "delta_hr", "pat_burden", "pwa_drop", "pat_harmonics", "pat_paper_harmonics", "sleep_combo_summary")) or ["SUMMARY"]
 
     if isinstance(sleep_combo_summaries, dict) and sleep_combo_summaries:
         sleep_stage_policy = "multi_sleep_summary"
@@ -337,7 +338,7 @@ def append_hr_prv_summary(
     active_aux_columns = set(policy_from_config().exclusion_columns)
     if bool(getattr(config, "PRV_EXCLUSION_USE_DESAT_WINDOWS", False)):
         active_aux_columns.add(str(getattr(config, "PRV_EXCLUSION_DESAT_COLUMN_KEY", "desat_flag")))
-    has_aux_summary_context = features.any_enabled("prv", "psd", "delta_hr", "pat_burden", "pwa_drop", "pat_harmonics", "sleep_combo_summary")
+    has_aux_summary_context = features.any_enabled("prv", "psd", "delta_hr", "pat_burden", "pwa_drop", "pat_harmonics", "pat_paper_harmonics", "sleep_combo_summary")
 
     time_distribution_fields = [
         ("p25", "p25"),
@@ -405,20 +406,30 @@ def append_hr_prv_summary(
 
     if features.is_enabled("delta_hr"):
         item = hr_event_response_summary if isinstance(hr_event_response_summary, dict) else {}
-        row["selected_trough_to_peak_response_mean"] = item.get("trough_to_peak_response_mean", np.nan)
-        row["selected_mean_to_peak_response_mean"] = item.get("mean_to_peak_response_mean", np.nan)
+        row["selected_dhr_mean_bpm"] = item.get("dhr_mean_bpm", np.nan)
+        row["selected_dhr_median_bpm"] = item.get("dhr_median_bpm", np.nan)
+        row["selected_dhr_p25_bpm"] = item.get("dhr_p25_bpm", np.nan)
+        row["selected_dhr_p75_bpm"] = item.get("dhr_p75_bpm", np.nan)
+        row["selected_dhr_search_window_source"] = item.get("dhr_search_window_source", "")
+        row["selected_dhr_search_start_offset_sec"] = item.get("dhr_search_start_offset_sec", np.nan)
+        row["selected_dhr_search_end_offset_sec"] = item.get("dhr_search_end_offset_sec", np.nan)
+        row["selected_dhr_ensemble_events_used"] = item.get("dhr_ensemble_events_used", np.nan)
+        row["selected_dhr_ensemble_peak_offset_sec"] = item.get("dhr_ensemble_peak_offset_sec", np.nan)
         row["selected_event_windows_total"] = item.get("n_event_windows", np.nan)
         row["selected_event_windows_used"] = item.get("n_used_windows", np.nan)
 
     if features.is_enabled("pwa_drop"):
-        item = pwa_drop_summary if isinstance(pwa_drop_summary, dict) else {}
-        row["selected_pwa_drop_n"] = item.get("n_drops", np.nan)
-        row["selected_pwa_drop_rate_h"] = item.get("drop_rate_per_sleep_hour", np.nan)
-        row["selected_pwa_drop_mean_amplitude_pct"] = item.get("mean_amplitude_pct", np.nan)
-        row["selected_pwa_drop_mean_duration_sec"] = item.get("mean_duration_sec", np.nan)
-        row["selected_pwa_drop_mean_auc_pct_sec"] = item.get("mean_auc_pct_sec", np.nan)
-        row["selected_pwa_drop_event_overlap_n"] = item.get("n_drops_event_overlap", np.nan)
-        row["selected_pwa_drop_event_overlap_pct"] = item.get("event_overlap_pct", np.nan)
+        summaries = pwa_drop_summaries if isinstance(pwa_drop_summaries, dict) else {}
+        for variant in ("30", "50"):
+            item = summaries.get(variant) if isinstance(summaries.get(variant), dict) else {}
+            prefix = f"selected_pwa_drop_{variant}pct"
+            row[f"{prefix}_n"] = item.get("n_drops", np.nan)
+            row[f"{prefix}_rate_h"] = item.get("drop_rate_per_sleep_hour", np.nan)
+            row[f"{prefix}_mean_amplitude_pct"] = item.get("mean_amplitude_pct", np.nan)
+            row[f"{prefix}_mean_duration_sec"] = item.get("mean_duration_sec", np.nan)
+            row[f"{prefix}_mean_auc_pct_sec"] = item.get("mean_auc_pct_sec", np.nan)
+            row[f"{prefix}_event_overlap_n"] = item.get("n_drops_event_overlap", np.nan)
+            row[f"{prefix}_event_overlap_pct"] = item.get("event_overlap_pct", np.nan)
 
     if features.is_enabled("pat_harmonics"):
         item = pat_harmonics_summary if isinstance(pat_harmonics_summary, dict) else {}
@@ -444,6 +455,39 @@ def append_hr_prv_summary(
             "harmonic_distortion_index_mean",
         ]:
             row[f"selected_pat_harmonics_{key}"] = item.get(key, np.nan)
+
+    if features.is_enabled("pat_paper_harmonics"):
+        item = pat_paper_harmonics_summary if isinstance(pat_paper_harmonics_summary, dict) else {}
+        for key in [
+            "n_windows_total",
+            "n_windows_valid",
+            "valid_pct",
+            "window_sec",
+            "hop_sec",
+            "c0_mean",
+            "c0_median",
+            "c1_c0_mean",
+            "c5_c0_mean",
+            "hf_ratio_mean",
+            "sub_vlf_power_mean",
+            "sub_lf_power_mean",
+            "sub_hf_power_mean",
+        ]:
+            row[f"selected_pat_paper_harmonics_{key}"] = item.get(key, np.nan)
+        stage_keys = [
+            "n_windows_valid",
+            "c0_mean",
+            "c0_median",
+            "c1_c0_mean",
+            "c5_c0_mean",
+            "hf_ratio_mean",
+            "sub_vlf_power_mean",
+            "sub_lf_power_mean",
+            "sub_hf_power_mean",
+        ]
+        for stage in ["wake", "light", "deep", "rem"]:
+            for key in stage_keys:
+                row[f"selected_pat_paper_harmonics_{stage}_{key}"] = item.get(f"{stage}_{key}", np.nan)
 
     if features.is_enabled("prv") and prv_summary is not None:
         row.update(
@@ -755,21 +799,31 @@ def append_hr_prv_summary(
             hr_response_obj = item.get("hr_event_response_summary")
             hr_response_item: Dict[str, Any] = hr_response_obj if isinstance(hr_response_obj, dict) else {}
             if features.is_enabled("delta_hr"):
-                row[f"{prefix}_trough_to_peak_response_mean"] = hr_response_item.get("trough_to_peak_response_mean", np.nan)
-                row[f"{prefix}_mean_to_peak_response_mean"] = hr_response_item.get("mean_to_peak_response_mean", np.nan)
+                row[f"{prefix}_dhr_mean_bpm"] = hr_response_item.get("dhr_mean_bpm", np.nan)
+                row[f"{prefix}_dhr_median_bpm"] = hr_response_item.get("dhr_median_bpm", np.nan)
+                row[f"{prefix}_dhr_p25_bpm"] = hr_response_item.get("dhr_p25_bpm", np.nan)
+                row[f"{prefix}_dhr_p75_bpm"] = hr_response_item.get("dhr_p75_bpm", np.nan)
+                row[f"{prefix}_dhr_search_window_source"] = hr_response_item.get("dhr_search_window_source", "")
+                row[f"{prefix}_dhr_search_start_offset_sec"] = hr_response_item.get("dhr_search_start_offset_sec", np.nan)
+                row[f"{prefix}_dhr_search_end_offset_sec"] = hr_response_item.get("dhr_search_end_offset_sec", np.nan)
+                row[f"{prefix}_dhr_ensemble_events_used"] = hr_response_item.get("dhr_ensemble_events_used", np.nan)
+                row[f"{prefix}_dhr_ensemble_peak_offset_sec"] = hr_response_item.get("dhr_ensemble_peak_offset_sec", np.nan)
                 row[f"{prefix}_event_windows_total"] = hr_response_item.get("n_event_windows", np.nan)
                 row[f"{prefix}_event_windows_used"] = hr_response_item.get("n_used_windows", np.nan)
 
-            pwa_drop_obj = item.get("pwa_drop_summary")
-            pwa_drop_item: Dict[str, Any] = pwa_drop_obj if isinstance(pwa_drop_obj, dict) else {}
+            pwa_drop_obj = item.get("pwa_drop_summaries")
+            pwa_drop_items: Dict[str, Any] = pwa_drop_obj if isinstance(pwa_drop_obj, dict) else {}
             if features.is_enabled("pwa_drop"):
-                row[f"{prefix}_pwa_drop_n"] = pwa_drop_item.get("n_drops", np.nan)
-                row[f"{prefix}_pwa_drop_rate_h"] = pwa_drop_item.get("drop_rate_per_sleep_hour", np.nan)
-                row[f"{prefix}_pwa_drop_mean_amplitude_pct"] = pwa_drop_item.get("mean_amplitude_pct", np.nan)
-                row[f"{prefix}_pwa_drop_mean_duration_sec"] = pwa_drop_item.get("mean_duration_sec", np.nan)
-                row[f"{prefix}_pwa_drop_mean_auc_pct_sec"] = pwa_drop_item.get("mean_auc_pct_sec", np.nan)
-                row[f"{prefix}_pwa_drop_event_overlap_n"] = pwa_drop_item.get("n_drops_event_overlap", np.nan)
-                row[f"{prefix}_pwa_drop_event_overlap_pct"] = pwa_drop_item.get("event_overlap_pct", np.nan)
+                for variant in ("30", "50"):
+                    pwa_drop_item: Dict[str, Any] = pwa_drop_items.get(variant) if isinstance(pwa_drop_items.get(variant), dict) else {}
+                    pwa_prefix = f"{prefix}_pwa_drop_{variant}pct"
+                    row[f"{pwa_prefix}_n"] = pwa_drop_item.get("n_drops", np.nan)
+                    row[f"{pwa_prefix}_rate_h"] = pwa_drop_item.get("drop_rate_per_sleep_hour", np.nan)
+                    row[f"{pwa_prefix}_mean_amplitude_pct"] = pwa_drop_item.get("mean_amplitude_pct", np.nan)
+                    row[f"{pwa_prefix}_mean_duration_sec"] = pwa_drop_item.get("mean_duration_sec", np.nan)
+                    row[f"{pwa_prefix}_mean_auc_pct_sec"] = pwa_drop_item.get("mean_auc_pct_sec", np.nan)
+                    row[f"{pwa_prefix}_event_overlap_n"] = pwa_drop_item.get("n_drops_event_overlap", np.nan)
+                    row[f"{pwa_prefix}_event_overlap_pct"] = pwa_drop_item.get("event_overlap_pct", np.nan)
 
     base_order = [
         "edf_file",
@@ -796,11 +850,18 @@ def append_hr_prv_summary(
         "selected_pat_burden_n_episodes_skipped", "selected_pat_burden_relative", "selected_pat_burden_nan_pct",
         "selected_pat_burden_pat_amp_finite_min", "selected_pat_burden_inside_event_desat_min", "selected_pat_burden_inside_event_desat_finite_min",
         "selected_pat_burden_pat_amp_invalid_inside_min", "selected_prv_selected_policy_min", "selected_prv_clean_kept_min",
-        "selected_trough_to_peak_response_mean", "selected_mean_to_peak_response_mean", "selected_event_windows_total", "selected_event_windows_used",
-        "selected_pwa_drop_n", "selected_pwa_drop_rate_h", "selected_pwa_drop_mean_amplitude_pct", "selected_pwa_drop_mean_duration_sec",
-        "selected_pwa_drop_mean_auc_pct_sec", "selected_pwa_drop_event_overlap_n", "selected_pwa_drop_event_overlap_pct",
+        "selected_dhr_mean_bpm", "selected_dhr_median_bpm", "selected_dhr_p25_bpm", "selected_dhr_p75_bpm", "selected_dhr_search_window_source", "selected_dhr_search_start_offset_sec", "selected_dhr_search_end_offset_sec", "selected_dhr_ensemble_events_used", "selected_dhr_ensemble_peak_offset_sec", "selected_event_windows_total", "selected_event_windows_used",
+        "selected_pwa_drop_30pct_n", "selected_pwa_drop_30pct_rate_h", "selected_pwa_drop_30pct_mean_amplitude_pct", "selected_pwa_drop_30pct_mean_duration_sec",
+        "selected_pwa_drop_30pct_mean_auc_pct_sec", "selected_pwa_drop_30pct_event_overlap_n", "selected_pwa_drop_30pct_event_overlap_pct",
+        "selected_pwa_drop_50pct_n", "selected_pwa_drop_50pct_rate_h", "selected_pwa_drop_50pct_mean_amplitude_pct", "selected_pwa_drop_50pct_mean_duration_sec",
+        "selected_pwa_drop_50pct_mean_auc_pct_sec", "selected_pwa_drop_50pct_event_overlap_n", "selected_pwa_drop_50pct_event_overlap_pct",
         "selected_pat_harmonics_n_windows_total", "selected_pat_harmonics_n_windows_valid", "selected_pat_harmonics_valid_pct", "selected_pat_harmonics_window_sec", "selected_pat_harmonics_hop_sec",
         "selected_pat_harmonics_f0_hz_mean", "selected_pat_harmonics_f0_hz_median", "selected_pat_harmonics_h1_power_mean", "selected_pat_harmonics_h1_power_median", "selected_pat_harmonics_h2_power_mean", "selected_pat_harmonics_h2_power_median", "selected_pat_harmonics_h3_power_mean", "selected_pat_harmonics_h3_power_median", "selected_pat_harmonics_h4_power_mean", "selected_pat_harmonics_h5_power_mean", "selected_pat_harmonics_h2_h1_mean", "selected_pat_harmonics_h3_h1_mean", "selected_pat_harmonics_harmonic_total_power_mean", "selected_pat_harmonics_harmonic_distortion_index_mean",
+        "selected_pat_paper_harmonics_n_windows_total", "selected_pat_paper_harmonics_n_windows_valid", "selected_pat_paper_harmonics_valid_pct", "selected_pat_paper_harmonics_window_sec", "selected_pat_paper_harmonics_hop_sec", "selected_pat_paper_harmonics_c0_mean", "selected_pat_paper_harmonics_c0_median", "selected_pat_paper_harmonics_c1_c0_mean", "selected_pat_paper_harmonics_c5_c0_mean", "selected_pat_paper_harmonics_hf_ratio_mean", "selected_pat_paper_harmonics_sub_vlf_power_mean", "selected_pat_paper_harmonics_sub_lf_power_mean", "selected_pat_paper_harmonics_sub_hf_power_mean",
+        "selected_pat_paper_harmonics_wake_n_windows_valid", "selected_pat_paper_harmonics_wake_c0_mean", "selected_pat_paper_harmonics_wake_c0_median", "selected_pat_paper_harmonics_wake_c1_c0_mean", "selected_pat_paper_harmonics_wake_c5_c0_mean", "selected_pat_paper_harmonics_wake_hf_ratio_mean", "selected_pat_paper_harmonics_wake_sub_vlf_power_mean", "selected_pat_paper_harmonics_wake_sub_lf_power_mean", "selected_pat_paper_harmonics_wake_sub_hf_power_mean",
+        "selected_pat_paper_harmonics_light_n_windows_valid", "selected_pat_paper_harmonics_light_c0_mean", "selected_pat_paper_harmonics_light_c0_median", "selected_pat_paper_harmonics_light_c1_c0_mean", "selected_pat_paper_harmonics_light_c5_c0_mean", "selected_pat_paper_harmonics_light_hf_ratio_mean", "selected_pat_paper_harmonics_light_sub_vlf_power_mean", "selected_pat_paper_harmonics_light_sub_lf_power_mean", "selected_pat_paper_harmonics_light_sub_hf_power_mean",
+        "selected_pat_paper_harmonics_deep_n_windows_valid", "selected_pat_paper_harmonics_deep_c0_mean", "selected_pat_paper_harmonics_deep_c0_median", "selected_pat_paper_harmonics_deep_c1_c0_mean", "selected_pat_paper_harmonics_deep_c5_c0_mean", "selected_pat_paper_harmonics_deep_hf_ratio_mean", "selected_pat_paper_harmonics_deep_sub_vlf_power_mean", "selected_pat_paper_harmonics_deep_sub_lf_power_mean", "selected_pat_paper_harmonics_deep_sub_hf_power_mean",
+        "selected_pat_paper_harmonics_rem_n_windows_valid", "selected_pat_paper_harmonics_rem_c0_mean", "selected_pat_paper_harmonics_rem_c0_median", "selected_pat_paper_harmonics_rem_c1_c0_mean", "selected_pat_paper_harmonics_rem_c5_c0_mean", "selected_pat_paper_harmonics_rem_hf_ratio_mean", "selected_pat_paper_harmonics_rem_sub_vlf_power_mean", "selected_pat_paper_harmonics_rem_sub_lf_power_mean", "selected_pat_paper_harmonics_rem_sub_hf_power_mean",
         "selected_prv_clean_kept_pct_of_selected", "selected_prv_mask_excluded_total_min", "selected_prv_mask_excluded_total_pct_of_selected",
         "selected_prv_excluded_apnea_only_min", "selected_prv_excluded_apnea_only_pct_of_selected",
         "selected_prv_excluded_quality_only_min", "selected_prv_excluded_quality_only_pct_of_selected",

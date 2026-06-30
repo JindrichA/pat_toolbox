@@ -76,6 +76,88 @@ def _extend_event_end_with_desat(
     return event_end_t, used_extension
 
 
+def _event_starts_from_bundle(bundle: masking.MaskBundle, t_hr: np.ndarray) -> list[float]:
+    inside_event = np.asarray(bundle.sleep_keep, dtype=bool) & (
+        (~np.asarray(bundle.event_keep, dtype=bool))
+        | (~np.asarray(bundle.desat_keep, dtype=bool))
+    )
+    runs = _contiguous_true_runs(inside_event)
+    if runs:
+        starts = [float(t_hr[start_idx]) for start_idx, _end_idx in runs]
+    else:
+        starts = [float(t) for t in np.asarray(bundle.active_event_times_sec, dtype=float) if np.isfinite(t)]
+    return sorted(set(starts))
+
+
+def _derive_ensemble_search_window(
+    t_hr: np.ndarray,
+    hr_smooth: np.ndarray,
+    event_starts: list[float],
+    sleep_keep: np.ndarray,
+    *,
+    event_window_sec: float,
+    recovery_end_sec: float,
+    min_samples: int,
+) -> dict[str, float | str]:
+    fallback = {
+        "dhr_search_window_source": "fallback",
+        "dhr_search_start_offset_sec": float(event_window_sec),
+        "dhr_search_end_offset_sec": float(recovery_end_sec),
+        "dhr_ensemble_events_used": 0.0,
+        "dhr_ensemble_peak_offset_sec": np.nan,
+    }
+    if not event_starts:
+        return fallback
+
+    min_events = int(getattr(config, "HR_EVENT_ENSEMBLE_MIN_EVENTS", 5))
+    pre_sec = float(getattr(config, "HR_EVENT_ENSEMBLE_PRE_SEC", 20.0))
+    step_sec = float(getattr(config, "HR_EVENT_ENSEMBLE_GRID_SEC", 1.0))
+    peak_margin_sec = float(getattr(config, "HR_EVENT_ENSEMBLE_PEAK_MARGIN_SEC", 10.0))
+    step_sec = max(step_sec, 0.1)
+    grid = np.arange(-pre_sec, recovery_end_sec + 0.5 * step_sec, step_sec, dtype=float)
+    if grid.size < 3:
+        return fallback
+
+    curves: list[np.ndarray] = []
+    for start_t in event_starts:
+        abs_t = start_t + grid
+        in_range = (abs_t >= t_hr[0]) & (abs_t <= t_hr[-1])
+        if np.count_nonzero(in_range) < min_samples:
+            continue
+        sleep_interp = np.interp(abs_t, t_hr, sleep_keep.astype(float), left=0.0, right=0.0) >= 0.5
+        y = np.interp(abs_t, t_hr, hr_smooth, left=np.nan, right=np.nan)
+        y[~in_range | ~sleep_interp] = np.nan
+        if np.count_nonzero(np.isfinite(y[(grid >= 0.0) & (grid <= recovery_end_sec)])) >= min_samples:
+            curves.append(y)
+
+    if len(curves) < min_events:
+        return fallback | {"dhr_ensemble_events_used": float(len(curves))}
+
+    with np.errstate(invalid="ignore", divide="ignore"):
+        ensemble = np.nanmean(np.vstack(curves), axis=0)
+
+    search_mask = (grid >= event_window_sec) & (grid <= recovery_end_sec) & np.isfinite(ensemble)
+    if np.count_nonzero(search_mask) < min_samples:
+        return fallback | {"dhr_ensemble_events_used": float(len(curves))}
+
+    search_grid = grid[search_mask]
+    search_vals = ensemble[search_mask]
+    peak_idx = int(np.nanargmax(search_vals))
+    peak_offset = float(search_grid[peak_idx])
+    search_start = max(event_window_sec, peak_offset - peak_margin_sec)
+    search_end = min(recovery_end_sec, peak_offset + peak_margin_sec)
+    if not (np.isfinite(search_start) and np.isfinite(search_end) and search_end > search_start):
+        return fallback | {"dhr_ensemble_events_used": float(len(curves))}
+
+    return {
+        "dhr_search_window_source": "ensemble",
+        "dhr_search_start_offset_sec": float(search_start),
+        "dhr_search_end_offset_sec": float(search_end),
+        "dhr_ensemble_events_used": float(len(curves)),
+        "dhr_ensemble_peak_offset_sec": peak_offset,
+    }
+
+
 def extract_event_hr_windows(
     t_hr: np.ndarray,
     hr_bpm: np.ndarray,
@@ -101,18 +183,23 @@ def extract_event_hr_windows(
         policy = masking.policy_from_config(include_stages=include_set, force_sleep=True)
     bundle = masking.build_mask_bundle(t_hr, aux_df, policy=policy)
 
-    inside_event = np.asarray(bundle.sleep_keep, dtype=bool) & (
-        (~np.asarray(bundle.event_keep, dtype=bool))
-        | (~np.asarray(bundle.desat_keep, dtype=bool))
-    )
-    runs = _contiguous_true_runs(inside_event)
-    if not runs and bundle.active_event_times_sec.size == 0:
+    event_starts = _event_starts_from_bundle(bundle, t_hr)
+    if not event_starts:
         return []
 
     windows: list[dict[str, float]] = []
-    event_starts = [float(t_hr[start_idx]) for start_idx, _end_idx in runs]
-    recovery_duration_sec = max(0.0, float(recovery_end_sec - event_window_sec))
     sleep_keep = np.asarray(bundle.sleep_keep, dtype=bool)
+    ensemble_info = _derive_ensemble_search_window(
+        t_hr,
+        hr_smooth,
+        event_starts,
+        sleep_keep,
+        event_window_sec=event_window_sec,
+        recovery_end_sec=recovery_end_sec,
+        min_samples=min_samples,
+    )
+    search_start_offset_sec = float(ensemble_info["dhr_search_start_offset_sec"])
+    search_end_offset_sec = float(ensemble_info["dhr_search_end_offset_sec"])
 
     for i, start_t in enumerate(event_starts):
         next_event_t = event_starts[i + 1] if i + 1 < len(event_starts) else np.inf
@@ -127,8 +214,10 @@ def extract_event_hr_windows(
                 bundle.gated_desat_windows,
                 max_desat_start_t=nominal_recovery_end_t,
             )
-        recovery_start_t = float(event_end_t)
-        recovery_end_t = float(recovery_start_t + recovery_duration_sec)
+        recovery_start_t = float(start_t + search_start_offset_sec)
+        recovery_end_t = float(start_t + search_end_offset_sec)
+        if event_end_t > recovery_start_t:
+            recovery_start_t = float(event_end_t)
 
         if next_event_t <= recovery_end_t:
             continue
@@ -146,12 +235,10 @@ def extract_event_hr_windows(
         event_min_idx = int(np.nanargmin(event_vals))
         event_min = float(event_vals[event_min_idx])
         event_min_t = float(event_times[event_min_idx])
-        event_mean = float(np.nanmean(event_vals))
         recovery_max_idx = int(np.nanargmax(recovery_vals))
         recovery_max = float(recovery_vals[recovery_max_idx])
         recovery_max_t = float(recovery_times[recovery_max_idx])
-        trough_to_peak_response = float(recovery_max - event_min)
-        mean_to_peak_response = float(recovery_max - event_mean)
+        dhr_bpm = float(recovery_max - event_min)
 
         windows.append(
             {
@@ -163,11 +250,10 @@ def extract_event_hr_windows(
                 "used_desat_extension": bool(used_desat_extension),
                 "event_min_t": event_min_t,
                 "event_min_hr": event_min,
-                "event_mean_hr": event_mean,
                 "recovery_max_t": recovery_max_t,
                 "recovery_max_hr": recovery_max,
-                "trough_to_peak_response": trough_to_peak_response,
-                "mean_to_peak_response": mean_to_peak_response,
+                "dhr_bpm": dhr_bpm,
+                **ensemble_info,
             }
         )
 
@@ -191,16 +277,35 @@ def summarize_event_hr_response_from_windows(
     out = {
         "n_event_windows": 0.0,
         "n_used_windows": 0.0,
-        "trough_to_peak_response_mean": np.nan,
-        "mean_to_peak_response_mean": np.nan,
+        "dhr_mean_bpm": np.nan,
+        "dhr_median_bpm": np.nan,
+        "dhr_p25_bpm": np.nan,
+        "dhr_p75_bpm": np.nan,
+        "dhr_search_window_source": "none",
+        "dhr_search_start_offset_sec": np.nan,
+        "dhr_search_end_offset_sec": np.nan,
+        "dhr_ensemble_events_used": np.nan,
+        "dhr_ensemble_peak_offset_sec": np.nan,
     }
     out["n_event_windows"] = float(len(windows))
     if not windows:
         return out
 
     out["n_used_windows"] = float(len(windows))
-    out["trough_to_peak_response_mean"] = float(np.nanmean([w["trough_to_peak_response"] for w in windows]))
-    out["mean_to_peak_response_mean"] = float(np.nanmean([w["mean_to_peak_response"] for w in windows]))
+    vals = np.asarray([w["dhr_bpm"] for w in windows], dtype=float)
+    out["dhr_mean_bpm"] = float(np.nanmean(vals))
+    out["dhr_median_bpm"] = float(np.nanmedian(vals))
+    out["dhr_p25_bpm"] = float(np.nanpercentile(vals, 25))
+    out["dhr_p75_bpm"] = float(np.nanpercentile(vals, 75))
+    first = windows[0]
+    for key in (
+        "dhr_search_window_source",
+        "dhr_search_start_offset_sec",
+        "dhr_search_end_offset_sec",
+        "dhr_ensemble_events_used",
+        "dhr_ensemble_peak_offset_sec",
+    ):
+        out[key] = first.get(key, out[key])
     return out
 
 

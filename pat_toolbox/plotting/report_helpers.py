@@ -14,6 +14,8 @@ from .feature_overview_builders import (
     _build_hr_overview_figure,
     _build_pwa_drop_overview_figure,
     _build_pat_harmonics_overview_figure,
+    _build_pat_paper_harmonics_overview_figure,
+    _build_pat_paper_harmonics_norm_overview_figure,
     _build_prv_rmssd_overview_figure,
     _build_spo2_overview_figure,
     _build_multi_series_overview_figure,
@@ -77,8 +79,9 @@ def _build_summary_pages_for_enabled_features(
     resp_peak_freq,
     aux_df,
     hr_event_response_summary,
-    pwa_drop_summary,
+    pwa_drop_summaries,
     pat_harmonics_summary,
+    pat_paper_harmonics_summary,
     t_hr_calc,
     hr_calc,
     t_prv,
@@ -112,8 +115,9 @@ def _build_summary_pages_for_enabled_features(
         prv_tv=prv_tv,
         psd_features=psd_features,
         hr_event_response_summary=hr_event_response_summary,
-        pwa_drop_summary=pwa_drop_summary,
+        pwa_drop_summaries=pwa_drop_summaries,
         pat_harmonics_summary=pat_harmonics_summary,
+        pat_paper_harmonics_summary=pat_paper_harmonics_summary,
         pat_burden=pat_burden,
         pat_burden_diag=pat_burden_diag,
         sleep_combo_summaries=sleep_combo_summaries,
@@ -187,7 +191,7 @@ def _build_feature_overview_figures(
     event_spec,
     aux_df,
     hr_event_response_summary,
-    pwa_drop_summary,
+    pwa_drop_summaries,
     t_hr_calc,
     hr_calc,
     hr_calc_raw,
@@ -200,13 +204,53 @@ def _build_feature_overview_figures(
     pat_amp,
     t_pwa,
     pwa_series,
-    pwa_drop_events,
+    pwa_drop_events_by_variant,
     pat_harmonics_summary,
     pat_harmonics_windows,
+    pat_paper_harmonics_summary,
+    pat_paper_harmonics_windows,
     t_spo2,
     spo2,
 ) -> list[Any]:
+    early_figs: list[Any] = []
     figs: list[Any] = []
+
+    if features.is_enabled("pat_harmonics"):
+        fig = _build_pat_harmonics_overview_figure(
+            edf_base=edf_base,
+            pat_harmonics_windows=pat_harmonics_windows,
+            pat_harmonics_summary=pat_harmonics_summary,
+            aux_df=aux_df,
+            exclusion_zones=exclusion_zones,
+            duration_sec_fallback=duration_sec,
+            event_spec=event_spec,
+        )
+        if fig is not None:
+            early_figs.append(fig)
+
+    if features.is_enabled("pat_paper_harmonics"):
+        fig = _build_pat_paper_harmonics_overview_figure(
+            edf_base=edf_base,
+            pat_paper_harmonics_windows=pat_paper_harmonics_windows,
+            pat_paper_harmonics_summary=pat_paper_harmonics_summary,
+            aux_df=aux_df,
+            exclusion_zones=exclusion_zones,
+            duration_sec_fallback=duration_sec,
+            event_spec=event_spec,
+        )
+        if fig is not None:
+            early_figs.append(fig)
+
+        fig = _build_pat_paper_harmonics_norm_overview_figure(
+            edf_base=edf_base,
+            pat_paper_harmonics_windows=pat_paper_harmonics_windows,
+            aux_df=aux_df,
+            exclusion_zones=exclusion_zones,
+            duration_sec_fallback=duration_sec,
+            event_spec=event_spec,
+        )
+        if fig is not None:
+            early_figs.append(fig)
 
     if features.is_enabled("hr"):
         fig = _build_hr_overview_figure(
@@ -326,21 +370,8 @@ def _build_feature_overview_figures(
             edf_base=edf_base,
             t_pwa=t_pwa,
             pwa_series=pwa_series,
-            pwa_drop_events=pwa_drop_events,
-            pwa_drop_summary=pwa_drop_summary,
-            aux_df=aux_df,
-            exclusion_zones=exclusion_zones,
-            duration_sec_fallback=duration_sec,
-            event_spec=event_spec,
-        )
-        if fig is not None:
-            figs.append(fig)
-
-    if features.is_enabled("pat_harmonics"):
-        fig = _build_pat_harmonics_overview_figure(
-            edf_base=edf_base,
-            pat_harmonics_windows=pat_harmonics_windows,
-            pat_harmonics_summary=pat_harmonics_summary,
+            pwa_drop_events_by_variant=pwa_drop_events_by_variant,
+            pwa_drop_summaries=pwa_drop_summaries,
             aux_df=aux_df,
             exclusion_zones=exclusion_zones,
             duration_sec_fallback=duration_sec,
@@ -362,7 +393,7 @@ def _build_feature_overview_figures(
         if fig is not None:
             figs.append(fig)
 
-    return figs
+    return [*early_figs, *figs]
 
 
 def _build_report_figures(
@@ -384,7 +415,7 @@ def _build_report_figures(
     aux_df,
     hr_event_response_summary,
     hr_event_windows,
-    pwa_drop_summary,
+    pwa_drop_summaries,
     pat_burden,
     pat_burden_diag,
     pat_burden_episodes,
@@ -396,9 +427,11 @@ def _build_report_figures(
     pat_amp,
     t_pwa,
     pwa_series,
-    pwa_drop_events,
+    pwa_drop_events_by_variant,
     pat_harmonics_summary,
     pat_harmonics_windows,
+    pat_paper_harmonics_summary,
+    pat_paper_harmonics_windows,
     t_spo2,
     spo2,
 ):
@@ -418,12 +451,14 @@ def _build_report_figures(
         pat_burden_episodes=pat_burden_episodes,
         t_pat_amp=t_pat_amp,
         pat_amp=pat_amp,
-        pwa_drop_summary=pwa_drop_summary,
+        pwa_drop_summaries=pwa_drop_summaries,
         t_pwa=t_pwa,
         pwa_series=pwa_series,
-        pwa_drop_events=pwa_drop_events,
+        pwa_drop_events_by_variant=pwa_drop_events_by_variant,
         pat_harmonics_summary=pat_harmonics_summary,
         pat_harmonics_windows=pat_harmonics_windows,
+        pat_paper_harmonics_summary=pat_paper_harmonics_summary,
+        pat_paper_harmonics_windows=pat_paper_harmonics_windows,
         t_spo2=t_spo2,
         spo2=spo2,
         event_spec=list(event_spec),
@@ -435,7 +470,7 @@ def _build_report_figures(
         resp_peak_freq=resp_peak_freq,
         aux_df=aux_df,
         hr_event_response_summary=hr_event_response_summary,
-        pwa_drop_summary=pwa_drop_summary,
+        pwa_drop_summaries=pwa_drop_summaries,
         t_hr_calc=t_hr_calc,
         hr_calc=hr_calc,
         t_prv=t_prv,
@@ -447,6 +482,7 @@ def _build_report_figures(
         pat_burden=pat_burden,
         pat_burden_diag=pat_burden_diag,
         pat_harmonics_summary=pat_harmonics_summary,
+        pat_paper_harmonics_summary=pat_paper_harmonics_summary,
         sleep_combo_summaries=sleep_combo_summaries,
         prv_mask_info=prv_mask_info,
         prv_midpoint_halves=prv_midpoint_halves,
@@ -476,7 +512,7 @@ def _build_report_figures(
         event_spec=event_spec,
         aux_df=aux_df,
         hr_event_response_summary=hr_event_response_summary,
-        pwa_drop_summary=pwa_drop_summary,
+        pwa_drop_summaries=pwa_drop_summaries,
         t_hr_calc=t_hr_calc,
         hr_calc=hr_calc,
         hr_calc_raw=hr_calc_raw,
@@ -489,9 +525,11 @@ def _build_report_figures(
         pat_amp=pat_amp,
         t_pwa=t_pwa,
         pwa_series=pwa_series,
-        pwa_drop_events=pwa_drop_events,
+        pwa_drop_events_by_variant=pwa_drop_events_by_variant,
         pat_harmonics_summary=pat_harmonics_summary,
         pat_harmonics_windows=pat_harmonics_windows,
+        pat_paper_harmonics_summary=pat_paper_harmonics_summary,
+        pat_paper_harmonics_windows=pat_paper_harmonics_windows,
         t_spo2=t_spo2,
         spo2=spo2,
     )
@@ -533,6 +571,11 @@ def _write_report_pdf(
                 _close_figure(fig_stage)
                 fig_stage = None
 
+            for fig in overview_figures:
+                pdf.savefig(fig)
+                _close_figure(fig)
+            overview_figures = []
+
             if fig_psd_zoom is not None:
                 pdf.savefig(fig_psd_zoom)
                 _close_figure(fig_psd_zoom)
@@ -546,11 +589,6 @@ def _write_report_pdf(
                 pdf.savefig(fig_ov)
                 _close_figure(fig_ov)
                 fig_ov = None
-
-            for fig in overview_figures:
-                pdf.savefig(fig)
-                _close_figure(fig)
-            overview_figures = []
 
             for fig in summary_pages:
                 pdf.savefig(fig)

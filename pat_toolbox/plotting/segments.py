@@ -11,10 +11,12 @@ from .. import config, features
 from .prv_plot_utils import _add_colored_event_key
 from .segment_plot_helpers import (
     _overlay_events_on_axes,
+    _plot_segment_actigraph,
     _plot_segment_delta_hr,
     _plot_segment_hr,
     _plot_segment_prv,
     _plot_segment_pat_amp,
+    _plot_segment_pat_paper_harmonics,
     _plot_segment_pwa_drop,
     _plot_segment_spo2,
 )
@@ -55,13 +57,16 @@ def _add_segment_pages_to_pdf(
     pat_amp: Optional[np.ndarray],
     t_pwa: Optional[np.ndarray],
     pwa_series: Optional[np.ndarray],
-    pwa_drop_events: Optional[list[dict[str, float]]],
+    pwa_drop_events_by_variant: Optional[dict[str, list[dict[str, float]]]],
     t_spo2: Optional[np.ndarray] = None,
     spo2: Optional[np.ndarray] = None,
+    t_actigraph: Optional[np.ndarray] = None,
+    actigraph: Optional[np.ndarray] = None,
     t_hr_calc_raw: Optional[np.ndarray] = None,
     hr_calc_raw: Optional[np.ndarray] = None,
     t_hr_edf_raw: Optional[np.ndarray] = None,
     hr_edf_raw: Optional[np.ndarray] = None,
+    pat_paper_harmonics_windows: Optional[list[dict[str, float]]] = None,
     include_event_vascular: Optional[bool] = None,
     include_prv: Optional[bool] = None,
 ) -> None:
@@ -79,6 +84,29 @@ def _add_segment_pages_to_pdf(
     use_pat_amp = include_event_vascular and features.segment_plot_requested("pat_burden")
     use_pwa_drop = include_event_vascular and features.segment_plot_requested("pwa_drop")
     use_spo2 = include_event_vascular and bool(getattr(config, "ENABLE_SPO2_VALIDATION_PLOTS", False)) and t_spo2 is not None and spo2 is not None and np.size(spo2) > 0 and np.size(spo2) == np.size(t_spo2)
+    use_paper_harmonics = (
+        include_event_vascular
+        and bool(getattr(config, "ENABLE_PAT_PAPER_HARMONICS_SEGMENT_QC", False))
+        and features.segment_plot_requested("pat_paper_harmonics")
+        and bool(pat_paper_harmonics_windows)
+    )
+    use_actigraph = include_event_vascular and t_actigraph is not None and actigraph is not None and np.size(actigraph) > 0 and np.size(actigraph) == np.size(t_actigraph)
+    act_ylim = None
+    if use_actigraph and actigraph is not None:
+        yy = np.abs(np.asarray(actigraph, dtype=float))
+        yy = yy[np.isfinite(yy)]
+        if yy.size > 0:
+            pct = tuple(getattr(config, "ACTIGRAPH_SEGMENT_YLIM_PERCENTILES", (1.0, 99.0)))
+            lo, hi = np.nanpercentile(yy, [float(pct[0]), float(pct[1])])
+            if np.isfinite(lo) and np.isfinite(hi):
+                lo = 0.0
+                if hi <= lo:
+                    pad = 1.0 if hi == 0 else abs(float(hi)) * 0.1
+                    hi += pad
+                else:
+                    pad = 0.05 * hi
+                    hi += pad
+                act_ylim = (float(lo), float(hi))
 
     for start in range(0, n_samples, samples_per_segment):
         end = min(start + samples_per_segment, n_samples)
@@ -95,7 +123,7 @@ def _add_segment_pages_to_pdf(
         has_any_delta = hr_calc_raw is not None and t_hr_calc is not None
         use_delta_subplot = enable_delta and (delta_mode == "subplot") and has_any_delta
 
-        n_rows = (1 if use_hr else 0) + (1 if use_delta_subplot else 0) + (1 if use_prv else 0) + (1 if use_prv_sdnn else 0) + (1 if use_pat_amp else 0) + (1 if use_pwa_drop else 0) + (1 if use_spo2 else 0)
+        n_rows = (1 if use_hr else 0) + (1 if use_delta_subplot else 0) + (1 if use_prv else 0) + (1 if use_prv_sdnn else 0) + (1 if use_pat_amp else 0) + (1 if use_pwa_drop else 0) + (1 if use_spo2 else 0) + (1 if use_paper_harmonics else 0) + (1 if use_actigraph else 0)
         if n_rows == 0:
             continue
         height_ratios: List[float] = []
@@ -113,6 +141,10 @@ def _add_segment_pages_to_pdf(
             height_ratios.append(1.0)
         if use_spo2:
             height_ratios.append(1.0)
+        if use_paper_harmonics:
+            height_ratios.append(0.85)
+        if use_actigraph:
+            height_ratios.append(0.5)
         fig, axes = plt.subplots(n_rows, 1, figsize=(11.69, 8.27), sharex=True, gridspec_kw={"height_ratios": height_ratios})
         if n_rows == 1:
             axes = [axes]
@@ -139,6 +171,12 @@ def _add_segment_pages_to_pdf(
         if use_pwa_drop:
             idx += 1
         ax_spo2 = axes[idx] if use_spo2 else None
+        if use_spo2:
+            idx += 1
+        ax_paper_harmonics = axes[idx] if use_paper_harmonics else None
+        if use_paper_harmonics:
+            idx += 1
+        ax_actigraph = axes[idx] if use_actigraph else None
 
         hr_ylim = None
         if ax_hr is not None:
@@ -170,18 +208,28 @@ def _add_segment_pages_to_pdf(
 
         pwa_ylim = None
         if ax_pwa_drop is not None and t_pwa is not None and pwa_series is not None and np.size(pwa_series) > 0 and np.size(pwa_series) == np.size(t_pwa):
-            pwa_ylim = _plot_segment_pwa_drop(ax_pwa_drop, t_pwa, pwa_series, pwa_drop_events, seg_start_sec, seg_end_sec, exclusion_zones, t_h_start, t_h_end, aux_df=aux_df)
+            pwa_ylim = _plot_segment_pwa_drop(ax_pwa_drop, t_pwa, pwa_series, pwa_drop_events_by_variant, seg_start_sec, seg_end_sec, exclusion_zones, t_h_start, t_h_end, aux_df=aux_df)
         elif ax_pwa_drop is not None:
-            ax_pwa_drop.set_ylabel("VIEW_PAT-derived\nPWA")
+            ax_pwa_drop.set_ylabel("PWA")
             ax_pwa_drop.text(0.5, 0.5, "VIEW_PAT-derived PWA unavailable", transform=ax_pwa_drop.transAxes, ha="center", va="center", fontsize=9)
             ax_pwa_drop.grid(True)
         spo2_ylim = None
         if ax_spo2 is not None and t_spo2 is not None and spo2 is not None:
             spo2_ylim = _plot_segment_spo2(ax_spo2, t_spo2, spo2, seg_start_sec, seg_end_sec, exclusion_zones, t_h_start, t_h_end, aux_df=aux_df)
 
+        if ax_paper_harmonics is not None:
+            _plot_segment_pat_paper_harmonics(ax_paper_harmonics, pat_paper_harmonics_windows, seg_start_sec, seg_end_sec)
+
+        if ax_actigraph is not None and t_actigraph is not None and actigraph is not None:
+            _plot_segment_actigraph(ax_actigraph, t_actigraph, actigraph, seg_start_sec, seg_end_sec, act_ylim=act_ylim)
+
         _overlay_events_on_axes(aux_df, seg_start_sec, seg_end_sec, ax_hr=ax_hr, ax_prv=ax_prv if use_prv else None, ax_prv_sdnn=ax_prv_sdnn if use_prv_sdnn else None, ax_amp=ax_pat_amp if use_pat_amp else None, ax_delta=ax_delta if use_delta_subplot else None, ax_pwa=ax_pwa_drop if use_pwa_drop else None, ax_spo2=ax_spo2 if use_spo2 else None, hr_ylim=hr_ylim, prv_ylim=prv_ylim, prv_sdnn_ylim=prv_sdnn_ylim, amp_ylim=amp_ylim, delta_ylim=delta_ylim, pwa_ylim=pwa_ylim, spo2_ylim=spo2_ylim, event_spec=event_spec)
 
-        if ax_spo2 is not None:
+        if ax_actigraph is not None:
+            ax_actigraph.set_xlabel("Time (hours from recording start)")
+        elif ax_paper_harmonics is not None:
+            ax_paper_harmonics.set_xlabel("Time (hours from recording start)")
+        elif ax_spo2 is not None:
             ax_spo2.set_xlabel("Time (hours from recording start)")
         elif ax_pwa_drop is not None:
             ax_pwa_drop.set_xlabel("Time (hours from recording start)")

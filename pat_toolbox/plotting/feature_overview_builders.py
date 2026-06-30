@@ -152,7 +152,8 @@ def _overview_header_legend(title: str) -> list[Line2D]:
             Line2D([0], [0], color="#6c757d", linewidth=6, alpha=0.10, label="Stage-policy excluded"),
             Line2D([0], [0], color="#c1121f", linewidth=6, alpha=0.08, label="Event-excluded"),
             Line2D([0], [0], color="#d4a017", linewidth=6, alpha=0.22, label="Metric invalid"),
-            Line2D([0], [0], color="#9467bd", linewidth=6, alpha=0.16, label="Detected PWA Drop"),
+            Line2D([0], [0], color="#00a6a6", linewidth=6, alpha=0.18, label="PWA drop 30%"),
+            Line2D([0], [0], color="#f4a261", linewidth=6, alpha=0.22, label="PWA drop 50%"),
         ]
     if title == "PAT Harmonics Overview":
         return [
@@ -573,21 +574,11 @@ def _build_event_response_overview_figure(
                 continue
             used_windows += 1
             ax.axvspan(w["event_start_t"] / 3600.0, w["event_end_t"] / 3600.0, color="tab:cyan", alpha=0.12, label="Event window" if used_windows == 1 and idx == 0 else "_nolegend_", zorder=0)
-            ax.axvspan(w["recovery_start_t"] / 3600.0, w["recovery_end_t"] / 3600.0, color="tab:green", alpha=0.10, label="Recovery window" if used_windows == 1 and idx == 0 else "_nolegend_", zorder=0)
-            ax.plot(
-                [w["event_start_t"] / 3600.0, w["event_end_t"] / 3600.0],
-                [w["event_mean_hr"], w["event_mean_hr"]],
-                linestyle="--",
-                linewidth=0.9,
-                color="0.35",
-                alpha=0.8,
-                label="Event mean" if used_windows == 1 and idx == 0 else "_nolegend_",
-                zorder=1,
-            )
+            ax.axvspan(w["recovery_start_t"] / 3600.0, w["recovery_end_t"] / 3600.0, color="tab:green", alpha=0.10, label="DHR search window" if used_windows == 1 and idx == 0 else "_nolegend_", zorder=0)
             if np.isfinite(w["event_min_t"]) and np.isfinite(w["event_min_hr"]):
                 ax.scatter(w["event_min_t"] / 3600.0, w["event_min_hr"], color="black", s=12, marker="v", zorder=4, label="Event minimum" if used_windows == 1 and idx == 0 else "_nolegend_")
             if np.isfinite(w["recovery_max_t"]) and np.isfinite(w["recovery_max_hr"]):
-                ax.scatter(w["recovery_max_t"] / 3600.0, w["recovery_max_hr"], color="tab:red", s=16, zorder=4, label="Recovery maximum" if used_windows == 1 and idx == 0 else "_nolegend_")
+                ax.scatter(w["recovery_max_t"] / 3600.0, w["recovery_max_hr"], color="tab:red", s=16, zorder=4, label="Post-event maximum" if used_windows == 1 and idx == 0 else "_nolegend_")
 
         if idx == 0:
             handles, labels = ax.get_legend_handles_labels()
@@ -595,10 +586,10 @@ def _build_event_response_overview_figure(
                 ax.legend(loc="lower right", fontsize=5)
 
             if isinstance(hr_event_response_summary, dict):
-                tr_pk = hr_event_response_summary.get("trough_to_peak_response_mean")
-                mean_pk = hr_event_response_summary.get("mean_to_peak_response_mean")
+                dhr = hr_event_response_summary.get("dhr_mean_bpm")
                 n_used = hr_event_response_summary.get("n_used_windows", 0)
                 n_total = hr_event_response_summary.get("n_event_windows", 0)
+                source = hr_event_response_summary.get("dhr_search_window_source", "NA")
 
                 def _fmt_delta(x: object) -> str:
                     try:
@@ -611,8 +602,8 @@ def _build_event_response_overview_figure(
                     0.01,
                     0.02,
                     " | ".join([
-                        f"Tr-Pk={_fmt_delta(tr_pk)} bpm",
-                        f"Mean-Pk={_fmt_delta(mean_pk)} bpm",
+                        f"DHR={_fmt_delta(dhr)} bpm",
+                        f"search={source}",
                         f"used/tot={int(n_used)}/{int(n_total)}",
                     ]),
                     transform=ax.transAxes,
@@ -623,7 +614,7 @@ def _build_event_response_overview_figure(
                     zorder=5,
                 )
 
-    return _finalize_overview_figure(fig, axes, "Event HR [bpm]")
+    return _finalize_overview_figure(fig, axes, "DHR HR [bpm]")
 
 
 def _build_pat_burden_overview_figure(
@@ -675,8 +666,8 @@ def _build_pwa_drop_overview_figure(
     edf_base: str,
     t_pwa: Optional[np.ndarray],
     pwa_series: Optional[np.ndarray],
-    pwa_drop_events: Optional[list[dict[str, float]]],
-    pwa_drop_summary: Optional[Dict[str, float]],
+    pwa_drop_events_by_variant: Optional[Dict[str, list[dict[str, float]]]],
+    pwa_drop_summaries: Optional[Dict[str, Dict[str, float]]],
     aux_df: Optional["pd.DataFrame"],
     exclusion_zones,
     duration_sec_fallback: float,
@@ -691,7 +682,8 @@ def _build_pwa_drop_overview_figure(
     _decorate_overview_figure(fig, title)
     _add_colored_event_key(fig, list(event_spec))
 
-    events = pwa_drop_events or []
+    variants = list(pwa_drop_events_by_variant.keys()) if isinstance(pwa_drop_events_by_variant, dict) else []
+    colors = {"30": "#00a6a6", "50": "#f4a261"}
     for idx, (ax, (start_sec, end_sec)) in enumerate(zip(axes, bounds)):
         _prepare_panel(ax, start_sec, end_sec, exclusion_zones, aux_df, event_spec)
         mask = (t_pwa >= start_sec) & (t_pwa <= end_sec)
@@ -715,30 +707,37 @@ def _build_pwa_drop_overview_figure(
         if np.any(np.isfinite(y_panel)):
             ax.plot(t_panel / 3600.0, np.ma.masked_invalid(y_panel), linewidth=1.1, color="tab:purple", alpha=0.9, label="VIEW_PAT-derived PWA", zorder=3)
 
-        first = True
-        for event in events:
-            t0 = float(event.get("t_start", np.nan))
-            t1 = float(event.get("t_end", np.nan))
-            if not (np.isfinite(t0) and np.isfinite(t1) and t1 > t0):
-                continue
-            if t1 < start_sec or t0 > end_sec:
-                continue
-            ax.axvspan(t0 / 3600.0, t1 / 3600.0, color="#9467bd", alpha=0.16, label="Detected PWA Drop" if first and idx == 0 else "_nolegend_", zorder=1)
-            first = False
+        for variant in variants:
+            events = pwa_drop_events_by_variant.get(variant, []) if isinstance(pwa_drop_events_by_variant, dict) else []
+            color = colors.get(str(variant), "#9467bd")
+            first = True
+            for event in events:
+                t0 = float(event.get("t_start", np.nan))
+                t1 = float(event.get("t_end", np.nan))
+                if not (np.isfinite(t0) and np.isfinite(t1) and t1 > t0):
+                    continue
+                if t1 < start_sec or t0 > end_sec:
+                    continue
+                ax.axvspan(t0 / 3600.0, t1 / 3600.0, color=color, alpha=0.22, label=f"PWA drop {variant}%" if first and idx == 0 else "_nolegend_", zorder=1)
+                first = False
 
         if idx == 0:
             handles, labels = ax.get_legend_handles_labels()
             if handles:
                 ax.legend(loc="lower right", fontsize=5)
-            if isinstance(pwa_drop_summary, dict):
+            if isinstance(pwa_drop_summaries, dict):
+                parts = []
+                for variant in sorted(pwa_drop_summaries):
+                    summary = pwa_drop_summaries[variant]
+                    rate = summary.get("drop_rate_per_sleep_hour", np.nan)
+                    amp = summary.get("mean_amplitude_pct", np.nan)
+                    rate_txt = f"{float(rate):.2f}/h" if np.isfinite(float(rate)) else "NA"
+                    amp_txt = f"{float(amp):.1f}%" if np.isfinite(float(amp)) else "NA"
+                    parts.append(f"{variant}%: n={int(summary.get('n_drops', 0))} | rate={rate_txt} | amp={amp_txt}")
                 ax.text(
                     0.01,
                     0.02,
-                    " | ".join([
-                        f"n={int(pwa_drop_summary.get('n_drops', 0))}",
-                        f"rate={float(pwa_drop_summary.get('drop_rate_per_sleep_hour', np.nan)):.2f}/h" if np.isfinite(float(pwa_drop_summary.get('drop_rate_per_sleep_hour', np.nan))) else "rate=NA",
-                        f"amp={float(pwa_drop_summary.get('mean_amplitude_pct', np.nan)):.1f}%" if np.isfinite(float(pwa_drop_summary.get('mean_amplitude_pct', np.nan))) else "amp=NA",
-                    ]),
+                    " | ".join(parts),
                     transform=ax.transAxes,
                     ha="left",
                     va="bottom",
@@ -831,7 +830,6 @@ def _build_pat_harmonics_overview_figure(
     fig, axes = plt.subplots(4, 1, figsize=(11.69, 8.27), sharex=True, gridspec_kw={"height_ratios": [0.75, 1.0, 1.0, 1.0]})
     fig.suptitle(f"{edf_base} - {title}", fontsize=11, y=0.992)
     _decorate_overview_figure(fig, title)
-    _add_colored_event_key(fig, list(event_spec))
 
     ax_hyp, ax_f0, ax_power, ax_ratio = axes
     try:
@@ -866,23 +864,215 @@ def _build_pat_harmonics_overview_figure(
     ax_ratio.grid(True, alpha=0.35)
     ax_ratio.legend(loc="upper right", fontsize=7)
 
-    x_end = float(duration_sec_fallback) if duration_sec_fallback > 0 else float(np.nanmax(t))
     for ax in [ax_f0, ax_power, ax_ratio]:
-        _add_exclusion_spans(ax, exclusion_zones, 0.0, x_end / 3600.0, label_once=False)
-        if aux_df is not None:
-            _overlay_events_on_single_axis_whole_night(
-                ax=ax,
-                aux_df=aux_df,
-                start_sec=0.0,
-                end_sec=x_end,
-                event_spec=list(event_spec),
-                show_legend_labels=False,
-                event_style="short",
-            )
         ax.xaxis.set_major_formatter(FuncFormatter(_format_hour_tick))
 
     valid_pct = np.nan if not isinstance(pat_harmonics_summary, dict) else pat_harmonics_summary.get("valid_pct", np.nan)
     ax_f0.text(0.01, 0.92, f"valid windows: {_fmt_valid_pct(valid_pct)}", transform=ax_f0.transAxes, fontsize=8, va="top")
+    fig.tight_layout(rect=(0.04, 0.04, 0.98, 0.90))
+    return fig
+
+
+def _build_pat_paper_harmonics_overview_figure(
+    edf_base: str,
+    pat_paper_harmonics_windows: Optional[list[Dict[str, float]]],
+    pat_paper_harmonics_summary: Optional[Dict[str, float]],
+    aux_df: Optional["pd.DataFrame"],
+    exclusion_zones,
+    duration_sec_fallback: float,
+    event_spec: Sequence[EventSpec] = DEFAULT_EVENT_PLOT_SPEC,
+) -> Optional[Any]:
+    if not pat_paper_harmonics_windows:
+        return None
+    rows = [w for w in pat_paper_harmonics_windows if isinstance(w, dict)]
+    if not rows:
+        return None
+
+    t = np.asarray([float(w.get("t_center_sec", np.nan)) for w in rows], dtype=float)
+    valid = np.asarray([float(w.get("valid", 0.0)) == 1.0 for w in rows], dtype=bool)
+    if t.size == 0 or not np.any(np.isfinite(t)):
+        return None
+    x_h = t / 3600.0
+
+    c0 = np.asarray([float(w.get("c0", np.nan)) for w in rows], dtype=float)
+    n_beats = np.asarray([float(w.get("n_beats", np.nan)) for w in rows], dtype=float)
+    heat = np.vstack([
+        np.asarray([float(w.get(f"c{n}_c0", np.nan)) for w in rows], dtype=float)
+        for n in range(1, 11)
+    ])
+    heat[:, ~valid] = np.nan
+
+    heat_x_h = x_h.copy()
+    heat_plot = heat.copy()
+    bin_min = float(getattr(config, "PAT_PAPER_HARMONICS_HEATMAP_BIN_MINUTES", 0.0))
+    if bin_min > 0 and np.count_nonzero(np.isfinite(x_h)) > 1:
+        bin_h = bin_min / 60.0
+        x0 = float(np.nanmin(x_h))
+        x1 = float(np.nanmax(x_h))
+        edges = np.arange(x0, x1 + bin_h + 1e-9, bin_h)
+        if edges.size >= 2:
+            heat_binned = np.full((heat.shape[0], edges.size - 1), np.nan, dtype=float)
+            for j in range(edges.size - 1):
+                m = (x_h >= edges[j]) & (x_h < edges[j + 1])
+                if np.any(m):
+                    with np.errstate(invalid="ignore"):
+                        heat_binned[:, j] = np.nanmean(heat[:, m], axis=1)
+            heat_plot = heat_binned
+            heat_x_h = 0.5 * (edges[:-1] + edges[1:])
+
+    if bool(getattr(config, "PAT_PAPER_HARMONICS_HEATMAP_ROW_NORMALIZE", True)):
+        norm = np.full_like(heat_plot, np.nan, dtype=float)
+        for i in range(heat_plot.shape[0]):
+            row = heat_plot[i, :]
+            finite = row[np.isfinite(row)]
+            if finite.size < 2:
+                continue
+            lo, hi = np.nanpercentile(finite, [5, 95])
+            if np.isfinite(lo) and np.isfinite(hi) and hi > lo:
+                norm[i, :] = np.clip((row - lo) / (hi - lo), 0.0, 1.0)
+        heat_plot = norm
+
+    title = "Paper-Style PAT Harmonics Overview"
+    fig, axes = plt.subplots(4, 1, figsize=(11.69, 8.27), sharex=True, gridspec_kw={"height_ratios": [0.65, 1.0, 1.45, 0.8]})
+    fig.suptitle(f"{edf_base} - {title}", fontsize=11, y=0.992)
+    _decorate_overview_figure(fig, title)
+    ax_hyp, ax_c0, ax_heat, ax_valid = axes
+
+    try:
+        from .summary_hypnogram import _plot_sleep_stagegram_on_axis
+
+        _plot_sleep_stagegram_on_axis(ax_hyp, edf_base=edf_base, aux_df=aux_df, title="Sleep Stages", show_stats=False, title_pad=2.0)
+    except Exception:
+        ax_hyp.axis("off")
+
+    ax_c0.plot(x_h, np.ma.masked_invalid(np.where(valid, c0, np.nan)), color="tab:blue", linewidth=1.2, marker="o", markersize=2.2, label="C0")
+    if isinstance(pat_paper_harmonics_summary, dict) and np.isfinite(float(pat_paper_harmonics_summary.get("c0_median", np.nan))):
+        ax_c0.axhline(float(pat_paper_harmonics_summary["c0_median"]), color="tab:blue", linestyle="--", linewidth=0.8, alpha=0.7, label="C0 median")
+    ax_c0.set_ylabel("C0")
+    ax_c0.grid(True, alpha=0.35)
+    ax_c0.legend(loc="upper right", fontsize=7)
+
+    if heat_x_h.size > 1:
+        dx = float(np.nanmedian(np.diff(heat_x_h[np.isfinite(heat_x_h)]))) if np.count_nonzero(np.isfinite(heat_x_h)) > 1 else 1.0 / 60.0
+    else:
+        dx = 1.0 / 60.0
+    im = ax_heat.imshow(
+        heat_plot,
+        aspect="auto",
+        origin="lower",
+        interpolation="nearest",
+        extent=[float(np.nanmin(heat_x_h) - dx / 2.0), float(np.nanmax(heat_x_h) + dx / 2.0), 0.5, 10.5],
+        cmap="magma",
+    )
+    ax_heat.set_yticks(range(1, 11))
+    ax_heat.set_ylabel("C/C0")
+    heat_label = "row-normalized amplitude" if bool(getattr(config, "PAT_PAPER_HARMONICS_HEATMAP_ROW_NORMALIZE", True)) else "amplitude"
+    ax_heat.set_title(f"C1-C10/C0 heatmap ({bin_min:g} min bins)", fontsize=9, pad=2)
+    cax = ax_heat.inset_axes([0.62, 1.03, 0.34, 0.08])
+    cb = fig.colorbar(im, cax=cax, orientation="horizontal")
+    cb.set_label(heat_label, fontsize=7, labelpad=1)
+    cb.ax.tick_params(labelsize=7, pad=1)
+
+    ax_valid.plot(x_h, np.ma.masked_invalid(np.where(valid, n_beats, np.nan)), color="0.25", linewidth=1.1, marker="o", markersize=2.0, label="Beats used for spectral")
+    ax_valid.set_ylabel("Beats used\nfor spectral")
+    ax_valid.set_xlabel("Time since recording start [hours]")
+    ax_valid.grid(True, alpha=0.35)
+
+    for ax in [ax_c0, ax_heat, ax_valid]:
+        ax.xaxis.set_major_formatter(FuncFormatter(_format_hour_tick))
+
+    valid_pct = np.nan if not isinstance(pat_paper_harmonics_summary, dict) else pat_paper_harmonics_summary.get("valid_pct", np.nan)
+    ax_c0.text(0.01, 0.92, f"valid windows: {_fmt_valid_pct(valid_pct)}", transform=ax_c0.transAxes, fontsize=8, va="top")
+    fig.tight_layout(rect=(0.04, 0.04, 0.98, 0.90))
+    return fig
+
+
+def _build_pat_paper_harmonics_norm_overview_figure(
+    edf_base: str,
+    pat_paper_harmonics_windows: Optional[list[Dict[str, float]]],
+    aux_df: Optional["pd.DataFrame"],
+    exclusion_zones,
+    duration_sec_fallback: float,
+    event_spec: Sequence[EventSpec] = DEFAULT_EVENT_PLOT_SPEC,
+) -> Optional[Any]:
+    if not pat_paper_harmonics_windows:
+        return None
+    rows = [w for w in pat_paper_harmonics_windows if isinstance(w, dict)]
+    if not rows:
+        return None
+
+    t = np.asarray([float(w.get("t_center_sec", np.nan)) for w in rows], dtype=float)
+    valid = np.asarray([float(w.get("valid", 0.0)) == 1.0 for w in rows], dtype=bool)
+    if t.size == 0 or not np.any(np.isfinite(t)):
+        return None
+    x_h = t / 3600.0
+
+    series = [
+        ("C1/C0", np.asarray([float(w.get("c1_c0", np.nan)) for w in rows], dtype=float), "tab:orange"),
+        ("C5/C0", np.asarray([float(w.get("c5_c0", np.nan)) for w in rows], dtype=float), "tab:purple"),
+        ("HF ratio", np.asarray([float(w.get("hf_ratio", np.nan)) for w in rows], dtype=float), "tab:red"),
+    ]
+
+    def _rolling_median(y: np.ndarray, width: int) -> np.ndarray:
+        yy = np.asarray(y, dtype=float)
+        if width <= 1 or yy.size == 0:
+            return yy.copy()
+        if width % 2 == 0:
+            width += 1
+        half = width // 2
+        out = np.full_like(yy, np.nan, dtype=float)
+        for i in range(yy.size):
+            lo = max(0, i - half)
+            hi = min(yy.size, i + half + 1)
+            vals = yy[lo:hi]
+            vals = vals[np.isfinite(vals)]
+            if vals.size:
+                out[i] = float(np.nanmedian(vals))
+        return out
+
+    title = "Paper-Style PAT Harmonics Normalized Coefficients"
+    fig, axes = plt.subplots(4, 1, figsize=(11.69, 8.27), sharex=True, gridspec_kw={"height_ratios": [0.65, 1.0, 1.0, 1.0]})
+    fig.suptitle(f"{edf_base} - {title}", fontsize=11, y=0.992)
+    _decorate_overview_figure(fig, title)
+    ax_hyp = axes[0]
+
+    try:
+        from .summary_hypnogram import _plot_sleep_stagegram_on_axis
+
+        _plot_sleep_stagegram_on_axis(ax_hyp, edf_base=edf_base, aux_df=aux_df, title="Sleep Stages", show_stats=False, title_pad=2.0)
+    except Exception:
+        ax_hyp.axis("off")
+
+    trend_width = int(getattr(config, "PAT_PAPER_HARMONICS_NORM_TREND_WINDOWS", 5))
+    ylim_pct = tuple(getattr(config, "PAT_PAPER_HARMONICS_NORM_YLIM_PERCENTILES", (1.0, 99.0)))
+    for ax, (label, y, color) in zip(axes[1:], series):
+        yy = np.where(valid, y, np.nan)
+        ax.scatter(x_h, yy, color=color, s=10, alpha=0.35, label=f"{label} raw")
+        trend = _rolling_median(yy, trend_width)
+        ax.plot(x_h, np.ma.masked_invalid(trend), color=color, linewidth=1.4, label=f"{label} median trend")
+        ax.set_ylabel(label)
+        ax.grid(True, alpha=0.35)
+        ax.legend(loc="upper right", fontsize=7)
+        finite = yy[np.isfinite(yy)]
+        if finite.size >= 3:
+            lo, hi = np.nanpercentile(finite, [float(ylim_pct[0]), float(ylim_pct[1])])
+            if np.isfinite(lo) and np.isfinite(hi) and hi > lo:
+                pad = 0.08 * (hi - lo)
+                y_min = max(0.0, float(lo - pad))
+                y_max = float(hi + pad)
+                ax.set_ylim(y_min, y_max)
+                clipped_low_mask = np.isfinite(yy) & (yy < y_min)
+                clipped_high_mask = np.isfinite(yy) & (yy > y_max)
+                clipped = int(np.count_nonzero(clipped_low_mask | clipped_high_mask))
+                if bool(getattr(config, "PAT_PAPER_HARMONICS_NORM_SHOW_CLIPPED_OUTLIERS", True)):
+                    if np.any(clipped_low_mask):
+                        ax.scatter(x_h[clipped_low_mask], np.full(np.count_nonzero(clipped_low_mask), y_min), color=color, s=18, alpha=0.65, marker="v", label="clipped low")
+                    if np.any(clipped_high_mask):
+                        ax.scatter(x_h[clipped_high_mask], np.full(np.count_nonzero(clipped_high_mask), y_max), color=color, s=18, alpha=0.65, marker="^", label="clipped high")
+                if clipped:
+                    ax.text(0.01, 0.92, f"{clipped} outlier(s) clipped to robust y-range", transform=ax.transAxes, ha="left", va="top", fontsize=7, bbox=dict(boxstyle="round", facecolor="white", alpha=0.75, edgecolor="none", pad=0.2))
+        ax.xaxis.set_major_formatter(FuncFormatter(_format_hour_tick))
+    axes[-1].set_xlabel("Time since recording start [hours]")
     fig.tight_layout(rect=(0.04, 0.04, 0.98, 0.90))
     return fig
 

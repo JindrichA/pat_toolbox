@@ -11,6 +11,7 @@ from .metrics import prv as prv_metrics
 from .metrics import pat_burden as pat_burden_metrics
 from .metrics import pwa_drop as pwa_drop_metrics
 from .metrics import pat_harmonics as pat_harmonics_metrics
+from .metrics import pat_paper_harmonics as pat_paper_harmonics_metrics
 from .metrics import psd as psd_metrics
 from .metrics.hr_event_response import extract_event_hr_windows, summarize_event_hr_response, summarize_event_hr_response_from_windows
 
@@ -76,6 +77,37 @@ def compute_pat_harmonics_step(ctx: RecordingContext) -> None:
         ctx.pat_harmonics_windows = None
 
 
+def compute_pat_paper_harmonics_step(ctx: RecordingContext) -> None:
+    if not features.is_enabled("pat_paper_harmonics"):
+        ctx.pat_paper_harmonics_summary = None
+        ctx.pat_paper_harmonics_windows = None
+        return
+    if ctx.view_pat is None or ctx.sfreq is None or ctx.sfreq <= 0:
+        ctx.pat_paper_harmonics_summary = None
+        ctx.pat_paper_harmonics_windows = None
+        return
+    include_set = set(config.sleep_include_numeric()) if bool(getattr(config, "ENABLE_SLEEP_STAGE_MASKING", False)) else None
+    try:
+        summary, windows = pat_paper_harmonics_metrics.compute_pat_paper_harmonics_from_raw_pat(
+            ctx.view_pat,
+            ctx.sfreq,
+            aux_df=ctx.aux_df,
+            include_set=include_set,
+        )
+        ctx.pat_paper_harmonics_summary = summary
+        ctx.pat_paper_harmonics_windows = windows
+        if isinstance(summary, dict):
+            print(
+                "  PAT paper harmonics: "
+                f"C0_median={float(summary.get('c0_median', np.nan)):.3g}, "
+                f"valid_windows={int(summary.get('n_windows_valid', 0))}/{int(summary.get('n_windows_total', 0))}"
+            )
+    except Exception as e:
+        print(f"  WARNING: PAT paper harmonics computation failed: {e}")
+        ctx.pat_paper_harmonics_summary = None
+        ctx.pat_paper_harmonics_windows = None
+
+
 def _compute_single_sleep_combo_summary(
     *,
     key: str,
@@ -122,18 +154,24 @@ def _compute_single_sleep_combo_summary(
             include_set=include_set,
         )
 
-    pwa_drop_summary = None
+    pwa_drop_summaries = None
     pwa_signal = ctx.view_pat_filt if ctx.view_pat_filt is not None else ctx.view_pat
     if features.is_enabled("pwa_drop") and pwa_signal is not None and ctx.sfreq is not None and aux_df is not None:
         try:
-            _t_pwa, _pwa_series, pwa_drop_summary, _events = pwa_drop_metrics.compute_pwa_drop_from_pat_signal(
-                pwa_signal,
-                ctx.sfreq,
-                aux_df=aux_df,
-                include_set=include_set,
-            )
+            pwa_drop_summaries = {}
+            variants = getattr(config, "PWA_DROP_VARIANTS", {"30": {"primary_thr_pct": 30.0, "secondary_thr_pct": 20.0}, "50": {"primary_thr_pct": 50.0, "secondary_thr_pct": 40.0}})
+            for variant, params in variants.items():
+                _t_pwa, _pwa_series, summary, _events = pwa_drop_metrics.compute_pwa_drop_from_pat_signal(
+                    pwa_signal,
+                    ctx.sfreq,
+                    aux_df=aux_df,
+                    include_set=include_set,
+                    primary_thr_pct=float(params.get("primary_thr_pct", variant)),
+                    secondary_thr_pct=float(params.get("secondary_thr_pct", float(params.get("primary_thr_pct", variant)) - 10.0)),
+                )
+                pwa_drop_summaries[str(variant)] = summary
         except Exception:
-            pwa_drop_summary = None
+            pwa_drop_summaries = None
 
     return {
         "label": label,
@@ -143,7 +181,7 @@ def _compute_single_sleep_combo_summary(
         "prv_summary": prv_summary,
         "psd_features": psd_features,
         "hr_event_response_summary": hr_event_response_summary,
-        "pwa_drop_summary": pwa_drop_summary,
+        "pwa_drop_summaries": pwa_drop_summaries,
         "pat_burden": burden,
         "pat_burden_diag": burden_diag,
     }
@@ -178,39 +216,49 @@ def compute_pwa_drop_step(ctx: RecordingContext) -> None:
     if not features.is_enabled("pwa_drop"):
         ctx.t_pwa = None
         ctx.pwa_series = None
-        ctx.pwa_drop_summary = None
-        ctx.pwa_drop_events = None
+        ctx.pwa_drop_summaries = None
+        ctx.pwa_drop_events_by_variant = None
         return
     if ctx.view_pat_filt is None or ctx.sfreq is None or ctx.sfreq <= 0:
         ctx.t_pwa = None
         ctx.pwa_series = None
-        ctx.pwa_drop_summary = None
-        ctx.pwa_drop_events = None
+        ctx.pwa_drop_summaries = None
+        ctx.pwa_drop_events_by_variant = None
         return
     include_set = set(config.sleep_include_numeric()) if bool(getattr(config, "ENABLE_SLEEP_STAGE_MASKING", False)) else None
     try:
-        t_pwa, pwa_series, summary, events = pwa_drop_metrics.compute_pwa_drop_from_pat_signal(
-            ctx.view_pat_filt,
-            ctx.sfreq,
-            aux_df=ctx.aux_df,
-            include_set=include_set,
-        )
-        ctx.t_pwa = t_pwa
-        ctx.pwa_series = pwa_series
-        ctx.pwa_drop_summary = summary
-        ctx.pwa_drop_events = events
-        if isinstance(summary, dict) and np.isfinite(float(summary.get("drop_rate_per_sleep_hour", np.nan))):
-            print(
-                "  PWA drop summary: "
-                f"n={int(summary.get('n_drops', 0))}, "
-                f"rate={float(summary.get('drop_rate_per_sleep_hour', np.nan)):.2f}/h"
+        summaries: dict[str, dict[str, float]] = {}
+        events_by_variant: dict[str, list[dict[str, float]]] = {}
+        variants = getattr(config, "PWA_DROP_VARIANTS", {"30": {"primary_thr_pct": 30.0, "secondary_thr_pct": 20.0}, "50": {"primary_thr_pct": 50.0, "secondary_thr_pct": 40.0}})
+        for label, params in variants.items():
+            t_pwa, pwa_series, summary, events = pwa_drop_metrics.compute_pwa_drop_from_pat_signal(
+                ctx.view_pat_filt,
+                ctx.sfreq,
+                aux_df=ctx.aux_df,
+                include_set=include_set,
+                primary_thr_pct=float(params.get("primary_thr_pct", label)),
+                secondary_thr_pct=float(params.get("secondary_thr_pct", float(params.get("primary_thr_pct", label)) - 10.0)),
             )
+            ctx.t_pwa = t_pwa
+            ctx.pwa_series = pwa_series
+            summary["variant"] = str(label)
+            summaries[str(label)] = summary
+            events_by_variant[str(label)] = events
+        ctx.pwa_drop_summaries = summaries
+        ctx.pwa_drop_events_by_variant = events_by_variant
+        msg_parts = []
+        for label in sorted(summaries):
+            summary = summaries[label]
+            if isinstance(summary, dict) and np.isfinite(float(summary.get("drop_rate_per_sleep_hour", np.nan))):
+                msg_parts.append(f"{label}%: n={int(summary.get('n_drops', 0))}, rate={float(summary.get('drop_rate_per_sleep_hour', np.nan)):.2f}/h")
+        if msg_parts:
+            print("  PWA drop summaries: " + "; ".join(msg_parts))
     except Exception as e:
         print(f"  WARNING: PWA drop computation failed: {e}")
         ctx.t_pwa = None
         ctx.pwa_series = None
-        ctx.pwa_drop_summary = None
-        ctx.pwa_drop_events = None
+        ctx.pwa_drop_summaries = None
+        ctx.pwa_drop_events_by_variant = None
 
 
 def compute_sleep_combo_summaries_step(ctx: RecordingContext) -> None:

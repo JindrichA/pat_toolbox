@@ -230,7 +230,7 @@ def _plot_segment_pwa_drop(
     ax,
     t_pwa: np.ndarray,
     pwa_series: np.ndarray,
-    pwa_drop_events: Optional[list[dict[str, float]]],
+    pwa_drop_events_by_variant: Optional[dict[str, list[dict[str, float]]]],
     seg_start_sec: float,
     seg_end_sec: float,
     exclusion_zones: List[Tuple[float, float, str]],
@@ -241,7 +241,7 @@ def _plot_segment_pwa_drop(
     _add_exclusion_spans(ax, exclusion_zones, t_seg_h_start, t_seg_h_end, label_once=True)
     mask = (t_pwa >= seg_start_sec) & (t_pwa <= seg_end_sec)
     if not np.any(mask):
-        ax.set_ylabel("VIEW_PAT-derived\nPWA")
+        ax.set_ylabel("PWA")
         ax.grid(True)
         return None, None
 
@@ -273,24 +273,27 @@ def _plot_segment_pwa_drop(
         ok = np.isfinite(t_sec_seg) & np.isfinite(y_seg)
         x_h = t_sec_seg[ok] / 3600.0
         yy = y_seg[ok]
-        ax.vlines(x_h, 0.0, yy, color="tab:purple", linewidth=0.8, alpha=0.55, label="VIEW_PAT-derived beat-to-beat PWA", zorder=3)
+        ax.vlines(x_h, 0.0, yy, color="tab:purple", linewidth=0.8, alpha=0.55, label="_nolegend_", zorder=3)
         ax.scatter(x_h, yy, s=14, color="tab:purple", alpha=0.85, zorder=4)
         y_min = float(np.min(yy))
         y_max = float(np.max(yy))
 
-    events = pwa_drop_events or []
-    first = True
-    for event in events:
-        t0 = float(event.get("t_start", np.nan))
-        t1 = float(event.get("t_end", np.nan))
-        if not (np.isfinite(t0) and np.isfinite(t1) and t1 > t0):
-            continue
-        if t1 < seg_start_sec or t0 > seg_end_sec:
-            continue
-        ax.axvspan(t0 / 3600.0, t1 / 3600.0, color="#9467bd", alpha=0.16, label="Detected PWA Drop" if first else "_nolegend_", zorder=1)
-        first = False
+    colors = {"30": "#00a6a6", "50": "#f4a261"}
+    if isinstance(pwa_drop_events_by_variant, dict):
+        for variant in sorted(pwa_drop_events_by_variant):
+            events = pwa_drop_events_by_variant.get(variant, []) or []
+            first = True
+            for event in events:
+                t0 = float(event.get("t_start", np.nan))
+                t1 = float(event.get("t_end", np.nan))
+                if not (np.isfinite(t0) and np.isfinite(t1) and t1 > t0):
+                    continue
+                if t1 < seg_start_sec or t0 > seg_end_sec:
+                    continue
+                ax.axvspan(t0 / 3600.0, t1 / 3600.0, color=colors.get(str(variant), "#00a6a6"), alpha=0.22, label=f"PWA drop {variant}%" if first else "_nolegend_", zorder=1)
+                first = False
 
-    ax.set_ylabel("VIEW_PAT-derived\nPWA")
+    ax.set_ylabel("PWA")
     ax.grid(True)
     handles, labels = ax.get_legend_handles_labels()
     seen = set()
@@ -382,6 +385,45 @@ def _plot_segment_spo2(
             seen.add(patch.get_label())
     if h2:
         ax.legend(h2, l2, loc="upper right", fontsize=8, framealpha=0.9)
+    return y_min, y_max
+
+
+def _plot_segment_actigraph(
+    ax,
+    t_actigraph: np.ndarray,
+    actigraph: np.ndarray,
+    seg_start_sec: float,
+    seg_end_sec: float,
+    act_ylim: Optional[tuple[float, float]] = None,
+) -> tuple[Optional[float], Optional[float]]:
+    mask = (t_actigraph >= seg_start_sec) & (t_actigraph <= seg_end_sec)
+    if not np.any(mask):
+        ax.set_ylabel("ACT\nenv")
+        ax.text(0.5, 0.5, "ACTIGRAPH unavailable", transform=ax.transAxes, ha="center", va="center", fontsize=8)
+        ax.grid(True)
+        return None, None
+
+    t_seg = np.asarray(t_actigraph[mask], dtype=float)
+    y_seg = np.abs(np.asarray(actigraph[mask], dtype=float))
+    ok = np.isfinite(t_seg) & np.isfinite(y_seg)
+    if np.any(ok):
+        ax.plot(t_seg[ok] / 3600.0, y_seg[ok], color="0.25", linewidth=0.8, label="abs ACTIGRAPH motion envelope")
+        yy = y_seg[ok]
+        y_min = float(np.min(yy))
+        y_max = float(np.max(yy))
+        if act_ylim is not None:
+            ax.set_ylim(act_ylim)
+        else:
+            margin = 0.10 * (y_max - y_min + 1e-6)
+            ax.set_ylim(y_min - margin, y_max + margin)
+    else:
+        y_min = y_max = None
+        ax.text(0.5, 0.5, "ACTIGRAPH invalid", transform=ax.transAxes, ha="center", va="center", fontsize=8)
+    ax.set_ylabel("ACT\nenv")
+    if str(getattr(config, "ACTIGRAPH_SEGMENT_YSCALE", "linear")).lower() == "symlog":
+        ax.set_yscale("symlog", linthresh=float(getattr(config, "ACTIGRAPH_SEGMENT_SYMLOG_LINTHRESH", 1.0)))
+    ax.grid(True)
+    ax.legend(loc="upper right", fontsize=7, framealpha=0.9)
     return y_min, y_max
 
 
@@ -622,23 +664,13 @@ def _plot_segment_delta_hr(
                     continue
                 used_windows += 1
                 ax.axvspan(w["event_start_t"] / 3600.0, w["event_end_t"] / 3600.0, color="tab:cyan", alpha=0.12, label="Event window" if used_windows == 1 else "_nolegend_", zorder=0)
-                ax.axvspan(w["recovery_start_t"] / 3600.0, w["recovery_end_t"] / 3600.0, color="tab:green", alpha=0.10, label="Recovery window" if used_windows == 1 else "_nolegend_", zorder=0)
-                ax.plot(
-                    [w["event_start_t"] / 3600.0, w["event_end_t"] / 3600.0],
-                    [w["event_mean_hr"], w["event_mean_hr"]],
-                    linestyle="--",
-                    linewidth=1.0,
-                    color="0.35",
-                    alpha=0.85,
-                    label="Event mean" if used_windows == 1 else "_nolegend_",
-                    zorder=1,
-                )
+                ax.axvspan(w["recovery_start_t"] / 3600.0, w["recovery_end_t"] / 3600.0, color="tab:green", alpha=0.10, label="DHR search window" if used_windows == 1 else "_nolegend_", zorder=0)
                 if np.isfinite(w["event_min_t"]) and np.isfinite(w["event_min_hr"]):
                     ax.scatter(w["event_min_t"] / 3600.0, w["event_min_hr"], color="black", s=14, zorder=4, marker="v", label="Event minimum" if used_windows == 1 else "_nolegend_")
                 if np.isfinite(w["recovery_max_t"]) and np.isfinite(w["recovery_max_hr"]):
-                    ax.scatter(w["recovery_max_t"] / 3600.0, w["recovery_max_hr"], color="tab:red", s=18, zorder=4, label="Recovery maximum" if used_windows == 1 else "_nolegend_")
+                    ax.scatter(w["recovery_max_t"] / 3600.0, w["recovery_max_hr"], color="tab:red", s=18, zorder=4, label="Post-event maximum" if used_windows == 1 else "_nolegend_")
 
-    ax.set_ylabel("Event HR [bpm]")
+    ax.set_ylabel("DHR HR [bpm]")
     ax.grid(True)
     handles, labels = ax.get_legend_handles_labels()
     if any(label and label != "_nolegend_" for label in labels):
@@ -647,6 +679,66 @@ def _plot_segment_delta_hr(
         margin = 0.15 * (y_max - y_min + 1e-6)
         ax.set_ylim(y_min - margin, y_max + margin)
     return y_min, y_max
+
+
+def _plot_segment_pat_paper_harmonics(
+    ax,
+    pat_paper_harmonics_windows: Optional[list[dict[str, float]]],
+    seg_start_sec: float,
+    seg_end_sec: float,
+) -> None:
+    ax.set_ylabel("Paper PAT\nharmonics")
+    if not pat_paper_harmonics_windows:
+        ax.text(0.5, 0.5, "Paper-style PAT harmonics unavailable", transform=ax.transAxes, ha="center", va="center", fontsize=9)
+        ax.grid(True)
+        return
+
+    rows = [w for w in pat_paper_harmonics_windows if isinstance(w, dict)]
+    candidates = []
+    center = 0.5 * (seg_start_sec + seg_end_sec)
+    for w in rows:
+        if float(w.get("valid", 0.0)) != 1.0:
+            continue
+        t0 = float(w.get("t_start_sec", np.nan))
+        t1 = float(w.get("t_end_sec", np.nan))
+        tc = float(w.get("t_center_sec", np.nan))
+        if not (np.isfinite(t0) and np.isfinite(t1) and np.isfinite(tc)):
+            continue
+        if t1 < seg_start_sec or t0 > seg_end_sec:
+            continue
+        candidates.append((abs(tc - center), w))
+    if not candidates:
+        ax.text(0.5, 0.5, "No valid harmonic window in segment", transform=ax.transAxes, ha="center", va="center", fontsize=9)
+        ax.grid(True)
+        return
+
+    _dist, row = sorted(candidates, key=lambda item: item[0])[0]
+    vals = np.asarray([float(row.get(f"c{n}_c0", np.nan)) for n in range(1, 11)], dtype=float)
+    x = np.arange(1, 11)
+    ens = np.asarray([float(row.get(f"ensemble_{i:02d}", np.nan)) for i in range(32)], dtype=float)
+    ax_wave = ax.inset_axes([0.08, 0.18, 0.36, 0.58])
+    if np.any(np.isfinite(ens)):
+        ax_wave.plot(np.linspace(0.0, 1.0, ens.size), np.ma.masked_invalid(ens), color="#2a9d8f", linewidth=1.2)
+    ax_wave.set_xlabel("Pulse phase", fontsize=7)
+    ax_wave.set_ylabel("Ensemble", fontsize=7)
+    ax_wave.tick_params(labelsize=7)
+    ax_wave.grid(True, alpha=0.35)
+
+    ax_bar = ax.inset_axes([0.52, 0.18, 0.40, 0.58])
+    ax_bar.bar(x, vals, color="#577590", alpha=0.85, label="C1-C10 / C0")
+    ax_bar.set_xticks(x)
+    ax_bar.set_xlabel("Harmonic number", fontsize=7)
+    ax_bar.set_ylabel("C/C0", fontsize=7)
+    ax_bar.tick_params(labelsize=7)
+    ax_bar.grid(True, axis="y", alpha=0.35)
+    ax.grid(True, alpha=0.2)
+    title = (
+        f"C0={float(row.get('c0', np.nan)):.3g}, "
+        f"C1/C0={float(row.get('c1_c0', np.nan)):.3g}, "
+        f"C5/C0={float(row.get('c5_c0', np.nan)):.3g}, "
+        f"beats used={int(float(row.get('n_beats', 0)))}"
+    )
+    ax.text(0.01, 0.94, title, transform=ax.transAxes, ha="left", va="top", fontsize=8, bbox=dict(boxstyle="round", facecolor="white", alpha=0.75, edgecolor="none", pad=0.2))
 
 
 def _overlay_events_on_axes(

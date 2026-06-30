@@ -30,12 +30,16 @@ class RecordingContext:
     # PWA drop
     t_pwa: Optional[np.ndarray] = None
     pwa_series: Optional[np.ndarray] = None
-    pwa_drop_summary: Optional[Dict[str, float]] = None
-    pwa_drop_events: Optional[list[Dict[str, float]]] = None
+    pwa_drop_summaries: Optional[Dict[str, Dict[str, float]]] = None
+    pwa_drop_events_by_variant: Optional[Dict[str, list[Dict[str, float]]]] = None
 
     # Raw PAT harmonics
     pat_harmonics_summary: Optional[Dict[str, float]] = None
     pat_harmonics_windows: Optional[list[Dict[str, float]]] = None
+
+    # Paper-style beat-synchronous PAT harmonics
+    pat_paper_harmonics_summary: Optional[Dict[str, float]] = None
+    pat_paper_harmonics_windows: Optional[list[Dict[str, float]]] = None
 
     # HR (PAT derived)
     t_hr_calc: Optional[np.ndarray] = None
@@ -99,10 +103,12 @@ class RecordingContext:
     sleep_timing_csv_path: Optional[Path] = None
     pat_burden_csv_path: Optional[Path] = None
     pat_burden_summary_csv_path: Optional[Path] = None
-    pwa_drop_csv_path: Optional[Path] = None
-    pwa_drop_summary_csv_path: Optional[Path] = None
+    pwa_drop_csv_paths: Optional[Dict[str, Path]] = None
+    pwa_drop_summary_csv_paths: Optional[Dict[str, Path]] = None
     pat_harmonics_csv_path: Optional[Path] = None
     pat_harmonics_summary_csv_path: Optional[Path] = None
+    pat_paper_harmonics_csv_path: Optional[Path] = None
+    pat_paper_harmonics_summary_csv_path: Optional[Path] = None
     peaks_pdf_path: Optional[Path] = None
     publication_prv_png_path: Optional[Path] = None
 

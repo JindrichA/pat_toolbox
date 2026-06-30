@@ -113,7 +113,8 @@ def compute_pat_harmonics_from_raw_pat(
     if centers.size == 0:
         return _empty_summary("no_windows_defined"), []
 
-    policy = masking.policy_from_config(include_stages=include_set, force_sleep=(include_set is not None))
+    use_mask = bool(getattr(config, "PAT_HARMONICS_USE_MASK", False))
+    policy = masking.policy_from_config(include_stages=include_set, force_sleep=(include_set is not None)) if use_mask else None
     windows: list[dict[str, float]] = []
     n_valid = 0
     for center in centers:
@@ -125,8 +126,11 @@ def compute_pat_harmonics_from_raw_pat(
             continue
         t_win = np.arange(i0, i1, dtype=float) / float(fs)
         y_win = signal[i0:i1].astype(float)
-        bundle = masking.build_mask_bundle(t_win, aux_df, policy=policy)
-        keep = np.asarray(bundle.combined_keep, dtype=bool) & np.isfinite(y_win)
+        if use_mask:
+            bundle = masking.build_mask_bundle(t_win, aux_df, policy=policy)
+            keep = np.asarray(bundle.combined_keep, dtype=bool) & np.isfinite(y_win)
+        else:
+            keep = np.isfinite(y_win)
         valid_fraction = float(np.mean(keep)) if keep.size else 0.0
         row: dict[str, float] = {
             "t_start_sec": start_sec,

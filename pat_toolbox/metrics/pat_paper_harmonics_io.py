@@ -7,19 +7,15 @@ from typing import Any, Iterable, Mapping
 from .. import config, paths
 
 
-def save_pwa_drop_events_to_csv(
+def save_pat_paper_harmonics_windows_to_csv(
     edf_path: Path,
-    events: Iterable[dict[str, Any]],
-    *,
-    variant: str | None = None,
+    windows: Iterable[dict[str, Any]],
 ) -> Path | None:
-    rows = list(events)
+    rows = list(windows)
     if not rows:
         return None
-
-    out_folder = paths.get_output_folder(getattr(config, "PWA_DROP_OUTPUT_SUBFOLDER", config.OUTPUT_SUBFOLDER))
-    suffix = "" if variant is None else f"_{variant}pct"
-    out_csv = out_folder / f"{edf_path.stem}__PWA_Drop{suffix}_Events.csv"
+    out_folder = paths.get_output_folder(getattr(config, "PAT_PAPER_HARMONICS_OUTPUT_SUBFOLDER", config.OUTPUT_SUBFOLDER))
+    out_csv = out_folder / f"{edf_path.stem}__PAT_Paper_Harmonics_Windows.csv"
     fieldnames: list[str] = []
     for row in rows:
         for key in row.keys():
@@ -33,18 +29,14 @@ def save_pwa_drop_events_to_csv(
     return out_csv
 
 
-def save_pwa_drop_summary_to_csv(
+def save_pat_paper_harmonics_summary_to_csv(
     edf_path: Path,
     summary: Mapping[str, Any] | None,
-    *,
-    variant: str | None = None,
 ) -> Path | None:
     if not summary:
         return None
-
-    out_folder = paths.get_output_folder(getattr(config, "PWA_DROP_OUTPUT_SUBFOLDER", config.OUTPUT_SUBFOLDER))
-    suffix = "" if variant is None else f"_{variant}pct"
-    out_csv = out_folder / f"{edf_path.stem}__PWA_Drop{suffix}_Summary.csv"
+    out_folder = paths.get_output_folder(getattr(config, "PAT_PAPER_HARMONICS_OUTPUT_SUBFOLDER", config.OUTPUT_SUBFOLDER))
+    out_csv = out_folder / f"{edf_path.stem}__PAT_Paper_Harmonics_Summary.csv"
     row = {"edf_file": edf_path.name, **dict(summary)}
     with out_csv.open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=list(row.keys()))

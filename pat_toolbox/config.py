@@ -50,6 +50,7 @@ RUN_TAG = "Harmonics"
 #   - delta_hr            -> event-response HR metrics and event-response HR plots
 #   - pat_burden          -> PAT amplitude loading, burden metric, burden subplot/rows
 #   - pat_harmonics       -> raw PAT waveform harmonic summaries and report pages
+#   - pat_paper_harmonics -> beat-synchronous paper-style PAT harmonic indices
 #   - sleep_combo_summary -> extra fixed sleep-subset comparison summaries
 #   - report_pdf          -> main multi-page PDF report
 #   - peaks_debug_pdf     -> PAT peak-debug PDF
@@ -61,9 +62,10 @@ FEATURES = {
     "pat_burden": True,
     "pwa_drop": True,
     "pat_harmonics": True,
+    "pat_paper_harmonics": True,
     "sleep_combo_summary": True,
     "report_pdf": True,
-    "peaks_debug_pdf": True,
+    "peaks_debug_pdf": False,
 }
 
 # Optional publication-style single-figure export. This is intentionally separate
@@ -191,6 +193,7 @@ PUBLICATION_PRV_OUTPUT_SUBFOLDER = f"PublicationPRV__{run_suffix()}"
 PAT_BURDEN_OUTPUT_SUBFOLDER = f"PATBurden__{run_suffix()}"
 PWA_DROP_OUTPUT_SUBFOLDER = f"PWADrop__{run_suffix()}"
 PAT_HARMONICS_OUTPUT_SUBFOLDER = f"PATHarmonics__{run_suffix()}"
+PAT_PAPER_HARMONICS_OUTPUT_SUBFOLDER = f"PATPaperHarmonics__{run_suffix()}"
 PSD_OUTPUT_SUBFOLDER = f"PSD__{run_suffix()}"
 
 
@@ -205,6 +208,9 @@ VIEW_PAT_CHANNEL_NAME = "VIEW_PAT"
 HR_CHANNEL_NAME = "DERIVED_HR"
 PAT_AMP_CHANNEL_NAME = "DERIVED_PAT_AMP"
 ACTIGRAPH_CHANNEL_NAME = "ACTIGRAPH"
+ACTIGRAPH_SEGMENT_YLIM_PERCENTILES = (0.0, 100.0)
+ACTIGRAPH_SEGMENT_YSCALE = "symlog"
+ACTIGRAPH_SEGMENT_SYMLOG_LINTHRESH = 1.0
 SPO2_CHANNEL_CANDIDATES = ("SpO2", "SPO2", "SaO2", "SAO2", "SpO2 B-B")
 
 AUX_CSV_ENABLED = True
@@ -453,22 +459,27 @@ ENABLE_DELTA_HR = FEATURES["delta_hr"]
 DELTA_HR_PLOT_MODE = "subplot"
 
 # Event-response HR definition.
-# The HR signal is smoothed first, then for each event start time ts:
-#   event window    = [ts, ts + HR_EVENT_WINDOW_SEC]
-#   recovery window = [ts + HR_EVENT_WINDOW_SEC, ts + HR_EVENT_RECOVERY_END_SEC]
-# Two derived metrics are reported from the same windows:
-#   - trough-to-peak response = max(HR in recovery window) - min(HR in event window)
-#   - mean-to-peak delta HR   = max(HR in recovery window) - mean(HR in event window)
-# An event is skipped if either window has insufficient valid HR samples or if a
-# new event begins before the recovery window ends.
+# The HR signal is smoothed first, then a per-recording ensemble-average response
+# is built around respiratory event markers. Because the aux export currently
+# does not provide true event end times, HR_EVENT_WINDOW_SEC is the nominal event
+# duration used for the event-minimum window. DHR follows the paper-style idea:
+#   DHR = max(HR in subject-specific post-event search window) - min(HR during event)
+# If the ensemble response cannot define a stable post-event search window, the
+# fixed fallback search window [HR_EVENT_WINDOW_SEC, HR_EVENT_RECOVERY_END_SEC]
+# is used. An event is skipped if either window has insufficient valid HR samples
+# or if a new event begins before the search window ends.
 # Optional desaturation-aware extension:
-#   if enabled, the event window is extended to the end of any overlapping
-#   EVENT-gated desaturation window before the recovery window begins.
+#   if enabled, the nominal event window is extended to the end of any overlapping
+#   EVENT-gated desaturation window before the post-event search begins.
 HR_EVENT_SMOOTH_SEC = 5.0
 HR_EVENT_WINDOW_SEC = 15.0
 HR_EVENT_RECOVERY_END_SEC = 45.0
 HR_EVENT_MIN_SAMPLES = 3
 HR_EVENT_USE_DESAT_EXTENSION = True
+HR_EVENT_ENSEMBLE_PRE_SEC = 20.0
+HR_EVENT_ENSEMBLE_GRID_SEC = 1.0
+HR_EVENT_ENSEMBLE_MIN_EVENTS = 5
+HR_EVENT_ENSEMBLE_PEAK_MARGIN_SEC = 10.0
 
 
 # =============================================================================
@@ -479,8 +490,12 @@ HR_EVENT_USE_DESAT_EXTENSION = True
 # exported, and plotted like the other feature families.
 
 ENABLE_PWA_DROP = FEATURES["pwa_drop"]
-PWA_DROP_PRIMARY_THR_PCT = 40.0
-PWA_DROP_SECONDARY_THR_PCT = 30.0
+PWA_DROP_VARIANTS = {
+    "30": {"primary_thr_pct": 30.0, "secondary_thr_pct": 20.0},
+    "50": {"primary_thr_pct": 50.0, "secondary_thr_pct": 40.0},
+}
+PWA_DROP_PRIMARY_THR_PCT = 30.0
+PWA_DROP_SECONDARY_THR_PCT = 20.0
 PWA_DROP_MIN_POINTS_PRIMARY = 2
 PWA_DROP_MIN_POINTS_SECONDARY = 4
 PWA_DROP_BASELINE_CYCLES = 5
@@ -494,8 +509,8 @@ PWA_DROP_SUMMARY_MIN_BASELINE_POINTS = 3
 # =============================================================================
 # Computes fixed-window harmonic summaries directly from raw VIEW_PAT. The
 # fundamental frequency is detected in the pulse band, and powers around H1-HN
-# are integrated from the Welch PSD. Windows use the shared sleep/event/desat
-# mask and are rejected when too little selected-policy data remains.
+# are integrated from the Welch PSD. By default this uses the full raw signal;
+# set PAT_HARMONICS_USE_MASK=True to apply the shared sleep/event/desat mask.
 
 ENABLE_PAT_HARMONICS = FEATURES["pat_harmonics"]
 PAT_HARMONICS_WINDOW_SEC = 120.0
@@ -506,6 +521,36 @@ PAT_HARMONICS_BANDWIDTH_HZ = 0.08
 PAT_HARMONICS_MIN_VALID_FRACTION = 0.80
 PAT_HARMONICS_WELCH_NPERSEG_SEC = 16.0
 PAT_HARMONICS_NFFT = 4096
+PAT_HARMONICS_USE_MASK = False
+
+
+# =============================================================================
+# Paper-Style Beat-Synchronous PAT Harmonics Feature
+# =============================================================================
+# Computes beat-aligned harmonic coefficients inspired by peripheral pulse papers.
+# Each window uses detected PAT pulses, resamples each pulse to a common length,
+# computes per-pulse FFT amplitudes C0-C10, normalizes C1-C10 by C0, and exports
+# overnight traces plus local ensemble-pulse QC values. By default this uses the
+# full raw signal; set PAT_PAPER_HARMONICS_USE_MASK=True to apply the shared
+# sleep/event/desat mask. This is separate from the raw Welch PAT harmonics
+# feature above.
+
+ENABLE_PAT_PAPER_HARMONICS = FEATURES["pat_paper_harmonics"]
+PAT_PAPER_HARMONICS_WINDOW_SEC = 120.0
+PAT_PAPER_HARMONICS_HOP_SEC = 60.0
+PAT_PAPER_HARMONICS_MAX_N = 10
+PAT_PAPER_HARMONICS_RESAMPLE_N = 256
+PAT_PAPER_HARMONICS_MIN_BEATS = 20
+PAT_PAPER_HARMONICS_MIN_VALID_FRACTION = 0.80
+PAT_PAPER_HARMONICS_MIN_PULSE_VALID_FRACTION = 0.90
+PAT_PAPER_HARMONICS_SUB_NPERSEG_SEC = 64.0
+PAT_PAPER_HARMONICS_USE_MASK = False
+ENABLE_PAT_PAPER_HARMONICS_SEGMENT_QC = False
+PAT_PAPER_HARMONICS_HEATMAP_BIN_MINUTES = 5.0
+PAT_PAPER_HARMONICS_HEATMAP_ROW_NORMALIZE = True
+PAT_PAPER_HARMONICS_NORM_TREND_WINDOWS = 5
+PAT_PAPER_HARMONICS_NORM_YLIM_PERCENTILES = (5.0, 95.0)
+PAT_PAPER_HARMONICS_NORM_SHOW_CLIPPED_OUTLIERS = True
 
 
 # =============================================================================

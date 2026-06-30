@@ -249,6 +249,9 @@ def _drop_events_from_pwa(
     pwa: np.ndarray,
     points_sec: np.ndarray,
     d_cc_sec: np.ndarray,
+    *,
+    primary_thr_pct: float | None = None,
+    secondary_thr_pct: float | None = None,
 ) -> list[dict[str, float]]:
     if pwa.size < 8 or points_sec.size != pwa.size:
         return []
@@ -303,8 +306,12 @@ def _drop_events_from_pwa(
 
     max_idx, _ = find_peaks(pwa_f)
     min_idx, _ = find_peaks(-pwa_f)
-    primary_thr = -abs(float(getattr(config, "PWA_DROP_PRIMARY_THR_PCT", 40.0)))
-    secondary_thr = -abs(float(getattr(config, "PWA_DROP_SECONDARY_THR_PCT", 30.0)))
+    if primary_thr_pct is None:
+        primary_thr_pct = float(getattr(config, "PWA_DROP_PRIMARY_THR_PCT", 40.0))
+    if secondary_thr_pct is None:
+        secondary_thr_pct = max(0.0, float(primary_thr_pct) - 10.0)
+    primary_thr = -abs(float(primary_thr_pct))
+    secondary_thr = -abs(float(secondary_thr_pct))
     n_primary = int(getattr(config, "PWA_DROP_MIN_POINTS_PRIMARY", 2))
     n_secondary = int(getattr(config, "PWA_DROP_MIN_POINTS_SECONDARY", 4))
     baseline_cycles = int(getattr(config, "PWA_DROP_BASELINE_CYCLES", 5))
@@ -393,6 +400,8 @@ def _drop_events_from_pwa(
                 "slope_down_pct_per_sec": slope1,
                 "slope_up_pct_per_sec": slope2,
                 "baseline": baseline,
+                "primary_threshold_pct": float(abs(primary_thr)),
+                "secondary_threshold_pct": float(abs(secondary_thr)),
             }
         )
 
@@ -453,6 +462,8 @@ def compute_pwa_drop_from_pat_signal(
     *,
     aux_df=None,
     include_set: Optional[set[int]] = None,
+    primary_thr_pct: float | None = None,
+    secondary_thr_pct: float | None = None,
 ) -> tuple[np.ndarray, np.ndarray, dict[str, float], list[dict[str, float]]]:
     signal = np.asarray(pat_signal, dtype=float)
     if signal.ndim != 1 or signal.size == 0 or fs <= 0:
@@ -477,7 +488,13 @@ def compute_pwa_drop_from_pat_signal(
     pwa_clean = pwa[~artefacts]
     points_clean = points_sec[~artefacts]
     d_cc_clean = d_cc_sec[~artefacts]
-    events = _drop_events_from_pwa(pwa_clean, points_clean, d_cc_clean)
+    events = _drop_events_from_pwa(
+        pwa_clean,
+        points_clean,
+        d_cc_clean,
+        primary_thr_pct=primary_thr_pct,
+        secondary_thr_pct=secondary_thr_pct,
+    )
 
     if aux_df is not None and points_clean.size > 0:
         policy = masking.policy_from_config(include_stages=include_set, force_sleep=(include_set is not None))
@@ -499,4 +516,10 @@ def compute_pwa_drop_from_pat_signal(
     summary = _summarize_events(events, sleep_hours)
     summary["n_pwa_points"] = float(points_clean.size)
     summary["valid_pwa_min"] = float((points_clean[-1] - points_clean[0]) / 60.0) if points_clean.size >= 2 else 0.0
+    if primary_thr_pct is None:
+        primary_thr_pct = float(getattr(config, "PWA_DROP_PRIMARY_THR_PCT", 40.0))
+    if secondary_thr_pct is None:
+        secondary_thr_pct = max(0.0, float(primary_thr_pct) - 10.0)
+    summary["primary_threshold_pct"] = float(primary_thr_pct)
+    summary["secondary_threshold_pct"] = float(secondary_thr_pct)
     return points_clean, pwa_clean, summary, events

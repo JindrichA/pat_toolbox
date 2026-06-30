@@ -19,6 +19,32 @@ def filter_pat(ctx: RecordingContext) -> None:
     ctx.view_pat_filt = filters.bandpass_filter(ctx.view_pat, fs=ctx.sfreq)
 
 
+def load_actigraph(ctx: RecordingContext) -> None:
+    ctx.t_actigraph = None
+    ctx.actigraph = None
+    if not features.any_enabled("pat_burden", "pwa_drop", "delta_hr"):
+        return
+    try:
+        act_name = getattr(config, "ACTIGRAPH_CHANNEL_NAME", "ACTIGRAPH")
+        act_signal, act_fs = io_edf.read_edf_channel(ctx.edf_path, act_name)
+        if act_fs <= 0 or act_signal is None or len(act_signal) == 0:
+            return
+        hp = getattr(config, "ACT_HP_HZ", 0.5)
+        lp = getattr(config, "ACT_LP_HZ", 2.0)
+        env = filters.actigraph_motion_envelope(act_signal, act_fs, hp_hz=hp, lp_hz=lp)
+        if bool(getattr(config, "ACT_ENV_ZSCORE", True)):
+            med = float(np.nanmedian(env))
+            sd = float(np.nanstd(env))
+            env = (env - med) / (sd + 1e-9)
+        ctx.t_actigraph = np.arange(len(env), dtype=float) / float(act_fs)
+        ctx.actigraph = env.astype(float)
+        print(f"  Loaded ACTIGRAPH motion envelope ({act_fs:.3g} Hz).")
+    except Exception as e:
+        print(f"  WARNING: could not read/process ACTIGRAPH channel '{getattr(config, 'ACTIGRAPH_CHANNEL_NAME', 'ACTIGRAPH')}': {e}")
+        ctx.t_actigraph = None
+        ctx.actigraph = None
+
+
 def load_pat_amp(ctx: RecordingContext) -> None:
     if not features.is_enabled("pat_burden"):
         ctx.t_pat_amp = None

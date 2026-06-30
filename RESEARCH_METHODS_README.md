@@ -30,6 +30,8 @@ The current `FEATURES` configuration is:
 - `delta_hr = True`
 - `pat_burden = True`
 - `pwa_drop = True`
+- `pat_harmonics = True`
+- `pat_paper_harmonics = True`
 - `sleep_combo_summary = True`
 - `report_pdf = True`
 - `peaks_debug_pdf = False`
@@ -41,7 +43,9 @@ This means the current run produces:
 - PRV frequency-domain features based on PR intervals
 - event-response HR summaries and plots
 - PAT burden summaries and plots
-- PWA-drop summaries and plots
+- PWA-drop summaries and plots for the 30% and 50% threshold variants
+- raw Welch PAT harmonic summaries and plots
+- paper-style beat-synchronous PAT harmonic summaries and plots
 - sleep-subset comparison summaries
 - the main PDF report
 - a publication-style PRV PNG export
@@ -108,15 +112,17 @@ For each EDF file, the processing order is:
 5. Load and normalize the auxiliary CSV.
 6. Compute sleep-subset summaries.
 7. Compute PAT burden if enabled.
-8. Compute PWA-drop events if enabled.
-9. Compute PAT-derived HR.
-10. Compute event-response HR / delta-HR if enabled.
-11. Compute PRV and PR-based summaries.
-12. Compute separate PSD features if enabled.
-13. Export per-feature CSVs.
-14. Build the PDF report.
-15. Optionally export a publication-style PRV PNG for an automatically selected NREM segment.
-16. Append one row to the grouped summary CSV.
+8. Compute PWA-drop threshold variants if enabled.
+9. Compute raw Welch PAT harmonics if enabled.
+10. Compute paper-style beat-synchronous PAT harmonics if enabled.
+11. Compute PAT-derived HR.
+12. Compute event-response DHR if enabled.
+13. Compute PRV and PR-based summaries.
+14. Compute separate PSD features if enabled.
+15. Export per-feature CSVs.
+16. Build the PDF report.
+17. Optionally export a publication-style PRV PNG for an automatically selected NREM segment.
+18. Append one row to the grouped summary CSV.
 
 In compact form, the physiological flow is:
 
@@ -319,16 +325,20 @@ Heart rate is derived from the cleaned PR intervals.
 
 The final selected-policy HR summary statistics are computed from the finite HR samples remaining after this masking.
 
-## Event-Response HR (Delta-HR)
+## Event-Response HR (DHR)
 
-The `delta_hr` feature is an event-centered HR response analysis derived from the PAT-based HR signal. It is intended to quantify how strongly HR changes across the transition from an excluded event window into a post-event recovery window.
+The `delta_hr` feature is an event-centered DHR analysis derived from the PAT-based HR signal. It is intended to quantify how strongly HR rises from a respiratory-event window minimum to a post-event maximum.
 
 ### Event-response HR settings
 
 - HR smoothing before event analysis: `5.0 s`
-- event window length: `15.0 s`
-- recovery window end: `45.0 s` from event onset
-- minimum valid samples in both event and recovery windows: `3`
+- nominal event window length: `15.0 s`
+- fallback post-event search window end: `45.0 s` from event onset
+- ensemble pre-event support: `20.0 s`
+- ensemble grid: `1.0 s`
+- minimum events for ensemble-derived search window: `5`
+- ensemble peak margin: `10.0 s`
+- minimum valid samples in both event and post-event search windows: `3`
 - desaturation-aware extension: `True`
 
 ### Event-response HR procedure
@@ -338,16 +348,16 @@ For each excluded event run in the selected sleep policy:
 1. Define the event window starting at the beginning of the run.
 2. Set the nominal event end to `start + 15 s`.
 3. If desaturation-aware extension is enabled, extend the event window to the end of any overlapping gated desaturation window that begins before the nominal recovery endpoint.
-4. Define the recovery window as the interval immediately after the event window until `45 s` from event onset, preserving the configured recovery duration.
-5. Skip the event if the next event begins before the recovery window ends.
-6. Smooth HR first using a `5 s` moving average.
-7. Require at least `3` valid smoothed HR samples in both the event and recovery windows.
-8. Compute:
+4. Build an ensemble-average event response for the recording when at least `5` valid events are available.
+5. Define a post-event DHR search window around the ensemble post-event peak, with the configured margin.
+6. If the ensemble search window is unavailable, use the fixed fallback interval from `15 s` to `45 s` after event onset.
+7. Skip the event if the next event begins before the DHR search window ends.
+8. Smooth HR first using a `5 s` moving average.
+9. Require at least `3` valid smoothed HR samples in both the event and post-event search windows.
+10. Compute:
    - event-window minimum HR
-   - event-window mean HR
-   - recovery-window maximum HR
-   - trough-to-peak response = `recovery max - event minimum`
-   - mean-to-peak delta HR = `recovery max - event mean`
+   - post-event search-window maximum HR
+   - `DHR = post-event maximum HR - event-window minimum HR`
 
 ### Delta-HR outputs and interpretation
 
@@ -355,8 +365,9 @@ The selected-policy summary reports:
 
 - number of event windows detected
 - number of event windows used
-- mean trough-to-peak response
-- mean mean-to-peak delta HR
+- mean, median, p25, and p75 DHR
+- DHR search-window source and offsets
+- ensemble events used and ensemble peak offset when available
 
 Physiologically, larger values indicate a stronger HR rebound around event-linked disturbed intervals. This is an event-response metric rather than a whole-night HR variability metric.
 
@@ -566,8 +577,10 @@ The `pwa_drop` feature is a waveform-derived pulse-wave-amplitude drop detector 
 
 ### PWA-drop settings
 
-- primary amplitude threshold: `40%` decrease from baseline
-- secondary amplitude threshold: `30%` decrease from baseline
+- 30% variant primary amplitude threshold: `30%` decrease from baseline
+- 30% variant secondary amplitude threshold: `20%` decrease from baseline
+- 50% variant primary amplitude threshold: `50%` decrease from baseline
+- 50% variant secondary amplitude threshold: `40%` decrease from baseline
 - minimum primary-threshold points: `2`
 - minimum secondary-threshold points: `4`
 - baseline length: `5` cardiac cycles
@@ -588,25 +601,92 @@ The `pwa_drop` feature is a waveform-derived pulse-wave-amplitude drop detector 
 10. For each candidate, define a local observation interval using neighboring local maxima and minima.
 11. Estimate baseline from preceding stable PWA beats.
 12. Express the candidate interval as percentage decrease from baseline.
-13. Keep the event only if the decrease satisfies both the primary and secondary threshold-duration criteria.
+13. Keep the event only if the decrease satisfies both the primary and secondary threshold-duration criteria for the tested variant.
 14. Extract per-drop parameters such as start, end, and center time, duration, amplitude percentage, AUC, and descending / ascending slopes.
-15. Restrict the final reported events to the selected sleep policy and summarize them per sleep hour.
+15. Repeat the detection for both configured variants using the same beat-to-beat PWA series.
+16. Restrict the final reported events to the selected sleep policy and summarize them per sleep hour.
 
 ### PWA-drop outputs and interpretation
 
 The selected-policy summary reports:
 
-- number of detected drops
-- drop rate per sleep hour
-- mean amplitude percentage
-- mean duration
-- mean AUC
-- number and percentage of drops overlapping excluded event/desaturation regions
+- number of detected drops for each variant
+- drop rate per sleep hour for each variant
+- mean amplitude percentage for each variant
+- mean duration for each variant
+- mean AUC for each variant
+- number and percentage of drops overlapping excluded event/desaturation regions for each variant
 
 Physiologically, this feature is intended to capture discrete transient PWA suppression events, which may reflect peripheral vasoconstrictive or autonomic responses. It is complementary to PAT burden:
 
 - `PAT burden` quantifies cumulative suppression within event-linked regions
 - `PWA-drop` counts and characterizes individual waveform-derived suppression events
+
+## PAT Harmonics
+
+The current setup enables two separate PAT harmonic feature families. These are computed from the full raw `VIEW_PAT` signal by default. Respiratory-event, desaturation, and sleep-stage masks are not applied to the harmonic calculation unless `PAT_HARMONICS_USE_MASK` or `PAT_PAPER_HARMONICS_USE_MASK` is explicitly set to `True`. Sleep stages are still assigned afterward for reporting and grouping.
+
+### Raw Welch PAT harmonics
+
+Settings:
+
+- window length: `120 s`
+- hop: `60 s`
+- fundamental search band: `0.5 to 2.5 Hz`
+- maximum harmonic: `H5`
+- Welch segment length: `16 s`
+- FFT length: `4096`
+
+Procedure:
+
+1. Divide the full PAT signal into overlapping `120 s` windows with `60 s` hop.
+2. Fill non-finite samples inside an accepted window using the window median.
+3. Estimate a Welch PSD.
+4. Identify the fundamental frequency in the pulse band.
+5. Integrate power around harmonic bands `H1` through `H5`.
+6. Report harmonic powers, harmonic ratios, total harmonic power, and a harmonic distortion index.
+
+### Paper-style beat-synchronous PAT harmonics
+
+Settings:
+
+- window length: `120 s`
+- hop: `60 s`
+- maximum coefficient: `C10`
+- pulse resampling length: `256` samples per pulse cycle
+- minimum beats per window: `20`
+- minimum pulse valid fraction: `0.90`
+
+Procedure:
+
+1. Detect PAT peaks in the full PAT waveform.
+2. Use adjacent peaks to define individual pulse cycles.
+3. Reject implausible pulse durations using the same physiologic PR bounds used elsewhere.
+4. Resample each accepted pulse to a common phase grid.
+5. Compute FFT amplitude coefficients `C0` through `C10` for each pulse.
+6. Normalize harmonic amplitudes as `C1/C0` through `C10/C0`.
+7. Average pulse-level coefficients within each `120 s` window.
+8. Compute subharmonic VLF/LF/HF powers from the raw windowed PAT signal.
+9. Assign a sleep-stage code and label to each harmonic window from the sleep stage nearest the window center.
+10. Summarize harmonic metrics overall and separately for wake, light sleep, deep sleep, and REM.
+
+The reported `hf_ratio` is not HRV HF power. It is a pulse-shape index defined as:
+
+```text
+hf_ratio = sum(C6/C0 ... C10/C0) / sum(C1/C0 ... C10/C0)
+```
+
+It represents the fraction of normalized pulse-shape harmonic amplitude contained in higher-order harmonics.
+
+### Harmonics outputs and visualization
+
+The paper-style harmonics window CSV contains per-window timestamps, center-stage labels, `C0`, `C1/C0` through `C10/C0`, `hf_ratio`, subharmonic powers, and beat counts. The summary CSV includes overall and per-stage means/medians. The grouped summary CSV includes a compact per-stage subset for C0, selected normalized coefficients, high-order ratio, and subharmonic powers.
+
+The PDF report places overnight overview pages before detailed segment pages. The harmonics overview pages are placed early after the hypnogram/stage page. Event and exclusion overlays are intentionally not shown on harmonics overview panels because the harmonics are computed from the full signal by default. The paper-style C/C0 heatmap uses a horizontal colorbar above the heatmap to preserve subplot alignment, and normalized coefficient plots use robust y-limits with clipped outlier markers for readability.
+
+## Actigraphy Visualization
+
+When the EDF contains the configured `ACTIGRAPH` channel, the report can include an actigraphy segment subplot for visual motion sanity checks. This subplot is visual-only: actigraphy is not currently used to reject samples or change any metric calculation. The plotted actigraphy trace uses absolute amplitude, starts at zero, and uses a consistent scale across the recording.
 
 ## Sleep Timing And Sleep-Half Analysis
 
@@ -649,10 +729,14 @@ In the current setup, because `delta_hr`, `pat_burden`, and `pwa_drop` are enabl
 
 - event-response columns are present
 - PAT burden columns are present
-- PWA-drop columns are present
+- PWA-drop columns are present separately for 30% and 50% variants
+- raw and paper-style PAT harmonic selected-policy columns are present
+- paper-style PAT harmonic per-stage columns are present in dedicated harmonics outputs and compact grouped summary fields
 - PSD-window-count columns are absent
 
 For `delta_hr`, `pat_burden`, and `pwa_drop`, the fixed sleep-subset summaries are currently available in summary/comparison outputs. Detailed event-level or episode-level CSV exports are generated for the main selected-policy analysis only and are not written as separate files for each sleep subset.
+
+The PDF sleep-subset comparison tables are split across multiple pages when needed so wide metric groups remain readable. The explanatory notes are shortened and placed above the relevant full-page table.
 
 ## What “Pre-Final Exclusion” Means
 
@@ -704,10 +788,12 @@ For the current configuration, the main selected-policy PRV workflow can be summ
 10. Build event-gated desaturation windows using the desaturation flag, `15 s` start padding, `30 s` end padding, and minimum run length `5 s`.
 11. Combine sleep, event, quality, and gated-desaturation masks into the final selected-policy keep mask.
 12. Derive PAT HR from the cleaned PR stream, interpolate to `1 Hz`, smooth, despike, and apply the final selected-policy mask.
-13. Derive event-response HR windows and summarize trough-to-peak and mean-to-peak delta HR across valid events.
+13. Derive event-response DHR windows and summarize post-event maximum HR minus event-window minimum HR across valid events.
 14. Derive RMSSD and SDNN on `5 min` sliding windows evaluated on a `1 Hz` grid.
 15. Derive LF, HF, and LF/HF on non-overlapping fixed `2 min` windows using PR-tachogram Welch PSD.
 16. Derive PAT burden from PAT amplitude inside excluded event/desaturation regions relative to a local pre-episode baseline.
-17. Derive discrete PWA-drop events from the waveform-derived PWA series and summarize their count, rate, and morphology.
-18. Summarize the surviving values over the selected-policy valid windows.
-19. Recompute the same family of metrics for fixed subsets such as all sleep, NREM, deep, REM, wake+sleep, and pre-sleep wake.
+17. Derive discrete 30% and 50% PWA-drop events from the waveform-derived PWA series and summarize their count, rate, and morphology.
+18. Derive full-signal raw Welch PAT harmonics and full-signal paper-style beat-synchronous PAT harmonics.
+19. Assign paper-style harmonic windows to sleep stages by window-center stage for per-stage summaries.
+20. Summarize the surviving values over the selected-policy valid windows.
+21. Recompute the same family of selected subset metrics for fixed subsets such as all sleep, NREM, deep, REM, wake+sleep, and pre-sleep wake.

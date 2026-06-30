@@ -41,7 +41,7 @@ AHI_BINS = [0, 5, 15, 30, np.inf]
 STAGES = ["all_sleep", "wake_sleep", "nrem", "deep", "rem"]
 
 # Main event-response metric
-PRIMARY_RESPONSE_COL = "combo_all_sleep_trough_to_peak_response_mean"
+PRIMARY_RESPONSE_COL = "combo_all_sleep_dhr_mean_bpm"
 
 # Core confounders for residual view
 CORE_CONFOUNDERS = [
@@ -387,8 +387,7 @@ candidate_numeric_cols = list(set(
     QUALITY_COLS +
     [PRIMARY_RESPONSE_COL] +
     CORE_CONFOUNDERS +
-    [f"combo_{stage}_trough_to_peak_response_mean" for stage in STAGES] +
-    [f"combo_{stage}_mean_to_peak_response_mean" for stage in STAGES] +
+    [f"combo_{stage}_dhr_mean_bpm" for stage in STAGES] +
     [f"combo_{stage}_event_windows_used" for stage in STAGES] +
     [f"combo_{stage}_event_windows_total" for stage in STAGES] +
     [f"combo_{stage}_sleep_hours" for stage in STAGES] +
@@ -400,26 +399,19 @@ candidate_numeric_cols = list(set(
 safe_numeric(merged, ensure_cols_exist(merged, candidate_numeric_cols))
 
 # ----------------------------
-# Derived delta-HR features
+# Derived DHR features
 # ----------------------------
 for stage in STAGES:
-    trough_col = f"combo_{stage}_trough_to_peak_response_mean"
-    mean_col = f"combo_{stage}_mean_to_peak_response_mean"
+    dhr_col = f"combo_{stage}_dhr_mean_bpm"
     used_col = f"combo_{stage}_event_windows_used"
 
-    if trough_col in merged.columns and mean_col in merged.columns:
-        merged[f"combo_{stage}_dip_depth_mean"] = (
-            pd.to_numeric(merged[trough_col], errors="coerce") -
-            pd.to_numeric(merged[mean_col], errors="coerce")
-        )
-
-    if trough_col in merged.columns and used_col in merged.columns:
+    if dhr_col in merged.columns and used_col in merged.columns:
         merged[f"combo_{stage}_response_per_event"] = plain_divide(
-            merged[trough_col],
+            merged[dhr_col],
             merged[used_col]
         )
         merged[f"combo_{stage}_response_per_log_event"] = robust_log1p_divide(
-            merged[trough_col],
+            merged[dhr_col],
             merged[used_col]
         )
 
@@ -427,33 +419,23 @@ for stage in STAGES:
 # Focused delta-HR feature list
 # ----------------------------
 delta_hr_features = [
-    "combo_all_sleep_trough_to_peak_response_mean",
-    "combo_all_sleep_mean_to_peak_response_mean",
-    "combo_all_sleep_dip_depth_mean",
+    "combo_all_sleep_dhr_mean_bpm",
     "combo_all_sleep_response_per_event",
     "combo_all_sleep_response_per_log_event",
 
-    "combo_wake_sleep_trough_to_peak_response_mean",
-    "combo_wake_sleep_mean_to_peak_response_mean",
-    "combo_wake_sleep_dip_depth_mean",
+    "combo_wake_sleep_dhr_mean_bpm",
     "combo_wake_sleep_response_per_event",
     "combo_wake_sleep_response_per_log_event",
 
-    "combo_nrem_trough_to_peak_response_mean",
-    "combo_nrem_mean_to_peak_response_mean",
-    "combo_nrem_dip_depth_mean",
+    "combo_nrem_dhr_mean_bpm",
     "combo_nrem_response_per_event",
     "combo_nrem_response_per_log_event",
 
-    "combo_deep_trough_to_peak_response_mean",
-    "combo_deep_mean_to_peak_response_mean",
-    "combo_deep_dip_depth_mean",
+    "combo_deep_dhr_mean_bpm",
     "combo_deep_response_per_event",
     "combo_deep_response_per_log_event",
 
-    "combo_rem_trough_to_peak_response_mean",
-    "combo_rem_mean_to_peak_response_mean",
-    "combo_rem_dip_depth_mean",
+    "combo_rem_dhr_mean_bpm",
     "combo_rem_response_per_event",
     "combo_rem_response_per_log_event",
 ]
@@ -482,9 +464,7 @@ stage_table_rows = []
 for stage in STAGES:
     row = {"stage": stage}
     for metric in [
-        f"combo_{stage}_trough_to_peak_response_mean",
-        f"combo_{stage}_mean_to_peak_response_mean",
-        f"combo_{stage}_dip_depth_mean",
+        f"combo_{stage}_dhr_mean_bpm",
         f"combo_{stage}_response_per_log_event",
         f"combo_{stage}_event_windows_used",
         f"combo_{stage}_sleep_hours",
@@ -559,9 +539,7 @@ pairwise_df.to_csv(
 # ----------------------------
 quartile_col = "desat_pct"
 quartile_features = [
-    "combo_all_sleep_trough_to_peak_response_mean",
-    "combo_all_sleep_mean_to_peak_response_mean",
-    "combo_all_sleep_dip_depth_mean",
+    "combo_all_sleep_dhr_mean_bpm",
     "combo_all_sleep_response_per_log_event",
     "hr_pat_nan_pct",
     "prv_rmssd_clean_nan_pct",
@@ -587,18 +565,18 @@ model_summaries = []
 residual_join_cols = ["AHI", "AHI_group", "desat_pct", "hr_pat_nan_pct"]
 
 for response_col in [
-    "combo_all_sleep_trough_to_peak_response_mean",
-    "combo_wake_sleep_trough_to_peak_response_mean",
-    "combo_nrem_trough_to_peak_response_mean",
-    "combo_deep_trough_to_peak_response_mean",
-    "combo_rem_trough_to_peak_response_mean",
+    "combo_all_sleep_dhr_mean_bpm",
+    "combo_wake_sleep_dhr_mean_bpm",
+    "combo_nrem_dhr_mean_bpm",
+    "combo_deep_dhr_mean_bpm",
+    "combo_rem_dhr_mean_bpm",
 ]:
     if response_col not in merged.columns:
         continue
 
     confounders = [
         c for c in [
-            response_col.replace("trough_to_peak_response_mean", "event_windows_used"),
+            response_col.replace("dhr_mean_bpm", "event_windows_used"),
             "desat_pct",
             "hr_pat_nan_pct",
         ]
@@ -678,10 +656,10 @@ residual_pairwise_df.to_csv(
 # Continuous relationship plots
 # ----------------------------
 relationship_specs = [
-    ("AHI", "combo_all_sleep_trough_to_peak_response_mean", None),
-    ("desat_pct", "combo_all_sleep_trough_to_peak_response_mean", None),
-    ("combo_all_sleep_event_windows_used", "combo_all_sleep_trough_to_peak_response_mean", "hr_pat_nan_pct"),
-    ("hr_pat_nan_pct", "combo_all_sleep_trough_to_peak_response_mean", None),
+    ("AHI", "combo_all_sleep_dhr_mean_bpm", None),
+    ("desat_pct", "combo_all_sleep_dhr_mean_bpm", None),
+    ("combo_all_sleep_event_windows_used", "combo_all_sleep_dhr_mean_bpm", "hr_pat_nan_pct"),
+    ("hr_pat_nan_pct", "combo_all_sleep_dhr_mean_bpm", None),
     ("AHI", "combo_all_sleep_response_per_log_event", None),
     ("desat_pct", "combo_all_sleep_response_per_log_event", None),
 ]
@@ -703,11 +681,11 @@ for x_col, y_col, color_col in relationship_specs:
 
 # Residual relationship plots
 for response_col in [
-    "combo_all_sleep_trough_to_peak_response_mean",
-    "combo_wake_sleep_trough_to_peak_response_mean",
-    "combo_nrem_trough_to_peak_response_mean",
-    "combo_deep_trough_to_peak_response_mean",
-    "combo_rem_trough_to_peak_response_mean",
+    "combo_all_sleep_dhr_mean_bpm",
+    "combo_wake_sleep_dhr_mean_bpm",
+    "combo_nrem_dhr_mean_bpm",
+    "combo_deep_dhr_mean_bpm",
+    "combo_rem_dhr_mean_bpm",
 ]:
     residual_col = f"{response_col}_residual"
     if residual_col not in merged.columns:
@@ -734,14 +712,12 @@ for response_col in [
 # AHI-group medians for selected delta-HR features
 # ----------------------------
 group_median_features = [
-    "combo_all_sleep_trough_to_peak_response_mean",
-    "combo_all_sleep_mean_to_peak_response_mean",
-    "combo_all_sleep_dip_depth_mean",
+    "combo_all_sleep_dhr_mean_bpm",
     "combo_all_sleep_response_per_log_event",
-    "combo_wake_sleep_trough_to_peak_response_mean",
-    "combo_nrem_trough_to_peak_response_mean",
-    "combo_deep_trough_to_peak_response_mean",
-    "combo_rem_trough_to_peak_response_mean",
+    "combo_wake_sleep_dhr_mean_bpm",
+    "combo_nrem_dhr_mean_bpm",
+    "combo_deep_dhr_mean_bpm",
+    "combo_rem_dhr_mean_bpm",
     "hr_pat_nan_pct",
     "prv_rmssd_clean_nan_pct",
     "combo_all_sleep_event_windows_used",
